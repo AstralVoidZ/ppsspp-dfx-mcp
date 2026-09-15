@@ -1,0 +1,42 @@
+# ppsspp-dfx-mcp — scripts.manifest.yaml template
+# =============================================================================
+# Copy this file to <your-project-root>/.ppsspp-dfx/config/scripts.manifest.yaml
+# and add entries as you write your own diagnostic scripts.
+#
+# WHY THIS FILE MATTERS: if it is missing, the server still starts (warning
+# only) but every ppsspp_script_<name> tool silently disappears. Keep a copy
+# in your project even when the `scripts:` list is empty.
+#
+# Field semantics (see README "Configuration"):
+#   name            : unique script id → ppsspp_script_<name> when exposed=true,
+#                     otherwise callable via ppsspp_run_script
+#   description     : shown in tools/list; prefix with [migrated] or [skeleton]
+#   category        : eboot | state | p0ab | ndx | memory | misc | recipe
+#   requires_ppsspp : true if the script needs an active PPSSPP session
+#   path            : project-root-relative path to the script's .py file
+#                     (absolute paths are accepted but deprecated)
+#   input_model     : Pydantic BaseModel class declared in the script
+#   output_model    : Pydantic BaseModel class declared in the script
+#   entry           : async function name (default "run")
+#   exposed         : true → registered as a dynamic tool at startup
+#   status          : migrated (runnable) | skeleton (run() returns
+#                     not_implemented; preflight rejects exposed ones)
+#
+# The loader reads only the `scripts:` key. `dormant_scripts:` is a
+# human-readable migration ledger the server ignores — move entries back to
+# `scripts:` when their migration completes.
+# =============================================================================
+
+scripts: []
+# - name: my_first_probe
+#   description: '[migrated] Sample the game-mode word and classify the screen'
+#   category: state
+#   requires_ppsspp: true
+#   path: diagnostics/my_first_probe.py
+#   input_model: MyFirstProbeInput
+#   output_model: MyFirstProbeOutput
+#   entry: run
+#   exposed: true
+#   status: migrated
+
+dormant_scripts: []

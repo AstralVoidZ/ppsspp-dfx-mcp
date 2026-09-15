@@ -1,0 +1,23 @@
+# PPSSPP 配置模板
+# 复制到 tools/ppsspp_dev/memstick/PSP/SYSTEM/ppsspp.ini 后使用
+# 或放在 PPSSPP portable 模式的 memstick/PSP/SYSTEM/ 目录下
+
+[General]
+# 必须开启：文件日志
+Enable Logging = True
+FileLogging = True
+
+# 必须固定：WebSocket 调试端口
+RemoteISOPort = 12345
+
+# 必须开启：启动时自动启用 WebSocket 调试器
+RemoteDebuggerOnStartup = True
+RemoteDebuggerLocal = True
+
+# 建议：加载时显示调试器窗口（可选）
+bShowDebuggerOnLoad = False
+
+[CPU]
+# 精确断点需要 IR Interpreter 模式
+# 选项: 0=Interpreter, 1=JIT, 2=IR Interpreter
+CPUCore = 2

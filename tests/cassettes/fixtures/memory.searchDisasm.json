@@ -1,0 +1,17 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {
+    "address": 142622720,
+    "match": "jr"
+   },
+   "response": {
+    "event": "memory.searchDisasm",
+    "ticket": "t12",
+    "address": 142622940
+   }
+  }
+ ]
+}

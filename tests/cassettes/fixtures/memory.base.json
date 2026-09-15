@@ -1,0 +1,14 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {},
+   "response": {
+    "event": "memory.base",
+    "ticket": "t9",
+    "addressHex": "00000201379f0000"
+   }
+  }
+ ]
+}

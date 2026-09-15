@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ppsspp-dfx": {
+      "command": ".venv/ppsspp-dfx-mcp/Scripts/python.exe",
+      "args": [
+        "-m",
+        "ppsspp_dfx_mcp"
+      ],
+      "cwd": "${CLAUDE_PROJECT_DIR}",
+      "env": {
+        "PPSSPP_DFX_LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}

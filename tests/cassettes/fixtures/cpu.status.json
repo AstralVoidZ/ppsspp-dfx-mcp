@@ -1,0 +1,17 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {},
+   "response": {
+    "event": "cpu.status",
+    "ticket": "t2",
+    "stepping": false,
+    "paused": false,
+    "pc": 143585524,
+    "ticks": 1803539509
+   }
+  }
+ ]
+}

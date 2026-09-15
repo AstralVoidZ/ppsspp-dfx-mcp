@@ -1,0 +1,165 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {},
+   "response": {
+    "event": "hle.thread.list",
+    "ticket": "t5",
+    "threads": [
+     {
+      "id": 272,
+      "name": "idle0",
+      "status": 1,
+      "statuses": [
+       "running"
+      ],
+      "pc": 143585524,
+      "entry": 134217728,
+      "initialStackSize": 138407936,
+      "currentStackSize": 4096,
+      "priority": 127,
+      "waitType": 0,
+      "isCurrent": true
+     },
+     {
+      "id": 273,
+      "name": "idle1",
+      "status": 2,
+      "statuses": [
+       "ready"
+      ],
+      "pc": 134217728,
+      "entry": 134217728,
+      "initialStackSize": 138403840,
+      "currentStackSize": 4096,
+      "priority": 127,
+      "waitType": 0,
+      "isCurrent": false
+     },
+     {
+      "id": 276,
+      "name": "user_main",
+      "status": 2,
+      "statuses": [
+       "ready"
+      ],
+      "pc": 143586212,
+      "entry": 143830736,
+      "initialStackSize": 167508992,
+      "currentStackSize": 262144,
+      "priority": 32,
+      "waitType": 12,
+      "isCurrent": false
+     },
+     {
+      "id": 299,
+      "name": "File thread",
+      "status": 4,
+      "statuses": [
+       "wait"
+      ],
+      "pc": 143601400,
+      "entry": 143601320,
+      "initialStackSize": 167504896,
+      "currentStackSize": 4096,
+      "priority": 31,
+      "waitType": 2,
+      "isCurrent": false
+     },
+     {
+      "id": 304,
+      "name": "nuSound2Thread:Mixing",
+      "status": 4,
+      "statuses": [
+       "wait"
+      ],
+      "pc": 144161208,
+      "entry": 143962744,
+      "initialStackSize": 167500800,
+      "currentStackSize": 4096,
+      "priority": 17,
+      "waitType": 10,
+      "isCurrent": false
+     },
+     {
+      "id": 309,
+      "name": "SasCore thread",
+      "status": 4,
+      "statuses": [
+       "wait"
+      ],
+      "pc": 144161208,
+      "entry": 143941432,
+      "initialStackSize": 167435264,
+      "currentStackSize": 65536,
+      "priority": 16,
+      "waitType": 10,
+      "isCurrent": false
+     },
+     {
+      "id": 311,
+      "name": "nuSound2Thread:Atrac3",
+      "status": 16,
+      "statuses": [
+       "dormant"
+      ],
+      "pc": 0,
+      "entry": 143962744,
+      "initialStackSize": 167422976,
+      "currentStackSize": 12288,
+      "priority": 18,
+      "waitType": 0,
+      "isCurrent": false
+     },
+     {
+      "id": 313,
+      "name": "nuSound2Thread:Atrac3",
+      "status": 16,
+      "statuses": [
+       "dormant"
+      ],
+      "pc": 0,
+      "entry": 143962744,
+      "initialStackSize": 167410688,
+      "currentStackSize": 12288,
+      "priority": 18,
+      "waitType": 0,
+      "isCurrent": false
+     },
+     {
+      "id": 315,
+      "name": "nuSound2Thread:Atrac3",
+      "status": 16,
+      "statuses": [
+       "dormant"
+      ],
+      "pc": 0,
+      "entry": 143962744,
+      "initialStackSize": 167398400,
+      "currentStackSize": 12288,
+      "priority": 18,
+      "waitType": 0,
+      "isCurrent": false
+     },
+     {
+      "id": 317,
+      "name": "nuSound2Thread:Atrac3",
+      "status": 16,
+      "statuses": [
+       "dormant"
+      ],
+      "pc": 0,
+      "entry": 143962744,
+      "initialStackSize": 167386112,
+      "currentStackSize": 12288,
+      "priority": 18,
+      "waitType": 0,
+      "isCurrent": false
+     }
+    ]
+   }
+  }
+ ]
+}

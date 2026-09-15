@@ -1,0 +1,24 @@
+{
+  "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+  "type": "call",
+  "records": [
+    {
+      "params": {},
+      "response": {
+        "event": "cpu.breakpoint.list",
+        "ticket": "t20",
+        "breakpoints": [
+          {
+            "address": 142771604,
+            "enabled": true,
+            "log": false,
+            "condition": null,
+            "logFormat": null,
+            "symbol": "test_func",
+            "code": "slti a0,s2,0x7"
+          }
+        ]
+      }
+    }
+  ]
+}

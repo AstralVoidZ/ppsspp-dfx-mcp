@@ -1,0 +1,51 @@
+# ppsspp-dfx-mcp — addresses.yaml template
+# =============================================================================
+# Copy this file to <your-project-root>/.ppsspp-dfx/config/addresses.yaml and
+# replace every placeholder with values you reverse-engineered for YOUR game.
+# All values are hexadecimal strings (0x prefix).
+#
+# This file is the single source of truth for:
+#   - ppsspp_list_addresses       (returns every section below as-is)
+#   - ppsspp_state_observer       (seeds the runtime probe registry from
+#                                  state_probes on first access)
+#   - the `completions` capability of ppsspp_read_memory /
+#     ppsspp_write_memory (candidates come from known_* keys)
+#
+# Any section may be omitted. Unknown keys are passed through unchanged, so
+# you can add your own groupings freely.
+# =============================================================================
+
+# ---- Base addresses ----
+top_base:
+  ppsspp: 0x08804000    # EBOOT.BIN / top.prx runtime base (KUSEG) — the
+                        # default load base for most PSP executables
+  ida: 0x00000000       # your IDA Pro database base offset (runtime = ida + offset)
+
+# ---- Game state ----
+# A reliable "am I in the game loop?" word. Used by batch recipes to decide
+# whether scripted input can be sent. Pick a variable that flips at title ->
+# gameplay transitions; verify by watching it with ppsspp_state_observer.
+game_mode_addr: 0x08A0D000   # PLACEHOLDER — replace with your game's address
+
+# ---- State probe registry ----
+# Named memory probes the agent can sample cheaply every loop (batch_step
+# state_probe steps, recording-time observation).
+#   address     : runtime address (hex string)
+#   size        : 1 (u8) | 2 (u16) | 4 (u32)
+#   description : shown to the agent — say WHAT the value means, not just
+#                 where it lives
+state_probes:
+  game_mode:
+    address: 0x08A0D000          # PLACEHOLDER — keep in sync with game_mode_addr
+    size: 4
+    description: "0 = title/loading, non-zero = main game loop"
+
+# ---- Named functions and modules (optional) ----
+# Consumed by address-completion hints. Offsets are IDA-relative; runtime
+# address = top_base.ppsspp + offset. Function offsets must be 4-byte aligned
+# (MIPS requirement).
+known_modules:
+  EBOOT.BIN: 0x08804000
+
+known_functions:
+  user_main: 0x000286A8    # PLACEHOLDER — your game's user-mode entry

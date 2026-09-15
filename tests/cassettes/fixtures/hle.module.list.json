@@ -1,0 +1,21 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {},
+   "response": {
+    "event": "hle.module.list",
+    "ticket": "t6",
+    "modules": [
+     {
+      "name": "CASSETTE_TEST_GAME",
+      "address": 142622720,
+      "size": 3439872,
+      "isActive": true
+     }
+    ]
+   }
+  }
+ ]
+}

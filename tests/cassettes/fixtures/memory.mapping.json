@@ -1,0 +1,127 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {},
+   "response": {
+    "event": "memory.mapping",
+    "ticket": "t8",
+    "ranges": [
+     {
+      "type": "sram",
+      "subtype": "primary",
+      "name": "Scratchpad",
+      "address": 65536,
+      "size": 16384
+     },
+     {
+      "type": "sram",
+      "subtype": "mirror",
+      "name": "Uncached Scratchpad",
+      "address": 1073807360,
+      "size": 16384
+     },
+     {
+      "type": "vram",
+      "subtype": "primary",
+      "name": "VRAM",
+      "address": 67108864,
+      "size": 2097152
+     },
+     {
+      "type": "vram",
+      "subtype": "mirror",
+      "name": "Uncached VRAM",
+      "address": 1140850688,
+      "size": 2097152
+     },
+     {
+      "type": "vram",
+      "subtype": "mirror",
+      "name": "VRAM (Swizzled)",
+      "address": 69206016,
+      "size": 2097152
+     },
+     {
+      "type": "vram",
+      "subtype": "mirror",
+      "name": "Uncached VRAM (Swizzled)",
+      "address": 1142947840,
+      "size": 2097152
+     },
+     {
+      "type": "vram",
+      "subtype": "mirror",
+      "name": "VRAM (Mirror)",
+      "address": 71303168,
+      "size": 2097152
+     },
+     {
+      "type": "vram",
+      "subtype": "mirror",
+      "name": "Uncached VRAM (Mirror)",
+      "address": 1145044992,
+      "size": 2097152
+     },
+     {
+      "type": "vram",
+      "subtype": "mirror",
+      "name": "VRAM (Swizzled + Interleaved)",
+      "address": 73400320,
+      "size": 2097152
+     },
+     {
+      "type": "vram",
+      "subtype": "mirror",
+      "name": "Uncached VRAM (Swizzled + Interleaved)",
+      "address": 1147142144,
+      "size": 2097152
+     },
+     {
+      "type": "ram",
+      "subtype": "primary",
+      "name": "Kernel Memory",
+      "address": 2281701376,
+      "size": 4194304
+     },
+     {
+      "type": "ram",
+      "subtype": "mirror",
+      "name": "Uncached Kernel Memory",
+      "address": 3355443200,
+      "size": 4194304
+     },
+     {
+      "type": "ram",
+      "subtype": "primary",
+      "name": "Volatile Memory",
+      "address": 138412032,
+      "size": 4194304
+     },
+     {
+      "type": "ram",
+      "subtype": "mirror",
+      "name": "Uncached Volatile Memory",
+      "address": 1212153856,
+      "size": 4194304
+     },
+     {
+      "type": "ram",
+      "subtype": "primary",
+      "name": "User Memory",
+      "address": 142606336,
+      "size": 25165824
+     },
+     {
+      "type": "ram",
+      "subtype": "mirror",
+      "name": "Uncached User Memory",
+      "address": 1216348160,
+      "size": 25165824
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,378 @@
+# ppsspp-dfx blind-eval scenario cards v2 (v1.2, 2026-09-13).
+# v1.2 gate change: L2-03/L2-04 first_tool whitelists ppsspp_session_list —
+# "confirm the session first" is a rational strategy when the prompt names
+# a specific session / commands a sequence (W1-W3 delta report conclusion).
+# Ground truths are fixture-driven (from_fixture) — never hardcoded.
+# Fixtures: mcps/ppsspp-dfx-mcp/tests/cassettes/fixtures (v1.20.4-605-gf0c28c6744)
+version: 2
+fixtures_dir: "../tests/cassettes/fixtures"
+
+scenarios:
+  # ── CTL ──────────────────────────────────────────────────────────
+  - id: CTL-01
+    tier: CTL
+    capabilities: [control]
+    pre_state: {sessions: 1}
+    prompt: |
+      请用 ppsspp_get_pc 工具告诉我 CPU 当前的 PC 值（十六进制）。
+    max_turns: 12
+    expected_first_tools: [ppsspp_get_pc]
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: answer_contains
+        values:
+          - from_fixture: {file: cpu.status.json, path: records.0.response.pc, transform: hex}
+
+  - id: CTL-02
+    tier: CTL
+    capabilities: [control]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我写一首关于秋天的短诗。
+    max_turns: 12
+    optimal_calls: 0
+    gates:
+      - type: no_tool
+
+  # ── L1（单工具选择/参数）──────────────────────────────────────────
+  - id: L1-01
+    tier: L1
+    capabilities: [selection, param]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我看一下 0x08804000 开始的 16 个字节是什么内容。
+    max_turns: 12
+    expected_first_tools: [ppsspp_read_memory]
+    optimal_calls: 1
+    param_expectations:
+      - {tool: ppsspp_read_memory, param: action, expect: {exact: read_bytes}}
+      - {tool: ppsspp_read_memory, param: size, expect: {exact: 16}}
+      - {tool: ppsspp_read_memory, param: session_id, expect: omitted}
+    gates:
+      - type: first_tool
+      - type: params
+      - type: answer_contains
+        mode: any
+        values:
+          - from_fixture: {file: memory.read.json, path: records.0.response.base64, transform: base64_hex, prefix_bytes: 4}
+          - from_fixture: {file: memory.read.json, path: records.0.response.base64}
+
+  - id: L1-02
+    tier: L1
+    capabilities: [selection]
+    pre_state: {sessions: 1}
+    prompt: |
+      CPU 现在执行到哪了？告诉我 PC 的值（十六进制）。
+    max_turns: 12
+    expected_first_tools: [ppsspp_get_pc]
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: answer_contains
+        values:
+          - from_fixture: {file: cpu.status.json, path: records.0.response.pc, transform: hex}
+
+  - id: L1-03
+    tier: L1
+    capabilities: [selection, param]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我读一下 0x08804000 处的一个无符号 32 位值（十六进制）。
+    max_turns: 12
+    expected_first_tools: [ppsspp_read_memory]
+    optimal_calls: 1
+    param_expectations:
+      - {tool: ppsspp_read_memory, param: action, expect: {exact: read_u32}}
+      - {tool: ppsspp_read_memory, param: address, expect: {exact: "0x08804000"}}
+      - {tool: ppsspp_read_memory, param: session_id, expect: omitted}
+    gates:
+      - type: first_tool
+      - type: params
+      - type: answer_contains
+        values:
+          - from_fixture: {file: memory.read_u32.json, path: records.0.response.value, transform: hex}
+
+  - id: L1-04
+    tier: L1
+    capabilities: [selection, param]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我看 0x08804000 开始的 8 条汇编指令。
+    max_turns: 12
+    expected_first_tools: [ppsspp_disassemble]
+    optimal_calls: 1
+    param_expectations:
+      - {tool: ppsspp_disassemble, param: address, expect: {exact: "0x08804000"}}
+      - {tool: ppsspp_disassemble, param: count, expect: {exact: 8}}
+    gates:
+      - type: first_tool
+      - type: params
+      - type: answer_contains
+        mode: any
+        values:
+          - from_fixture: {file: memory.disasm.json, path: records.0.response.lines.0.name}
+          - from_fixture: {file: memory.disasm.json, path: records.0.response.lines.0.symbol}
+
+  - id: L1-05
+    tier: L1
+    capabilities: [selection]
+    pre_state: {sessions: 1}
+    prompt: |
+      把 CPU 当前所有寄存器的值列给我。
+    max_turns: 12
+    expected_first_tools: [ppsspp_query, ppsspp_frame_snapshot]
+    optimal_calls: 1
+    param_expectations:
+      - {tool: ppsspp_query, param: action, expect: {exact: registers}}
+    gates:
+      - type: first_tool
+      - type: params
+
+  - id: L1-06
+    tier: L1
+    capabilities: [selection]
+    pre_state: {sessions: 0}
+    prompt: |
+      我想先确认一下 MCP 服务器进程本身是否正常——注意我还没有启动任何游戏会话。
+    max_turns: 12
+    expected_first_tools: [ppsspp_health]
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: answer_contains
+        values:
+          - "ok"
+
+  - id: L1-07
+    tier: L1
+    capabilities: [selection, param]
+    pre_state: {sessions: 1}
+    prompt: |
+      这个游戏加载了哪些模块？
+    max_turns: 12
+    expected_first_tools: [ppsspp_query]
+    optimal_calls: 1
+    param_expectations:
+      - {tool: ppsspp_query, param: action, expect: {exact: modules}}
+    gates:
+      - type: first_tool
+      - type: params
+      - type: answer_contains
+        values:
+          - from_fixture: {file: hle.module.list.json, path: records.0.response.modules.0.name}
+
+  - id: L1-08
+    tier: L1
+    capabilities: [selection, error_recovery]
+    pre_state: {sessions: 1}
+    prompt: |
+      请把 0x08804500 处的 4 个字节改写成 0x00000000。
+    max_turns: 12
+    expected_first_tools: [ppsspp_write_memory]
+    optimal_calls: 2
+    param_expectations:
+      - {tool: ppsspp_write_memory, param: address, expect: {exact: "0x08804500"}}
+    gates:
+      - type: first_tool
+      - type: params
+      - type: recovery
+        error_code: PROTECTED_ADDRESS
+        then: {tool: ppsspp_write_memory, with_params: {force: true}}
+        max_gap: 4
+      - type: final_call_ok
+
+  # ── L2（多步工作流）──────────────────────────────────────────────
+  - id: L2-01
+    tier: L2
+    capabilities: [composite]
+    pre_state: {sessions: 0}
+    prompt: |
+      帮我把模拟器跑起来，加载 D:\games\game.iso；等 CPU 就绪后，
+      告诉我当前 PC（十六进制）和游戏标题。
+    max_turns: 12
+    expected_first_tools: [ppsspp_session]
+    optimal_calls: 3
+    gates:
+      - type: first_tool
+      - type: boot_order
+      - type: recovery
+        error_code: CPU_NOT_STARTED
+        then: {tool: ppsspp_session, with_params: {action: wait_ready}}
+        max_gap: 4
+      - type: answer_contains
+        values:
+          - from_fixture: {file: game.status.json, path: records.0.response.game.title}
+          - from_fixture: {file: cpu.status.json, path: records.0.response.pc, transform: hex}
+
+  - id: L2-02
+    tier: L2
+    capabilities: [composite, selection]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我找出是谁在读取 0x08A0D000 这个地址，把触发点的 PC 值告诉我。
+    max_turns: 12
+    expected_first_tools: [ppsspp_trace_memory_access, ppsspp_breakpoint]
+    optimal_calls: 1
+    param_expectations:
+      - {tool: ppsspp_trace_memory_access, param: address, expect: {exact: "0x08A0D000"}}
+      - {tool: ppsspp_trace_memory_access, param: access, expect: {exact: read}}
+    gates:
+      - type: first_tool
+      - type: params
+
+  - id: L2-03
+    tier: L2
+    capabilities: [selection, efficiency]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我做一段自动化操作：按一下 start 键，等 60 帧，然后截一张图。
+      要求尽量用一条命令完成整个序列。
+    max_turns: 12
+    expected_first_tools: [ppsspp_batch_step, ppsspp_session_list]  # v1.2: 会话确认合理
+    optimal_calls: 1
+    param_expectations:
+      - {tool: ppsspp_batch_step, param: steps, expect: {len: 3}}
+    gates:
+      - type: first_tool
+      - type: params
+
+  - id: L2-04
+    tier: L2
+    capabilities: [error_recovery]
+    pre_state: {sessions: 2}
+    prompt: |
+      从模拟器会话里读取 0x08804000 处的 16 个字节（用先启动的那个会话）。
+    max_turns: 12
+    expected_first_tools: [ppsspp_read_memory, ppsspp_session_list]  # v1.2: 指定会话→先列合理
+    optimal_calls: 3
+    gates:
+      - type: first_tool
+      - type: recovery
+        error_code: SESSION_AMBIGUOUS
+        then: {tool: ppsspp_read_memory, with_params: {session_id: "*any*"}}
+        max_gap: 4
+      - type: answer_contains
+        values:
+          - from_fixture: {file: memory.read.json, path: records.0.response.base64, transform: base64_hex, prefix_bytes: 4}
+
+  - id: L2-05
+    tier: L2
+    capabilities: [error_recovery]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我在前台跑一段自动化序列：等 1800 帧，然后告诉我执行结果。
+    max_turns: 12
+    optimal_calls: 3
+    gates:
+      - type: tool_used
+        name: ppsspp_batch_step
+      - type: recovery
+        error_code: BATCH_BUDGET_EXCEEDED
+        then: {tool: ppsspp_batch_step, with_params: {background: true}}
+        max_gap: 3
+      - type: tool_used
+        name: ppsspp_batch_status
+
+  - id: L2-06
+    tier: L2
+    capabilities: [composite]
+    pre_state: {sessions: 1}
+    prompt: |
+      0x08804000 处存着一条 MIPS 指令。请你先读出这个地址的 4 字节指令编码
+      （十六进制），然后再反汇编 0x08804000 开始的 1 条指令，告诉我这条指令是什么。
+    max_turns: 12
+    optimal_calls: 2
+    gates:
+      - type: sequence
+        expected_sequence: [ppsspp_read_memory, ppsspp_disassemble]
+      - type: answer_contains
+        values:
+          - from_fixture: {file: memory.read_u32.json, path: records.0.response.value, transform: hex}
+          - from_fixture: {file: memory.disasm.json, path: records.0.response.lines.0.name}
+
+  # ── L3（领域概念/边缘，judge 补充评估待派发）─────────────────────
+  - id: L3-01
+    tier: L3
+    capabilities: [concept]
+    pre_state: {sessions: 1}
+    prompt: |
+      我在 0x08A0D000 设了个内存断点，但一直不触发。帮我诊断可能的原因，
+      并给出修复办法。
+    max_turns: 20
+    optimal_calls: 2
+    judge_pending: true
+    gates:
+      - type: answer_contains
+        mode: any
+        values: ["CPUCore", "IR"]
+
+  - id: L3-02
+    tier: L3
+    capabilities: [concept]
+    pre_state: {sessions: 1}
+    prompt: |
+      我调用 ppsspp_screenshot 时返回了 empty=true，没有图像。
+      我想要一张真实的游戏画面截图，应该怎么做？
+    max_turns: 20
+    optimal_calls: 3
+    judge_pending: true
+    gates:
+      - type: answer_contains
+        mode: any
+        values: ["empty", "无渲染", "空帧", "空白"]
+      - type: answer_contains
+        mode: any
+        values: ["wait_frames", "press", "batch", "推进", "进入画面", "等画面"]
+
+  - id: L3-03
+    tier: L3
+    capabilities: [concept]
+    pre_state: {sessions: 1}
+    prompt: |
+      帮我确认 0x00010000 和 0x08804000 分别属于哪块内存区域，用工具查证后告诉我。
+    max_turns: 20
+    expected_first_tools: [ppsspp_memory_map]
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: answer_contains
+        values:
+          - from_fixture: {file: memory.mapping.json, path: records.0.response.ranges.0.name}
+
+  # ── REAL（真实 PPSSPP，结构门禁——真机值动态，不能固定断言）────────
+  # mode: real → runner 不注入 fake env，预置会话用真实 ISO
+  # （PPSSPP_DFX_TEST_ISO_PATH 指定），
+  # run 结束后停会话防 PPSSPP 孤儿进程。n=3/n=2 小样本（效度验证用途）。
+  - id: R1-REAL-BOOT
+    tier: REAL
+    capabilities: [composite]
+    mode: real
+    pre_state: {sessions: 0}
+    prompt: |
+      帮我把模拟器跑起来，加载 {{REAL_ISO}}；
+      等 CPU 就绪后，告诉我当前 PC（十六进制）和游戏标题。
+    max_turns: 12
+    expected_first_tools: [ppsspp_session]
+    optimal_calls: 3
+    gates:
+      - type: first_tool
+      - type: boot_order
+      - type: answer_contains
+        values: ["Game"]   # 所加载游戏标题的稳定子串——按你的 ISO 改（跨启动稳定）
+      - type: final_call_ok
+
+  - id: R2-REAL-SHOT
+    tier: REAL
+    capabilities: [composite]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      我想要一张当前游戏画面的真实截图。请用工具拿到它，并告诉我截图文件的
+      保存路径和文件大小。
+    max_turns: 15
+    optimal_calls: 3
+    gates:
+      - type: file_saved
+        tool: ppsspp_screenshot
+      - type: final_call_ok

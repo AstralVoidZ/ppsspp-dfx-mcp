@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local secrets (evals LLM endpoint config — never commit)
+evals/llm_api.json
+
+# Runtime output of the debug toolchain
+.ppsspp-dfx/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

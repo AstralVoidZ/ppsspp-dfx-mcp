@@ -1,0 +1,19 @@
+{
+  "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+  "type": "call",
+  "records": [
+    {
+      "params": {
+        "address": 142771604,
+        "name": "test_func"
+      },
+      "response": {
+        "event": "hle.func.add",
+        "ticket": "t16",
+        "address": 142771604,
+        "size": 0,
+        "name": "test_func"
+      }
+    }
+  ]
+}

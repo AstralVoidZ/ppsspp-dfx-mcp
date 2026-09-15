@@ -1,0 +1,837 @@
+{
+ "note": "Committed tools/list baseline — regenerate with scripts/dump_tool_surface.py and review the diff alongside the description change that caused it.",
+ "tool_count": 41,
+ "tools": {
+  "ppsspp_analyze_log": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Filter a PPSSPP log file for ERROR / WARNING / CRASH lines.\n\nUSAGE: log_path optional (defaults to the server-mirrored PPSSPP broadcast log at .ppsspp-dfx/output/ppsspp.log, written while a session runs); filter optional (keyword); session_id optional.\n\nBEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.\n\nRETURNS: {log_path, matches: [{line_no, text}...], count, filter}.\n",
+   "description_chars": 407,
+   "description_words": 54,
+   "input_schema_chars": 939,
+   "input_schema_properties": [
+    "filter",
+    "log_path",
+    "session_id"
+   ],
+   "input_schema_sha1": "4e68b1b153f8bb079497b35b1241c3fd2ba0cd14",
+   "output_schema_chars": 929,
+   "output_schema_sha1": "09b8f49668d611d2b3be1c01050646d7627a628a"
+  },
+  "ppsspp_assemble": {
+   "annotations": {
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Assemble MIPS instruction(s) and write the resulting bytes to memory.\n    \n    USAGE: session_id + address + code ('\n' or ';' separated — PPSSPP assembles one line per call so the tool loops; armips-style ';' comments are NOT supported here).\n    \n    BEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true. A partial write is reported with an error directing you to disassemble and inspect.\n    \n    RETURNS: {address, code, bytes_written, response, text}.",
+   "description_chars": 490,
+   "description_words": 69,
+   "input_schema_chars": 983,
+   "input_schema_properties": [
+    "address",
+    "code",
+    "force",
+    "session_id"
+   ],
+   "input_schema_sha1": "e4da0cb6a22bb9fad803d73a2eca6e5362e494de",
+   "output_schema_chars": 787,
+   "output_schema_sha1": "c1ab4fedc304d009c0eaea6ee0a6556cf99e8ecb"
+  },
+  "ppsspp_batch_cancel": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Request cancellation of a queued or running background batch job.\n\nUSAGE: batch_id from ppsspp_batch_step(background=true).\n\nBEHAVIOR: STATE-CHANGE. Cancels the detached task; the job's own finally block releases the session lock, so subsequent tool calls are free to use the session immediately. The abort happens at the current step boundary (a press finishes, a mid-wait cuts within ~1s). Cancelling an already-finished job is an error — check ppsspp_batch_status first if unsure.\n\nRETURNS: {batch_id, status, note} — poll ppsspp_batch_status for the terminal state.",
+   "description_chars": 578,
+   "description_words": 81,
+   "input_schema_chars": 220,
+   "input_schema_properties": [
+    "batch_id"
+   ],
+   "input_schema_sha1": "41e8599f574267c6bb836332aedc033fb723ad4d",
+   "output_schema_chars": 426,
+   "output_schema_sha1": "1c6b9044ecfcdea914064e95c616d8bc57f31744"
+  },
+  "ppsspp_batch_list": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Survey all background batch jobs currently retained by the registry — the list companion to ppsspp_batch_status / ppsspp_batch_cancel.\n\nUSAGE: no parameters. Use it to recover a batch_id after the submit response was lost (e.g. client timeout) or to survey background activity before touching the session.\n\nBEHAVIOR: Lock-free registry read — never opens the WS transport and never waits for the per-session lock. Jobs appear in submission order; finished jobs beyond the retention window (retention_jobs, in job count) are already evicted and absent. READ-ONLY.\n\nRETURNS: {jobs: [{batch_id, session_id, status: queued|running|completed|failed|cancelled, executed, total, error, result_present}], retention_jobs}.",
+   "description_chars": 722,
+   "description_words": 95,
+   "input_schema_chars": 68,
+   "input_schema_properties": [],
+   "input_schema_sha1": "5d977078e0e02e95be4e467ca174efc11af7f63d",
+   "output_schema_chars": 1634,
+   "output_schema_sha1": "aedd3908bef3660e7ee9ef2484a6a67b7ba80bd2"
+  },
+  "ppsspp_batch_status": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Poll the state and progress of a background batch job without touching the session.\n\nUSAGE: batch_id from ppsspp_batch_step(background=true).\n\nBEHAVIOR: Lock-free registry read — never opens the WS transport and never waits for the per-session lock, so it is safe to call while a background batch (or any other tool) owns the session. Executed-step count updates as steps complete; 'completed' carries the full foreground-shaped result. READ-ONLY.\n\nRETURNS: {batch_id, session_id, status: queued|running|completed|failed|cancelled, executed, total, error, result, retention_jobs}.",
+   "description_chars": 589,
+   "description_words": 76,
+   "input_schema_chars": 220,
+   "input_schema_properties": [
+    "batch_id"
+   ],
+   "input_schema_sha1": "3d7c2a11dbe8b81872c8c347870ab91e4c4f7fcb",
+   "output_schema_chars": 1283,
+   "output_schema_sha1": "ddcd6fcda263e29de77c925c5506418f3e9fae87"
+  },
+  "ppsspp_batch_step": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Execute an ordered automation sequence of press / wait / state_probe / screenshot steps in one call, optionally on a detached background task that outlives the client timeout.\n\nUSAGE: session_id + steps:[{type: press|wait|state_probe|screenshot, ...}]; on_failure='continue'|'abort' (default continue); background=false|true.\n\nBEHAVIOR: STATE-CHANGE. Foreground (default) holds the session lock for the whole batch; frames are 60fps wall-clock equivalents; sequences estimated >25s are rejected up-front with BATCH_BUDGET_EXCEEDED (the MCP client aborts tool calls at ~30s, killing the remaining steps server-side). Per-step MCP progress is reported when the client requests it. background=true validates and submits instantly, returns {action:'submitted', batch_id,...}, keeps the session lock for the batch duration, and reports progress via ppsspp_batch_status. If any foreground step fails the whole call is isError BATCH_STEP_FAILED — inspect results[] per step. Screenshots are auto-skipped during replay recording.\n\nRETURNS: foreground {total, executed, succeeded, failed, skipped, recording_mode, results[], aborted}; background {action:'submitted', batch_id, session_id, total, estimated_s, hint}.",
+   "description_chars": 1215,
+   "description_words": 147,
+   "input_schema_chars": 3498,
+   "input_schema_properties": [
+    "background",
+    "on_failure",
+    "session_id",
+    "steps"
+   ],
+   "input_schema_sha1": "d50ff5001f9e7edd99bed5c5a17877614daa6ee5",
+   "output_schema_chars": 1926,
+   "output_schema_sha1": "70c37ffe50240e79ee665fe9128df48084683cd2"
+  },
+  "ppsspp_breakpoint": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Set, remove, update, and list CPU execution breakpoints and memory watchpoints.\n\nUSAGE: action + session_id; set/remove/update manage CPU exec breakpoints (address required); mem_set/mem_remove/mem_update manage memory watchpoints (size 1/2/4+, read/write flags); list/mem_list take no address.\n\nBEHAVIOR: MUTATING. Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification.\n\nRETURNS: {action, address, enabled, breakpoints[]}.",
+   "description_chars": 690,
+   "description_words": 82,
+   "input_schema_chars": 3336,
+   "input_schema_properties": [
+    "action",
+    "address",
+    "condition",
+    "enabled",
+    "log",
+    "log_format",
+    "read",
+    "session_id",
+    "size",
+    "write"
+   ],
+   "input_schema_sha1": "b0cb1fbb8eae39fc4d0d2e488550ddc7f80dccb6",
+   "output_schema_chars": 741,
+   "output_schema_sha1": "accef786a28db7552ccda7c7dae548cff76721e3"
+  },
+  "ppsspp_convert_address": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Convert an address between IDA and PPSSPP address spaces (offset ±0x08804000).\n\nUSAGE: address required; mode optional ('auto' default / 'ida_to_ppsspp' / 'ppsspp_to_ida'); session_id optional.\n\nBEHAVIOR: READ-ONLY. Pure arithmetic on the address; no PPSSPP contact.\n\nRETURNS: {original, converted, mode, top_base_ppsspp, top_base_ida}.\n",
+   "description_chars": 346,
+   "description_words": 41,
+   "input_schema_chars": 664,
+   "input_schema_properties": [
+    "address",
+    "mode",
+    "session_id"
+   ],
+   "input_schema_sha1": "c7167965dd92bdfe62041af3a8a7c012bf2a9e4f",
+   "output_schema_chars": 753,
+   "output_schema_sha1": "d71766678175ca9a8109aef50dde713127dc61a4"
+  },
+  "ppsspp_disassemble": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Disassemble N MIPS instructions at a given address.\n\nUSAGE: address required; session_id optional when exactly one session is active; count optional (default 10).\n\nBEHAVIOR: READ-ONLY. Calls memory.disasm via WebSocket. Does not modify memory or CPU state.\n\nRETURNS: {address, count, instructions: [{address, text}...]}.\n",
+   "description_chars": 330,
+   "description_words": 43,
+   "input_schema_chars": 597,
+   "input_schema_properties": [
+    "address",
+    "count",
+    "session_id"
+   ],
+   "input_schema_sha1": "9c2cc84055eba4a33c2baf6c3bb01e5372fe7577",
+   "output_schema_chars": 517,
+   "output_schema_sha1": "3020799a7d8033e5ef9b2eaa3f09254d3db7f274"
+  },
+  "ppsspp_dump_clut": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Dump the currently-bound CLUT palette as an image plus metadata.\n\nUSAGE: session_id. Only the CURRENTLY bound palette can be captured — no VRAM-address targeting.\n\nBEHAVIOR: READ-ONLY. An empty capture raises CAPTURE_EMPTY — advance to a scene that uses the palette and retry.\n\nRETURNS: structuredContent metadata (file_path/size_bytes/format); the image itself arrives as an ImageContent block.",
+   "description_chars": 404,
+   "description_words": 55,
+   "input_schema_chars": 187,
+   "input_schema_properties": [
+    "session_id"
+   ],
+   "input_schema_sha1": "da62b9256446bdc623432476eb1e538e67ca2904",
+   "output_schema_chars": 432,
+   "output_schema_sha1": "c1b9bb1c2dab8f952f81e5b93103e43f4acee40f"
+  },
+  "ppsspp_dump_texture": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Dump the currently-bound GPU texture as an image plus metadata.\n\nUSAGE: session_id. Only the CURRENTLY bound texture — no VRAM-address targeting.\n\nBEHAVIOR: READ-ONLY. An empty capture raises CAPTURE_EMPTY — enter a scene that renders and retry.\n\nRETURNS: structuredContent metadata (level/file_path/size_bytes/format); the image itself arrives as an ImageContent block.",
+   "description_chars": 379,
+   "description_words": 49,
+   "input_schema_chars": 395,
+   "input_schema_properties": [
+    "level",
+    "session_id"
+   ],
+   "input_schema_sha1": "984fa343673c36c6bfc03c674f0fd473153f14ab",
+   "output_schema_chars": 522,
+   "output_schema_sha1": "2bc256874db4148e4d94581417500f4b9f7a098b"
+  },
+  "ppsspp_evaluate": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Evaluate a debugger expression (register names, hex literals, simple arithmetic).\n\nUSAGE: session_id + expression. No '*addr' dereference syntax — read memory with read_u32 instead.\n\nBEHAVIOR: READ-ONLY. Pauses/resumes the CPU internally.\n\nRETURNS: {expression, value, response, text}.",
+   "description_chars": 294,
+   "description_words": 36,
+   "input_schema_chars": 566,
+   "input_schema_properties": [
+    "expression",
+    "session_id"
+   ],
+   "input_schema_sha1": "5c2dec588479d5bd4e8f897029fc417541d03fe4",
+   "output_schema_chars": 694,
+   "output_schema_sha1": "ec7d668d00d9189e8b1f5ceb25eee1a79cd9ff3d"
+  },
+  "ppsspp_frame_snapshot": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: One-call paused scene snapshot — pause (unless already paused), capture pc + registers + optional named probes, then resume.\n\nUSAGE: session_id; probes = optional comma-separated state_observer registry names; want_registers default true. Prefer this over a manual pause + query(registers) + resume sequence.\n\nBEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.\n\nRETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — F-8 nullable-key contract, 2026-09-08.",
+   "description_chars": 774,
+   "description_words": 106,
+   "input_schema_chars": 538,
+   "input_schema_properties": [
+    "probes",
+    "session_id",
+    "want_registers"
+   ],
+   "input_schema_sha1": "e18b3060d8f1fe98b88b5a9c1d763a07bdc09568",
+   "output_schema_chars": 912,
+   "output_schema_sha1": "255035369480d208f5c98aabfdf2729573ffeca2"
+  },
+  "ppsspp_get_pc": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Safely read the current Program Counter.\n\nUSAGE: session_id optional when exactly one session is active.\n\nBEHAVIOR: READ-ONLY. Pauses CPU temporarily for read consistency, then resumes. trust_level='high'.\n\nRETURNS: {pc, trust_level}.\n",
+   "description_chars": 244,
+   "description_words": 30,
+   "input_schema_chars": 261,
+   "input_schema_properties": [
+    "session_id"
+   ],
+   "input_schema_sha1": "5db8346c1f7c0da8e6cfeec2a3a3e3545b12b5b5",
+   "output_schema_chars": 371,
+   "output_schema_sha1": "42f354b00fde39da6c74bf6286a981fb75b6f982"
+  },
+  "ppsspp_gpu_record": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Capture the next rendered frame's GE command stream as a binary dump file.\n\nUSAGE: session_id. The CPU must be RUNNING — a paused GPU never flips a frame; the MCP pre-probe converts that into a clean CPU_STATE_ERROR.\n\nBEHAVIOR: READ-ONLY. Captures to a binary file under output/gpu_dumps/ (not JSON).\n\nRETURNS: {size_bytes, file_path, raw, text}.",
+   "description_chars": 355,
+   "description_words": 54,
+   "input_schema_chars": 188,
+   "input_schema_properties": [
+    "session_id"
+   ],
+   "input_schema_sha1": "fe1ce01a654cdf718b289f145e2295d039bc1db0",
+   "output_schema_chars": 788,
+   "output_schema_sha1": "333d6e11d90011c546c6882b62a3443ba1a3db05"
+  },
+  "ppsspp_gpu_stats": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Query GPU counters — fps, vblanks per second, timing info.\n\nUSAGE: session_id. The CPU must be RUNNING; paused, the MCP pre-probe returns CPU_STATE_ERROR instead of hanging — which doubles as the cheapest paused-CPU probe.\n\nBEHAVIOR: READ-ONLY.\n\nRETURNS: {fps, vblanks_per_second, info, timing, raw, text}.",
+   "description_chars": 315,
+   "description_words": 44,
+   "input_schema_chars": 187,
+   "input_schema_properties": [
+    "session_id"
+   ],
+   "input_schema_sha1": "5d063e9886ecd288a790d87fb6b17d01d0557a34",
+   "output_schema_chars": 1085,
+   "output_schema_sha1": "2e22e87d9b6352566a241c43084cf8686c94a7f5"
+  },
+  "ppsspp_health": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Probe MCP server liveness and readiness without contacting PPSSPP. Use this before any session-dependent tool to verify the server is up.\n\nUSAGE: No parameters.\n\nBEHAVIOR: READ-ONLY. Reads in-memory server counters (uptime, registered tool count, active session count). Does not contact PPSSPP and does not modify any state.\n\nRETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count.\n",
+   "description_chars": 460,
+   "description_words": 59,
+   "input_schema_chars": 64,
+   "input_schema_properties": [],
+   "input_schema_sha1": "82587d51a8f3228bea824da659cca45d04ad7eed",
+   "output_schema_chars": 1312,
+   "output_schema_sha1": "f1c3c789ae23c9c0eba13e140e5880f3d76cf29a"
+  },
+  "ppsspp_hold_buttons": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Hold a combination of PSP buttons until a subsequent call changes the state.\n\nUSAGE: session_id + buttons required (pipe-separated combination, e.g. 'cross|circle'). Valid names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sets button-held state in PPSSPP; persists until next hold_buttons / send_analog call.\n\nRETURNS: {buttons}.\n",
+   "description_chars": 423,
+   "description_words": 64,
+   "input_schema_chars": 547,
+   "input_schema_properties": [
+    "buttons",
+    "session_id"
+   ],
+   "input_schema_sha1": "932989336794e5c860d8a3434ba4ccbde55640b0",
+   "output_schema_chars": 207,
+   "output_schema_sha1": "1c1c41dd762152ad6433564202c2dfec0bc5f275"
+  },
+  "ppsspp_list_addresses": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: List the project's known address constants from addresses.yaml — the single source of truth; never guess hex addresses.\n\nUSAGE: optional section filter; an unknown section returns an error listing the valid ones.\n\nBEHAVIOR: READ-ONLY. Int values ≥0x1000 are returned as hex strings that can be pasted straight into address parameters.\n\nRETURNS: {sections, count, section_filter}.",
+   "description_chars": 388,
+   "description_words": 55,
+   "input_schema_chars": 299,
+   "input_schema_properties": [
+    "section"
+   ],
+   "input_schema_sha1": "7a467f0dee00d18eabe1bf7597e4dad4b7eff275",
+   "output_schema_chars": 582,
+   "output_schema_sha1": "dc5acc0f9a828c5f497bef91972c90ca5cb07265"
+  },
+  "ppsspp_list_scripts": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: List diagnostic scripts declared in .ppsspp-dfx/config/scripts.manifest.yaml.\n\nUSAGE: category optional filter (eboot / state / p0ab / ndx / memory / misc / recipe).\n\nBEHAVIOR: READ-ONLY. Reads the in-memory manifest registry (loaded at startup). Does not execute any script.\n\nRETURNS: {scripts: [ScriptEntryView...], count, category}.\n",
+   "description_chars": 345,
+   "description_words": 44,
+   "input_schema_chars": 327,
+   "input_schema_properties": [
+    "category"
+   ],
+   "input_schema_sha1": "26708a795dfb068e6ca1e033edf6349e6c2624a7",
+   "output_schema_chars": 2314,
+   "output_schema_sha1": "87bde79b1595f25f7b7ad14cf0d4a0e2fd8a6dd7"
+  },
+  "ppsspp_memory_info_search": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Search PPSSPP's memory-tracking metadata for allocation/texture tags matching a string.\n\nUSAGE: session_id + match (case-insensitive substring, required); optional address/end/type filters.\n\nBEHAVIOR: READ-ONLY. Returns a single extent per matching tag.\n\nRETURNS: {regions[], count, raw, text}.",
+   "description_chars": 303,
+   "description_words": 35,
+   "input_schema_chars": 1081,
+   "input_schema_properties": [
+    "address",
+    "end",
+    "match",
+    "session_id",
+    "type"
+   ],
+   "input_schema_sha1": "843ca736d8b8384cb4c4a176bd0c43faba785a71",
+   "output_schema_chars": 786,
+   "output_schema_sha1": "51e75368dae839075f18e42c470ebf12ee1aee49"
+  },
+  "ppsspp_memory_map": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Get the PPSSPP memory region map (user / kernel / VRAM ranges).\n\nUSAGE: session_id.\n\nBEHAVIOR: READ-ONLY.\n\nRETURNS: {ranges[], mapping, text}.",
+   "description_chars": 151,
+   "description_words": 21,
+   "input_schema_chars": 188,
+   "input_schema_properties": [
+    "session_id"
+   ],
+   "input_schema_sha1": "70ea54cff4abfee33b312d533827953d43ef3742",
+   "output_schema_chars": 672,
+   "output_schema_sha1": "2ad617662a5ab1304dc58196953cb278ce80cf39"
+  },
+  "ppsspp_press_button": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Simulate a single PSP button press for a duration.\n\nUSAGE: session_id + button required; duration optional (default 10 frames). Valid button names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sends input events to PPSSPP. Button state returns to released after the duration elapses.\n\nRETURNS: {button, duration}.\n",
+   "description_chars": 405,
+   "description_words": 65,
+   "input_schema_chars": 513,
+   "input_schema_properties": [
+    "button",
+    "duration",
+    "session_id"
+   ],
+   "input_schema_sha1": "7d306cc4121a8074a54fd0e785355f41000baf29",
+   "output_schema_chars": 286,
+   "output_schema_sha1": "4ccfacfb401f465620d260960a9c7309eaad171c"
+  },
+  "ppsspp_query": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Aggregate game-state queries — game_state, registers (all or one), backtrace, threads, modules, and function-list management (funcs/func_scan/func_add/func_remove).\n\nUSAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).\n\nBEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused (pause first, or use get_pc); RUNNING-state PC/isCurrent is LOW trust.\n\nRETURNS: {action, data, trust_level} — data shape depends on the action.",
+   "description_chars": 630,
+   "description_words": 79,
+   "input_schema_chars": 1995,
+   "input_schema_properties": [
+    "action",
+    "address",
+    "name",
+    "session_id",
+    "thread",
+    "top_n"
+   ],
+   "input_schema_sha1": "482562a32ca8d6d0006e7d7a6ee4eb1bc7d1ca18",
+   "output_schema_chars": 1010,
+   "output_schema_sha1": "224a2e0dd70e76e6e0bcfdc54a125b767bdba5a7"
+  },
+  "ppsspp_read_memory": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Read memory (read_bytes / read_u32 / read_string) or scan a region for a byte pattern.\n\nUSAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); scan takes pattern (hex/ascii, ≤4096B) + start_addr/end_addr (≤256MiB) + chunk_size.\n\nBEHAVIOR: READ-ONLY. Unreadable scan blocks are skipped silently. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).\n\nRETURNS: {action, address, value, size, text, file} — value is the match list for scan. read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/).",
+   "description_chars": 835,
+   "description_words": 118,
+   "input_schema_chars": 3474,
+   "input_schema_properties": [
+    "action",
+    "address",
+    "chunk_size",
+    "end_addr",
+    "length",
+    "max_len",
+    "max_results",
+    "output",
+    "pattern",
+    "pattern_type",
+    "session_id",
+    "size",
+    "start_addr"
+   ],
+   "input_schema_sha1": "2cee8d489f256994a84b184cc770d7a720d98cac",
+   "output_schema_chars": 1322,
+   "output_schema_sha1": "4a2a2117c470eddaa5aa232da6ce3d92121a3eaa"
+  },
+  "ppsspp_reload_scripts": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Manually reload the script manifest YAML and clear the script module cache.\n\nUSAGE: No parameters.\n\nBEHAVIOR: MUTATING. Re-reads the manifest file and invalidates cached script modules. Reversible: re-reading an unchanged file produces an equal registry. When the exposed tool set ACTUALLY changes (tools added or removed), the server notifies the client with a tool-list-changed notification so cached `tools/list` results are invalidated; a no-op reload sends nothing.\n\nRETURNS: {reloaded_count, exposed_count, manifest_path, scripts: [ScriptEntryView...]}.\n",
+   "description_chars": 569,
+   "description_words": 73,
+   "input_schema_chars": 72,
+   "input_schema_properties": [],
+   "input_schema_sha1": "e79ff2fa3801c9cc1c307997d43ff9ea2ab85dd6",
+   "output_schema_chars": 3388,
+   "output_schema_sha1": "96f752e36e397eaf342e24619cfb5451b8765f24"
+  },
+  "ppsspp_replay": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Aggregate PPSSPP replay subsystem — record input sequences, execute them, and save/load .ppr recordings.\n\nUSAGE: action + session_id; actions: begin/abort/flush/execute/status/time_get/time_set/save/load/wait_complete; execute needs version + base64_input; time_set needs value; save/load take a bare file name (always under output/replays/).\n\nBEHAVIOR: STATE-CHANGE. Recording requires the CPU RUNNING (real input timing); screenshots are rejected while recording. Replay timelines use ABSOLUTE game-clock timestamps anchored at the RECORDING session's boot — a replay only injects correctly when a fresh boot's clock is aligned to them: execute/load ONLY loads the event table and returns t0_s / estimated_end_s + the boot-aligned sequence (reset -> wait_ready -> wait boot+estimated_end_s -> abort); it does NOT play by itself. executing/saving NEVER clear on their own — only abort clears them — so wait_complete times out on any un-aborted replay; completion = the timeline estimate + explicit abort. execute/load auto-abort a live executing/saving state first (R4). restore_rtc defaults to False: setting it rewinds the game-visible wall clock of the RUNNING session and pollutes every in-game timer (R2); when needed, set it before the boot-aligned reset.\n\nRETURNS: {action, executing, saving, version, size, base64, base_rtc, data} — execute/load data carries t0_s, estimated_end_s, event_count and boot_aligned_sequence; fields depend on the action.",
+   "description_chars": 1467,
+   "description_words": 197,
+   "input_schema_chars": 3582,
+   "input_schema_properties": [
+    "action",
+    "base64_input",
+    "file_path",
+    "interval_ms",
+    "restore_rtc",
+    "session_id",
+    "session_note",
+    "timeout_ms",
+    "value",
+    "version"
+   ],
+   "input_schema_sha1": "f1a484f001f4b2ae14b41cb83af01ec8da08bb01",
+   "output_schema_chars": 1850,
+   "output_schema_sha1": "76c6701d9e4fea30a1e72f5b2c6af40ba3b1203d"
+  },
+  "ppsspp_run_script": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": true,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Invoke a manifest-registered diagnostic script by name with validated input.\n\nUSAGE: name (see ppsspp_list_scripts; skeleton scripts return not_implemented); input dict validated against the script's Pydantic model; session_id required when the script declares requires_ppsspp (missing → SESSION_NOT_FOUND).\n\nBEHAVIOR: STATE-CHANGE. Runs manifest-registered script code. Unknown names → SCRIPT_NOT_FOUND.\n\nRETURNS: {name, output, output_model}.",
+   "description_chars": 453,
+   "description_words": 51,
+   "input_schema_chars": 769,
+   "input_schema_properties": [
+    "input",
+    "name",
+    "session_id"
+   ],
+   "input_schema_sha1": "51780a7c95c233f17c8fc715da99f285c7961fa7",
+   "output_schema_chars": 497,
+   "output_schema_sha1": "b4470f59b98237e718ced6b04b4876a1f4372b9e"
+  },
+  "ppsspp_screenshot": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Capture the framebuffer as an image (ImageContent) plus metadata.\n\nUSAGE: session_id optional when exactly one session is active; source='render' (default; empty frames auto-fall back to VRAM — colors unreliable there) or 'output' (CRASH-RISK, do not use); mutually exclusive with the deprecated mode param.\n\nBEHAVIOR: READ-ONLY. An empty capture returns empty=true instead of an error — advance to a rendered scene and retry.\n\nRETURNS: structuredContent metadata (mode/source/size_bytes/width/height/file_path/format/empty); the image itself arrives as an ImageContent block. The auto-saved PNG/JPG path is in file_path.",
+   "description_chars": 630,
+   "description_words": 82,
+   "input_schema_chars": 1033,
+   "input_schema_properties": [
+    "mode",
+    "session_id",
+    "source"
+   ],
+   "input_schema_sha1": "b1ff41048959743beb7d4aa5e26c5d6fd18e4605",
+   "output_schema_chars": 1377,
+   "output_schema_sha1": "efa7858cdac39c2eaec4f86d4b3a4ef9dd6bff10"
+  },
+  "ppsspp_search_disasm": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Loop-search disassembly for a substring, collecting matching instructions with context.\n\nUSAGE: session_id + match (a leading '$' is stripped); start address; end=0 wraps the search around the whole region; max_results default 100.\n\nBEHAVIOR: READ-ONLY.\n\nRETURNS: {address, match, end, results[{address, text, name, params}], text}.",
+   "description_chars": 341,
+   "description_words": 44,
+   "input_schema_chars": 1249,
+   "input_schema_properties": [
+    "address",
+    "end",
+    "match",
+    "max_results",
+    "session_id"
+   ],
+   "input_schema_sha1": "b6ad04ceff1a638ae4b2ee731038d914302ef1fa",
+   "output_schema_chars": 827,
+   "output_schema_sha1": "c497ca87e8fde451fc24143a0d636530f98d5d59"
+  },
+  "ppsspp_send_analog": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Send an analog stick position (x, y in [0, 255], 128 = center).\n\nUSAGE: session_id + x + y required. 0 = full left / up, 255 = full right / down.\n\nBEHAVIOR: STATE-CHANGE. Sets analog stick position; persists until next send_analog call.\n\nRETURNS: {x, y}.\n",
+   "description_chars": 264,
+   "description_words": 47,
+   "input_schema_chars": 474,
+   "input_schema_properties": [
+    "session_id",
+    "x",
+    "y"
+   ],
+   "input_schema_sha1": "90eba7f13808c8010b4858f1eb763db546ffbc8f",
+   "output_schema_chars": 285,
+   "output_schema_sha1": "30e3272300d8090ca44af7b214dfc8c1528d50b3"
+  },
+  "ppsspp_session": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": true,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.\n\nUSAGE: action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).\n\nBEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; get is read-only.\n\nRETURNS: SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version} — or, for wait_ready, {action, ready, elapsed_s, probe_addr, probe_value, note}.",
+   "description_chars": 964,
+   "description_words": 130,
+   "input_schema_chars": 2504,
+   "input_schema_properties": [
+    "action",
+    "iso_path",
+    "probe_addr",
+    "resilient",
+    "session_id",
+    "timeout_s",
+    "wait_ready"
+   ],
+   "input_schema_sha1": "9b04c3a85d293e6bd37f80efbd55e9085067082b",
+   "output_schema_chars": 1702,
+   "output_schema_sha1": "042c6cc367b49cd117af35780d40d7814c1a0e72"
+  },
+  "ppsspp_session_list": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: List all active PPSSPP sessions.\n\nUSAGE: No parameters. Idle sessions (>30 min) are auto-GC'd as a side effect.\n\nBEHAVIOR: READ-ONLY. Reads the session manager's in-memory session dict. The idle-GC side effect reaps stale sessions but does not mutate the caller's state.\n\nNOT a per-session status probe: for session health use ppsspp_smoke_test; for CPU/game state use ppsspp_get_pc or ppsspp_query(game_state). Reader tools whose session_id is optional auto-resolve when exactly one session is active, so you normally do NOT need to call this first just to obtain an ID.\n\nRETURNS: {sessions: [SessionResponse...], count}.\n",
+   "description_chars": 632,
+   "description_words": 91,
+   "input_schema_chars": 70,
+   "input_schema_properties": [],
+   "input_schema_sha1": "f8999de3bfd64099a7afe939fcdd7e157ae58e0b",
+   "output_schema_chars": 2332,
+   "output_schema_sha1": "dbe400c29acd9eb1be4a97dfa9b194270ade8e7e"
+  },
+  "ppsspp_smoke_test": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Four-point session health check — iso_loaded, cpu_running, ws_connected, game_mode_valid.\n\nUSAGE: session_id. NOT an ISO boot-acceptance test — use session wait_ready + analyze_log for boot triage.\n\nBEHAVIOR: READ-ONLY. Battery of probes.\n\nRETURNS: {checks[{name, passed, detail}], overall_status}.",
+   "description_chars": 307,
+   "description_words": 36,
+   "input_schema_chars": 449,
+   "input_schema_properties": [
+    "checks",
+    "session_id"
+   ],
+   "input_schema_sha1": "85575b707c4c988da188643f77fe4b5bf135f56e",
+   "output_schema_chars": 865,
+   "output_schema_sha1": "beb189b47efd3ec583c8949201066170cd0a826d"
+  },
+  "ppsspp_state_observer": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Named memory-probe registry plus running-state observation — register probes once, then sample them cheaply every loop.\n\nUSAGE: action + session_id for observe; register needs name + address (+size 1/2/4, description); observe takes comma-separated names and samples.\n\nBEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PROCESS-wide (shared across sessions), seeded from addresses.yaml state_probes, and is NOT re-seeded after clear within the same process. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets (F-5 contract, 2026-09-08).\n\nRETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action.",
+   "description_chars": 810,
+   "description_words": 101,
+   "input_schema_chars": 2086,
+   "input_schema_properties": [
+    "action",
+    "address",
+    "description",
+    "name",
+    "names",
+    "samples",
+    "session_id",
+    "size"
+   ],
+   "input_schema_sha1": "8bbaebf86a94a450054a3c6a05ebb7a8a22646b4",
+   "output_schema_chars": 2645,
+   "output_schema_sha1": "1e50bf8c2f70604650eb2212ce10586ded774cb3"
+  },
+  "ppsspp_step": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Aggregate CPU step + run-state control (into / over / out, pause, resume, reset, run_until, next_hle).\n\nUSAGE: action='into' / 'over' / 'out' / 'pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.\n\nBEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.\n\nRETURNS: {action, address}.\n",
+   "description_chars": 479,
+   "description_words": 69,
+   "input_schema_chars": 1064,
+   "input_schema_properties": [
+    "action",
+    "address",
+    "session_id"
+   ],
+   "input_schema_sha1": "7c4f78432c7fe92ed25df424a7d685d85c9fbc9b",
+   "output_schema_chars": 1204,
+   "output_schema_sha1": "0e6b2c852029b0eba3d4fcbe23404bd14c36ac3c"
+  },
+  "ppsspp_trace_memory_access": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: One-call answer to 'what code reads/writes this address' — arm a memory breakpoint, wait for the hit, capture pc (+registers/backtrace), remove the breakpoint, and resume.\n\nUSAGE: session_id + hex address; access='read'|'write'|'read_write' (default read); size 1/2/4 (default 4); timeout_s default 30; want_registers/want_backtrace optional. Game must be RUNNING (call after session wait_ready).\n\nBEHAVIOR: MUTATING. Arms a temporary breakpoint and always removes it (list-verified real-size removal). The lock is held only for arm/capture/cleanup — the wait is lock-free (concurrent reads OK). Do NOT run other breakpoint/step tools during the wait: the first cpu.stepping broadcast wins. An already-paused CPU short-circuits (nothing can hit). Error paths still remove the breakpoint and resume.\n\nRETURNS: {hit, already_paused, address, access, timeout_s, hits:[{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}. reason/related_address may be null on some builds; mem_hits is the attribution counter.",
+   "description_chars": 1063,
+   "description_words": 136,
+   "input_schema_chars": 1186,
+   "input_schema_properties": [
+    "access",
+    "address",
+    "session_id",
+    "size",
+    "timeout_s",
+    "want_backtrace",
+    "want_registers"
+   ],
+   "input_schema_sha1": "9d06fa0293af088159498ec011ca48057f08041e",
+   "output_schema_chars": 1526,
+   "output_schema_sha1": "72593b0657f80eb9db309300ce0d2de7d13763e4"
+  },
+  "ppsspp_wait_breakpoint": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Block until a breakpoint hit (any kind) — replaces polling gpu_stats errors as a hit probe.\n\nUSAGE: session_id; timeout_s default 30. Arm a breakpoint first via ppsspp_breakpoint (set or mem_set). Use when you only need to know a hit happened; call ppsspp_trace_memory_access instead to capture the hit scene (registers/backtrace) in one step.\n\nBEHAVIOR: READ-ONLY. Subscribes to the cpu.stepping broadcast and holds NO session lock — concurrent reads/observes keep working, but do NOT submit step/pause/resume during the wait. An already-paused CPU returns hit=true + already_paused=true with a high-trust pc (a manual pause is indistinguishable from a hit).\n\nRETURNS: {hit, already_paused, timeout_s, pc, reason, related_address, ticks} — timeout returns hit=false (pollable, not an error); reason/related_address may be null on some builds.",
+   "description_chars": 852,
+   "description_words": 120,
+   "input_schema_chars": 419,
+   "input_schema_properties": [
+    "session_id",
+    "timeout_s"
+   ],
+   "input_schema_sha1": "4c029b43eff63de14f787dc0b597fba6a5633a61",
+   "output_schema_chars": 1248,
+   "output_schema_sha1": "7c2a9aedf381eee1b02ee2a02d99b67a687ce8d3"
+  },
+  "ppsspp_wait_frames": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Wait N frames (wall-clock sleep at 60 FPS by default) to let the emulator advance.\n\nUSAGE: session_id + frames required; interval optional (default 1/60 s).\n\nBEHAVIOR: STATE-CHANGE. Sleeps the caller; emulator advances N frames. Session must be alive (validated before sleep).\n\nRETURNS: {frames, elapsed_s}.\n",
+   "description_chars": 317,
+   "description_words": 45,
+   "input_schema_chars": 521,
+   "input_schema_properties": [
+    "frames",
+    "interval",
+    "session_id"
+   ],
+   "input_schema_sha1": "713611c260b3904ae10416008921fea3b8153dfb",
+   "output_schema_chars": 294,
+   "output_schema_sha1": "52e6b8d51e5ca1c8f1171c991953542b0d1c2ec6"
+  },
+  "ppsspp_write_memory": {
+   "annotations": {
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Write u8/u16/u32 or raw bytes to memory.\n\nUSAGE: session_id + address ('0x' hex) + data + format ('u8'|'u16'|'u32'|'bytes'; bytes accepts hex or base64).\n\nBEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true (PROTECTED_ADDRESS).\n\nRETURNS: {address, format, bytes_written, value, text}.",
+   "description_chars": 320,
+   "description_words": 40,
+   "input_schema_chars": 1171,
+   "input_schema_properties": [
+    "address",
+    "data",
+    "force",
+    "format",
+    "session_id"
+   ],
+   "input_schema_sha1": "0b53bea8b60e064de9be75d09828a06e1ea71d31",
+   "output_schema_chars": 787,
+   "output_schema_sha1": "e2bb7d04a9a5ec0fda3cde5a739c520114ed8b63"
+  },
+  "ppsspp_write_register": {
+   "annotations": {
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "PURPOSE: Set a CPU register (GPR/FPU/VFPU names, plus pc/hi/lo).\n\nUSAGE: session_id + name (MIPS ABI names only — 'r5' normalizes to 'v1') + value (hex).\n\nBEHAVIOR: DESTRUCTIVE. Pauses and resumes the CPU automatically (REQUIRED_STEPPING handled internally) — no manual pause needed.\n\nRETURNS: {name, value, response, text}.",
+   "description_chars": 324,
+   "description_words": 46,
+   "input_schema_chars": 792,
+   "input_schema_properties": [
+    "name",
+    "session_id",
+    "value"
+   ],
+   "input_schema_sha1": "75fe54c10ea5155a2ba1bf367326741e82ebfc99",
+   "output_schema_chars": 641,
+   "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
+  }
+ },
+ "total_description_chars": 21864,
+ "total_input_schema_chars": 38776
+}

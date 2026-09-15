@@ -1,0 +1,168 @@
+"""Smoke test tool wrapper.
+
+1 tool exposed:
+- ppsspp_smoke_test(session_id, checks?) — run a battery of health checks
+  against an active PPSSPP session (ISO loaded / CPU running / WS connected
+  / game_mode valid).
+
+Async: uses session_client → PpssppDebugClient under the hood.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Annotated, Any
+
+from pydantic import Field
+from mcp.types import ToolAnnotations
+
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
+from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.models.smoke import CheckResult, SmokeTestResult
+from ppsspp_dfx_mcp.session.client_helper import (
+    read_game_mode_addr,
+    session_client,
+)
+from ppsspp_dfx_mcp.views.smoke import SmokeTestResponse
+from ppsspp_dfx_mcp.server import mcp
+
+from ppsspp_dfx_mcp.views._contract import derive_output_contract
+
+SmokeTestOutput = derive_output_contract("SmokeTestOutput", SmokeTestResponse)
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["smoke_test"]
+
+_DEFAULT_CHECKS: tuple[str, ...] = (
+    "iso_loaded",
+    "cpu_running",
+    "ws_connected",
+    "game_mode_valid",
+)
+
+
+# Former docstring (kept as comment; description is now the TDQS docstring):
+# Run a smoke test battery against an active PPSSPP session.
+#
+# Checks:
+# iso_loaded       — game.status response has a non-empty game title.
+# cpu_running      — game.status response reports paused=False.
+# ws_connected     — WebSocket connect + version handshake succeeds.
+# game_mode_valid  — read_u32(game_mode_addr) returns a non-zero value.
+#
+# Raises:
+# ToolError: on session lookup failure or WS connect failure.
+@mcp.tool(
+    name="ppsspp_smoke_test",
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+)
+@translate_tool_errors
+async def smoke_test(
+    session_id: Annotated[
+        str,
+        Field(description="Active session ID."),
+    ],
+    checks: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description=(
+                "Subset of checks to run (default: all). "
+                "Valid values: 'iso_loaded', 'cpu_running', "
+                "'ws_connected', 'game_mode_valid'."
+            ),
+        ),
+    ] = None,
+) -> SmokeTestOutput:
+    """PURPOSE: Four-point session health check — iso_loaded, cpu_running, ws_connected, game_mode_valid.
+    
+    USAGE: session_id. NOT an ISO boot-acceptance test — use session wait_ready + analyze_log for boot triage.
+    
+    BEHAVIOR: READ-ONLY. Battery of probes.
+    
+    RETURNS: {checks[{name, passed, detail}], overall_status}."""
+    selected = tuple(checks) if checks else _DEFAULT_CHECKS
+    invalid = [c for c in selected if c not in _DEFAULT_CHECKS]
+    if invalid:
+        raise ToolError(
+            f"invalid check(s) {invalid}; expected one of {_DEFAULT_CHECKS}",
+            code="INTERNAL",
+        )
+
+    logger.info(
+        "tool_call",
+        extra={"tool": "ppsspp_smoke_test", "session_id": session_id, "checks": selected},
+    )
+
+    results: list[CheckResult] = []
+    game_status: dict[str, Any] = {}
+
+    try:
+        async with session_client(session_id) as client:
+            # ws_connected check passes by virtue of context entry success.
+            for check in selected:
+                if check == "ws_connected":
+                    results.append(
+                        CheckResult(name=check, passed=True, detail="WS handshake OK")
+                    )
+                    continue
+                if check in ("iso_loaded", "cpu_running"):
+                    if not game_status:
+                        try:
+                            game_status = await client.game_status()
+                        except Exception as e:
+                            results.append(
+                                CheckResult(name=check, passed=False, detail=str(e))
+                            )
+                            continue
+                    if check == "iso_loaded":
+                        title = (
+                            game_status.get("game") or game_status.get("title") or ""
+                        )
+                        results.append(
+                            CheckResult(
+                                name=check,
+                                passed=bool(title),
+                                detail=f"game={title!r}",
+                            )
+                        )
+                    else:  # cpu_running
+                        paused = game_status.get("paused", True)
+                        results.append(
+                            CheckResult(
+                                name=check,
+                                passed=not paused,
+                                detail=f"paused={paused}",
+                            )
+                        )
+                elif check == "game_mode_valid":
+                    addr = read_game_mode_addr()
+                    if addr == 0:
+                        results.append(
+                            CheckResult(
+                                name=check,
+                                passed=False,
+                                detail="game_mode_addr not configured",
+                            )
+                        )
+                        continue
+                    try:
+                        val = await client.read_u32(addr)
+                        results.append(
+                            CheckResult(
+                                name=check,
+                                passed=val != 0,
+                                detail=f"game_mode=0x{val:08X}",
+                            )
+                        )
+                    except Exception as e:
+                        results.append(
+                            CheckResult(name=check, passed=False, detail=str(e))
+                        )
+    except Exception as e:
+        raise to_tool_error(e) from e
+
+    overall = "pass" if all(r.passed for r in results) else "fail"
+    result = SmokeTestResult(checks=results, overall_status=overall)
+    return SmokeTestResponse.from_result(result).model_dump(mode="json")

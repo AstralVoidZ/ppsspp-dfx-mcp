@@ -1,0 +1,19 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {},
+   "response": {
+    "event": "game.status",
+    "ticket": "t4",
+    "game": {
+     "id": "ULJS00000",
+     "version": "1.01",
+     "title": "Cassette Test Game"
+    },
+    "paused": false
+   }
+  }
+ ]
+}

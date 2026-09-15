@@ -1,0 +1,23 @@
+# ppsspp-dfx-mcp — project.yaml template
+# =============================================================================
+# Copy this file to <your-project-root>/.ppsspp-dfx/config/project.yaml and
+# fill in your values. The config directory is discovered relative to the
+# server's working directory (no parent walking) — see README "Configuration".
+#
+# Overriding PPSSPP_DFX_CONFIG_DIR (env) moves the whole directory elsewhere.
+# =============================================================================
+
+project:
+  name: "My PSP Localization Project"        # free-form, informational
+  game_id: "ULJS-00000"                      # serial from the ISO/disc case
+  game_title: "Your Game Title Here"
+
+# Path to a PPSSPP build that includes the WebSocket debugger
+# (ws://<host>:<port>/debugger). Relative paths resolve against the project
+# root. Portable dev builds with their own memstick/ + ppsspp.ini keep the
+# target isolated from your global PPSSPP profile.
+#
+# Precedence: env PPSSPP_DFX_EXE_PATH > this ppsspp_exe key > unset
+# (session start then fails with [PPSSPP_NOT_FOUND], which is the expected
+# signal — nothing is guessed).
+ppsspp_exe: "C:/path/to/PPSSPPWindows64.exe"

@@ -1,0 +1,189 @@
+{
+ "ppsspp_version": "v1.20.4-605-gf0c28c6744",
+ "type": "call",
+ "records": [
+  {
+   "params": {
+    "address": 142622720,
+    "count": 8
+   },
+   "response": {
+    "event": "memory.disasm",
+    "ticket": "t11",
+    "range": {
+     "start": 142622720,
+     "end": 142622752
+    },
+    "lines": [
+     {
+      "type": "opcode",
+      "address": 142622720,
+      "addressSize": 4,
+      "encoding": 666763200,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "addiu",
+      "params": "sp,sp,-0x40",
+      "symbol": "z_un_08804000",
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": {
+       "address": 138411712,
+       "uintValue": 4294967295,
+       "stringValue": null
+      },
+      "conditionMet": null,
+      "dataAccess": null
+     },
+     {
+      "type": "opcode",
+      "address": 142622724,
+      "addressSize": 4,
+      "encoding": 1006897304,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "lui",
+      "params": "a0,0x898",
+      "symbol": null,
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": null,
+      "conditionMet": null,
+      "dataAccess": null
+     },
+     {
+      "type": "opcode",
+      "address": 142622728,
+      "addressSize": 4,
+      "encoding": 2946498560,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "sw",
+      "params": "zero,0x0(sp)",
+      "symbol": null,
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": {
+       "address": 138411776,
+       "uintValue": 0,
+       "stringValue": null
+      },
+      "conditionMet": null,
+      "dataAccess": {
+       "address": 138411776,
+       "size": 4,
+       "uintValue": 0,
+       "symbol": null,
+       "valueSymbol": null
+      }
+     },
+     {
+      "type": "opcode",
+      "address": 142622732,
+      "addressSize": 4,
+      "encoding": 60827685,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "move",
+      "params": "a1,sp",
+      "symbol": null,
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": null,
+      "conditionMet": null,
+      "dataAccess": null
+     },
+     {
+      "type": "opcode",
+      "address": 142622736,
+      "addressSize": 4,
+      "encoding": 12325,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "li",
+      "params": "a2,0",
+      "symbol": null,
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": null,
+      "conditionMet": null,
+      "dataAccess": null
+     },
+     {
+      "type": "opcode",
+      "address": 142622740,
+      "addressSize": 4,
+      "encoding": 14373,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "li",
+      "params": "a3,0",
+      "symbol": null,
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": null,
+      "conditionMet": null,
+      "dataAccess": null
+     },
+     {
+      "type": "opcode",
+      "address": 142622744,
+      "addressSize": 4,
+      "encoding": 16421,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "li",
+      "params": "t0,0",
+      "symbol": null,
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": null,
+      "conditionMet": null,
+      "dataAccess": null
+     },
+     {
+      "type": "opcode",
+      "address": 142622748,
+      "addressSize": 4,
+      "encoding": 873005088,
+      "macroEncoding": null,
+      "backgroundColor": "#ffffe0",
+      "name": "li",
+      "params": "t1,0x20",
+      "symbol": null,
+      "function": "z_un_08804000",
+      "dataSymbol": null,
+      "breakpoint": null,
+      "isCurrentPC": false,
+      "branch": null,
+      "relevantData": null,
+      "conditionMet": null,
+      "dataAccess": null
+     }
+    ],
+    "branchGuides": []
+   }
+  }
+ ]
+}
