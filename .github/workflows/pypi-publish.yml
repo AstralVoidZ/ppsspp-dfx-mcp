@@ -1,0 +1,35 @@
+name: Publish to PyPI
+
+# tag 驱动发布：v* → build sdist/wheel → PyPI trusted publishing。
+# 前置人工步骤（一次性）：在 PyPI 项目设置里把本仓库配置为
+# Trusted Publisher（owner / repository / workflow 名称 = pypi-publish）。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # PyPI trusted publishing（OIDC），不使用 API token
+
+jobs:
+  pypi-publish:
+    name: build & publish
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Build sdist & wheel
+        run: |
+          pip install build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

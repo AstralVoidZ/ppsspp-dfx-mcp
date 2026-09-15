@@ -186,6 +186,40 @@ cp examples/project.yaml examples/addresses.yaml \
 RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该操作）。错误
 文本始终以 `[CODE]` 开头，agent 可编程分类；存在下一步的地方都内嵌了恢复建议。
 
+### 故障排查速查表
+
+| 症状 | 原因 / 修复 |
+|---|---|
+| `-32000: Connection closed`（无任何信息） | MCP 客户端与服务器之间有包装脚本：Windows 上 `os.execv` 实为 `CreateProcess` + 父进程等待（非 POSIX 替换），内层 server 的 stdin 立即 EOF 静默退出。去掉中间层，直接以 venv 解释器为 `command`（见[安装](#安装)） |
+| `check_env` 报「独立 venv 缺失」 | `.venv/` 被 gitignore 排除，新 clone 必然没有。运行 `python scripts/check_env.py --bootstrap` |
+| `mcp SDK 版本不满足` / 导入期崩溃 | 系统 Python 的 `mcp` 包常被其他 MCP server 钉在 1.x，与 SDK v2 不可调和。不要全局安装——用 `check_env.py --bootstrap` 建独立 venv |
+| `ppsspp_script_*` 工具全部消失（服务器正常启动） | `.ppsspp-dfx/config/scripts.manifest.yaml` 缺失——缺失仅告警不阻断，动态工具静默清空。从 `examples/` 拷贝三份模板修复（`check_env.py --check` 会提示） |
+| `[PPSSPP_NOT_FOUND]` | PPSSPP 可执行文件未配置。设 `PPSSPP_DFX_EXE_PATH`，或 `.ppsspp-dfx/config/project.yaml` 的 `ppsspp_exe`（优先级 env > yaml） |
+| 找不到 `.ppsspp-dfx/config` | 配置目录按 cwd 发现（无父级上溯）。从含 `.ppsspp-dfx/` 的目录启动，或设 `PPSSPP_DFX_CONFIG_DIR` 指向它 |
+| WebSocket 连接失败 / `WS_DISCONNECTED` | PPSSPP 未运行、端口不对，或未启用 WebSocket debugger。`check_env.py --check` 验证环境，`ppsspp_session(action='get')` 验证会话 |
+| 工具调用挂起 / 超时（`WS_TIMEOUT`） | PPSSPP 主循环负责 dispatch WebSocket 请求：UI 卡死、模态对话框弹出或模拟暂停时请求不会被处理。先截图确认 UI 状态 |
+| boot 阶段 `[BOOT_TIMEOUT]` | 启动楔死疑似。`start(resilient=true)` 会隔离 GPU 后端黑名单（仅重命名 `FailedGraphicsBackends.txt`，不删除）并自愈重启（≤2 次重试） |
+| `read_u32` 返回 `IR_ENCODING_DETECTED` | 读到的是 JIT-IR 代码而非 MIPS 指令。改用 `ppsspp_disassemble` |
+
+### 已知限制
+
+诚实声明协议面的边界——以下各项均已在对应工具的描述中标注，此处汇总：
+
+- **无存档 API**：PPSSPP 的 WebSocket debugger 不暴露 `savestate.*` 事件，
+  服务器无法提供存档保存/加载。用 PPSSPP 的 UI 快捷键（F1-F8 存档槽）。
+- **帧推进只有指令级**：`step` 走 `cpu.stepInto`。整帧推进的替代：在
+  vblank 处理器设断点后 `resume`。
+- **analog 摇杆是持久共享态**：`send_analog` 写入后保持到下次写入，无自动复位。
+- **VRAM 直读截图不可靠**：直读 VRAM 与 GPU 渲染输出不同步，颜色可能失真；
+  默认走 `render` 通道。`source='output'` 在部分游戏上有崩溃风险，仅在
+  render 通道空帧回退时使用。
+- **replay 时钟锚定**：replay 时间线使用录制会话 boot 时刻的绝对游戏时钟，
+  只能在全新 boot 后按 boot 对齐序列注入（工具返回体带对齐序列说明）。
+- **保护地址段写入需显式 `force=true`**：内核内存与 top.prx 代码段默认拒绝
+  写入/汇编码——这是防误写设计，不是限制性 bug。
+- **会话状态单写者**：`~/.ppsspp-dfx/sessions.json` 跨进程共享会话登记，
+  并发多个 MCP 服务器实例指向同一路径时后写覆盖。
+
 ## 开发
 
 文档/注释规范与测试工作流见 [CONTRIBUTING.md](CONTRIBUTING.md)。要点：
