@@ -5,6 +5,14 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
 会话生命周期、内存读写、反汇编、断点、CPU 控制、输入自动化、截图、回放录制与诊断
 脚本——并内建结构化契约、防御性错误分类法与任务级评估。
 
+文档：[docs/SCOPE.md](docs/SCOPE.md)（范围与协议面边界）·
+[CHANGELOG.md](CHANGELOG.md)（变更记录）
+
+## 项目状态
+
+项目处于 _alpha_ 阶段并快速迭代，**工具面与配置格式可能出现不兼容变更**。
+运行前请阅读 [SECURITY.md](SECURITY.md)。
+
 ## 功能特性
 
 - **41 个静态工具**，全部带结构化 `inputSchema` / `outputSchema`——没有无约束的
@@ -26,19 +34,64 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
 - **诚实的协议面**：能力只在其背后存在可用实现时才声明；刻意置 `false` 的开关
   附有设计理由说明。
 
-## 环境要求
+## 运行
 
-- Python 3.14+，配合独立 venv（原因见下文）
-- 带 WebSocket 调试器的 PPSSPP 构建（服务器负责启动它，并连接
-  `ws://<host>:<port>/debugger`）
-- 一个 MCP 客户端（ZCode、Claude Desktop、MCP Inspector 等）
+环境要求：Python 3.14+（配合独立 venv，原因见[从源码运行](#从源码运行)）；
+带 WebSocket 调试器的 PPSSPP 构建（服务器负责启动它，并连接
+`ws://<host>:<port>/debugger`）；一个 MCP 客户端（ZCode、Claude Desktop、
+MCP Inspector 等）。
 
-## 安装
+### 从 PyPI 安装运行
 
-本服务器导入 MCP SDK v2（`mcp.server.mcpserver`），它无法与许多其他 MCP 服务器
-锁定的 1.x `mcp` 包共存。请使用自带的引导脚本创建独立 venv：
+使用独立 venv——本服务器的 MCP SDK v2 无法与其他 MCP 服务器锁定的 1.x
+`mcp` 包共存：
 
 ```bash
+python3.14 -m venv .venv
+# Windows：
+.venv\Scripts\python -m pip install ppsspp-dfx-mcp
+# POSIX：
+.venv/bin/python -m pip install ppsspp-dfx-mcp
+```
+
+把服务器注册到你的 MCP 客户端（入口由安装包提供，无需指向仓库内脚本）：
+
+```json
+{
+  "mcpServers": {
+    "ppsspp-dfx": {
+      "command": "C:/absolute/path/to/.venv/Scripts/ppsspp-dfx-mcp.exe",
+      "cwd": "C:/absolute/path/to/your-project"
+    }
+  }
+}
+```
+
+`command` 指向安装 venv 内的入口可执行文件，POSIX 上为
+`.venv/bin/ppsspp-dfx-mcp`；`cwd` 是服务器发现 `.ppsspp-dfx/` 配置的目录
+（见[配置](#配置)）。手动启动验证：
+
+```bash
+.venv/Scripts/ppsspp-dfx-mcp.exe   # Windows
+.venv/bin/ppsspp-dfx-mcp           # POSIX
+```
+
+然后直接给 agent 派任务：*"启动模拟器加载这个 ISO，告诉我当前 PC"*——服务器
+负责会话启动、就绪探测与状态读取。工具描述遵循 PURPOSE / USAGE / BEHAVIOR /
+RETURNS 约定，错误路径内嵌恢复指引，agent 无需示例即可自助。
+
+> 不要在客户端与服务器之间插入包装脚本：Windows 上 `os.execv` 是
+> `CreateProcess` + 父进程等待（不是 POSIX 进程替换），多一层会让最内层服务器
+> 立即读到 stdin EOF 并静默退出——表面现象只是 `-32000: Connection closed`。
+
+### 从源码运行
+
+仓库检出内自带引导脚本与可直接使用的 `.mcp.json`：
+
+```bash
+git clone https://github.com/AstralVoidZ/ppsspp-dfx-mcp.git
+cd ppsspp-dfx-mcp
+
 # 在本目录执行——创建 .venv/ppsspp-dfx-mcp 并安装（editable，含 dev 依赖）：
 python scripts/check_env.py --bootstrap
 
@@ -46,8 +99,8 @@ python scripts/check_env.py --bootstrap
 python scripts/check_env.py --check
 ```
 
-把服务器注册到你的 MCP 客户端。本目录已附带可直接使用的 `.mcp.json`——让客户端
-读取它，或按同样的结构内联：
+把服务器注册到你的 MCP 客户端——让客户端读取仓库里的 `.mcp.json`，或按同样的
+结构内联：
 
 ```json
 {
@@ -64,21 +117,12 @@ python scripts/check_env.py --check
 `cwd` 必须是同时存放 `.venv/` 与 `.ppsspp-dfx/` 配置的目录（独立检出时即仓库根）。
 POSIX 上请用 `.venv/ppsspp-dfx-mcp/bin/python` 代替 `Scripts/python.exe`。
 
-> 不要在客户端与服务器之间插入包装脚本：Windows 上 `os.execv` 是
-> `CreateProcess` + 父进程等待（不是 POSIX 进程替换），多一层会让最内层服务器
-> 立即读到 stdin EOF 并静默退出——表面现象只是 `-32000: Connection closed`。
-
-## 使用
+手动启动验证：
 
 ```bash
 .venv/ppsspp-dfx-mcp/Scripts/python -m ppsspp_dfx_mcp   # Windows
 .venv/ppsspp-dfx-mcp/bin/python -m ppsspp_dfx_mcp        # POSIX
 ```
-
-然后直接给 agent 派任务：*"启动模拟器加载这个 ISO，告诉我当前 PC"*——服务器
-负责会话启动、就绪探测与状态读取。工具描述遵循
-PURPOSE / USAGE / BEHAVIOR / RETURNS 约定，错误路径内嵌恢复指引，agent 无需
-示例即可自助。
 
 ## 配置
 
@@ -190,9 +234,9 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 
 | 症状 | 原因 / 修复 |
 |---|---|
-| `-32000: Connection closed`（无任何信息） | MCP 客户端与服务器之间有包装脚本：Windows 上 `os.execv` 实为 `CreateProcess` + 父进程等待（非 POSIX 替换），内层 server 的 stdin 立即 EOF 静默退出。去掉中间层，直接以 venv 解释器为 `command`（见[安装](#安装)） |
-| `check_env` 报「独立 venv 缺失」 | `.venv/` 被 gitignore 排除，新 clone 必然没有。运行 `python scripts/check_env.py --bootstrap` |
-| `mcp SDK 版本不满足` / 导入期崩溃 | 系统 Python 的 `mcp` 包常被其他 MCP server 钉在 1.x，与 SDK v2 不可调和。不要全局安装——用 `check_env.py --bootstrap` 建独立 venv |
+| `-32000: Connection closed`（无任何信息） | MCP 客户端与服务器之间有包装脚本：Windows 上 `os.execv` 实为 `CreateProcess` + 父进程等待（非 POSIX 替换），内层 server 的 stdin 立即 EOF 静默退出。去掉中间层，直接以 venv 解释器为 `command`（见[从源码运行](#从源码运行)） |
+| `check_env` 报「独立 venv 缺失」 | `.venv/` 被 gitignore 排除，新 clone 必然没有。运行 `python scripts/check_env.py --bootstrap`（见[从源码运行](#从源码运行)） |
+| `mcp SDK 版本不满足` / 导入期崩溃 | 系统 Python 的 `mcp` 包常被其他 MCP server 钉在 1.x，与 SDK v2 不可调和。不要全局安装——用 `check_env.py --bootstrap` 建独立 venv，或按[从 PyPI 安装运行](#从-pypi-安装运行)安装到独立 venv |
 | `ppsspp_script_*` 工具全部消失（服务器正常启动） | `.ppsspp-dfx/config/scripts.manifest.yaml` 缺失——缺失仅告警不阻断，动态工具静默清空。从 `examples/` 拷贝三份模板修复（`check_env.py --check` 会提示） |
 | `[PPSSPP_NOT_FOUND]` | PPSSPP 可执行文件未配置。设 `PPSSPP_DFX_EXE_PATH`，或 `.ppsspp-dfx/config/project.yaml` 的 `ppsspp_exe`（优先级 env > yaml） |
 | 找不到 `.ppsspp-dfx/config` | 配置目录按 cwd 发现（无父级上溯）。从含 `.ppsspp-dfx/` 的目录启动，或设 `PPSSPP_DFX_CONFIG_DIR` 指向它 |
@@ -220,9 +264,22 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 - **会话状态单写者**：`~/.ppsspp-dfx/sessions.json` 跨进程共享会话登记，
   并发多个 MCP 服务器实例指向同一路径时后写覆盖。
 
+## 社区与支持
+
+- 通过 [GitHub Issues](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/issues)
+  提交缺陷报告与功能建议。
+- 配置与会话问题先查[故障排查速查表](#故障排查速查表)与
+  [已知限制](#已知限制)。
+
+## 贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 开发
 
-文档/注释规范与测试工作流见 [CONTRIBUTING.md](CONTRIBUTING.md)。要点：
+从 [docs/SCOPE.md](docs/SCOPE.md)（范围与协议面边界）与
+[evals/README.md](evals/README.md)（盲测评估体系：场景卡、确定性门禁、
+runner、报告）入手。
 
 ```bash
 # 全量测试套件（单元 + 契约 + 集成；约 1500 个测试）：
@@ -232,8 +289,29 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 .venv/ppsspp-dfx-mcp/Scripts/python scripts/dump_tool_surface.py
 ```
 
-`evals/` 目录承载盲测评估体系（场景卡、确定性门禁、runner、报告）——见
-`evals/README.md`。
+## 致谢
+
+- [PPSSPP](https://www.ppsspp.org/) —— 被调试目标本身。本服务的
+  WebSocket 调试协议契约（`debugger.ppsspp.org` 子协议、事件语义与 HLE
+  内省字段）对照其源码逐项梳理并建档（见 [docs/SCOPE.md](docs/SCOPE.md)）。
+- [mcp-ppsspp](https://github.com/dmang-dev/mcp-ppsspp)、mcp-bizhawk、
+  mcp-mgba —— 同类模拟器-MCP 桥接方案；本服务的覆盖定位以它们为对照
+  （见 [docs/SCOPE.md](docs/SCOPE.md) 的「与同类项目的覆盖对比」）。
+- 运行时依赖（[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)、
+  [pydantic](https://docs.pydantic.dev/)、PyYAML、websockets）声明于
+  [pyproject.toml](pyproject.toml)。
+
+## 引用
+
+```bibtex
+@misc{ppssppdfxmcp2026,
+  title={ppsspp-dfx-mcp: a PPSSPP debug MCP server for PSP game localization},
+  author={AstralVoidZ and contributors},
+  year={2026},
+  publisher={GitHub},
+  howpublished={\url{https://github.com/AstralVoidZ/ppsspp-dfx-mcp}},
+}
+```
 
 ## 许可证
 

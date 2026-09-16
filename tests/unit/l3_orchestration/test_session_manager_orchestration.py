@@ -456,8 +456,12 @@ class TestIsPidAlive:
             def CloseHandle(self, handle):
                 return True
 
+        # create=True: `ctypes.windll` doesn't exist on POSIX, so the patch
+        # must create the attribute instead of requiring it to be present.
         with patch("sys.platform", "win32"), patch(
-            "ctypes.windll", type("Windll", (), {"kernel32": _FakeKernel32()})
+            "ctypes.windll",
+            new=type("Windll", (), {"kernel32": _FakeKernel32()}),
+            create=True,
         ):
             assert proc.is_pid_alive(999999) is False
 

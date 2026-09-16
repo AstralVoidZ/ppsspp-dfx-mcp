@@ -1,21 +1,28 @@
 name: Publish to PyPI
 
-# tag 驱动发布：v* → build sdist/wheel → PyPI trusted publishing。
-# 前置人工步骤（一次性）：在 PyPI 项目设置里把本仓库配置为
-# Trusted Publisher（owner / repository / workflow 名称 = pypi-publish）。
+# 两段式发布：
+#   阶段一  push tag v*         → 构建 + 试发布到 TestPyPI，验证无误后再进阶段二
+#   阶段二  GitHub Release 发布 → 同一 tag 重新构建 + 正式发布到 pypi.org
+# 两阶段共用本文件：两平台 Trusted Publisher 注册均为
+# workflow 文件名 = pypi-publish.yml / environment = pypi（OIDC，不用 API token）。
+# 人工门禁 = 阶段二的 Release 发布按钮；因此不要在 GitHub 的 pypi 环境
+# 上加 Required reviewers，否则阶段一也会被卡。
 
 on:
   push:
     tags:
       - "v*"
+  release:
+    types: [published]
 
 permissions:
   contents: read
-  id-token: write # PyPI trusted publishing（OIDC），不使用 API token
+  id-token: write
 
 jobs:
-  pypi-publish:
-    name: build & publish
+  publish-testpypi:
+    name: build & publish → test.pypi.org
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: pypi
     steps:
@@ -25,6 +32,48 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+
+      - name: Guard — tag 与 pyproject 版本一致
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          FILE=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$TAG" != "$FILE" ]; then
+            echo "::error::tag v$TAG 与 pyproject.toml 版本 $FILE 不一致"
+            exit 1
+          fi
+
+      - name: Build sdist & wheel
+        run: |
+          pip install build
+          python -m build
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # 缺省时该 action 上传到正式 PyPI；TestPyPI 必须显式指定。
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: build & publish → pypi.org
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Guard — tag 与 pyproject 版本一致
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          FILE=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$TAG" != "$FILE" ]; then
+            echo "::error::tag v$TAG 与 pyproject.toml 版本 $FILE 不一致"
+            exit 1
+          fi
 
       - name: Build sdist & wheel
         run: |
