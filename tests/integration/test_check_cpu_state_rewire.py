@@ -43,6 +43,14 @@ from ppsspp_dfx_mcp.tools.script import run_script
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SCRIPT_PATH = _REPO_ROOT / "tools" / "topx_diagnostics" / "state" / "check_cpu_state.py"
 
+# The rewired script is a dev-workspace artifact (TransLens tools/), not
+# tracked in this repo — CI checkouts can't see it. Skip the whole module
+# there; the assert in _inject_manifest stays as a guard against path rot.
+pytestmark = pytest.mark.skipif(
+    not _SCRIPT_PATH.exists(),
+    reason=f"workspace rewired script not present: {_SCRIPT_PATH}",
+)
+
 # Patch points: deferred imports inside run() resolve these attributes at
 # call time, so patching the source modules is stable.
 _GPU_PROBE = "ppsspp_dfx_mcp.tools.gpu_stats.gpu_stats"

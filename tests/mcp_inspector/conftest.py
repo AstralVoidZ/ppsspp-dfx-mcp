@@ -60,9 +60,6 @@ _HERE = Path(__file__).resolve().parent
 _TESTS_ROOT = _HERE.parent  # tests/
 _SRC_ROOT = _HERE.parents[1] / "src"  # ppsspp-dfx-mcp/src/
 _FIXTURES_DIR = _TESTS_ROOT / "cassettes" / "fixtures"
-# Repo-root config dir. `_HERE` is already tests/mcp_inspector, so
-# parents[0]=tests, [1]=ppsspp-dfx-mcp, [2]=mcps, [3]=repo root.
-_PROJECT_CONFIG_DIR = _HERE.parents[3] / ".ppsspp-dfx" / "config"
 
 
 def _is_cancel_scope_teardown_error(exc: BaseException) -> bool:
@@ -134,15 +131,21 @@ async def mcp_inspector() -> AsyncIterator[ClientSession]:
     # session-scoped fixture → tmp_path_factory (tmp_path is function-scoped).
     _sessions_dir = Path(tempfile.mkdtemp(prefix="ppsspp-dfx-sessions-"))
     env["PPSSPP_DFX_SESSIONS_PATH"] = str(_sessions_dir / "sessions.json")
-    # Point at the repo's .ppsspp-dfx/config/ so the subprocess finds
-    # addresses.yaml. config.py resolves config_dir() from CWD with no
-    # upward search, and this subprocess runs with CWD = pytest root
-    # (mcps/ppsspp-dfx-mcp/), so without this the address completion would
-    # legitimately return nothing here while working in production (where
-    # .mcp.json starts the server from the repo root). Same pattern as
-    # tests/integration/conftest.py.
-    if _PROJECT_CONFIG_DIR.is_dir():
-        env["PPSSPP_DFX_CONFIG_DIR"] = str(_PROJECT_CONFIG_DIR)
+    # Hermetic config dir: config_dir() resolves from CWD with no upward
+    # search, and this subprocess runs with CWD = pytest rootdir, so absent
+    # an explicit PPSSPP_DFX_CONFIG_DIR it finds nothing (a clean checkout
+    # has no .ppsspp-dfx/). Seed the minimum the wire tests rely on —
+    # runtime-band addresses for the completion/complete round-trip — and
+    # point the env var at it unconditionally. An earlier revision pointed
+    # at a workspace .ppsspp-dfx/config/ found by parent-walking, which
+    # silently no-opped in every checkout outside that one workspace.
+    _config_dir = Path(tempfile.mkdtemp(prefix="ppsspp-dfx-config-"))
+    (_config_dir / "addresses.yaml").write_text(
+        # Runtime band 0x08800000..0x0A000000 — see completions._RUNTIME_BANDS.
+        "top_base:\n  ppsspp: 0x08804000\ngame_mode_addr: 0x08A0D000\n",
+        encoding="utf-8",
+    )
+    env["PPSSPP_DFX_CONFIG_DIR"] = str(_config_dir)
     # PYTHONPATH: src/ first (ppsspp_dfx_mcp), then tests/ (FakeTransport
     # + contract_recorder + record_replay). The server's
     # _build_fake_transport_for_session imports these lazily, so they

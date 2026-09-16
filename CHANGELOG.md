@@ -20,8 +20,9 @@
   索引 + 协议面边界的诚实汇总。
 - **`docs/SCOPE.md`**：PPSSPP WS 事件 → 工具映射的人读版 + 刻意未工具化
   事件清单（机器可读真相源仍为 `ws_contract.py`）。
-- 随包 `.github/workflows/`：三平台测试矩阵（CI）与 tag 驱动 PyPI 发布
-  （trusted publishing，需在 PyPI 侧配置 publisher 后生效）。
+- 随包 `.github/workflows/`：三平台测试矩阵（CI）与两段式发布工作流——
+  push tag `v*` 构建并试发布（内部验证），确认后发布 GitHub Release 正式
+  上架 PyPI；两阶段均为 trusted publishing（OIDC），内置 tag/版本一致性 Guard。
 
 ### Changed
 
