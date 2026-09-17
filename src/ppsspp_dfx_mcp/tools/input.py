@@ -34,6 +34,7 @@ from ppsspp_dfx_mcp.models.input import (
     SendAnalogResult,
     WaitFramesResult,
 )
+from ppsspp_dfx_mcp.models.input import PPSSPP_ALL_BUTTONS as _PPSSPP_ALL_BUTTONS
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
 from ppsspp_dfx_mcp.views.input import (
@@ -58,37 +59,9 @@ __all__ = ["press_button", "hold_buttons", "send_analog", "wait_frames"]
 # pacing constants and the chunked+liveness waiter live in tools/_common
 # so batch_step's wait steps share the exact same semantics.
 
-# Button names accepted by PPSSPP's WebSocket debugger. Source of truth:
-# InputSubscriber.cpp buttonLookup table (25 entries) — the PSP
-# face/shoulder/system buttons plus the console-only keys (home, screen,
-# note, hold, wlan, remote, volume, disc, memstick, playback).
-_PPSSPP_ALL_BUTTONS = (
-    "cross",
-    "circle",
-    "triangle",
-    "square",
-    "up",
-    "down",
-    "left",
-    "right",
-    "start",
-    "select",
-    "home",
-    "screen",
-    "note",
-    "ltrigger",
-    "rtrigger",
-    "hold",
-    "wlan",
-    "remote_hold",
-    "vol_up",
-    "vol_down",
-    "disc",
-    "memstick",
-    "forward",
-    "back",
-    "playpause",
-)
+# Button names accepted by PPSSPP's WebSocket debugger — canonical tuple
+# lives in models/input.py (PPSSPP_ALL_BUTTONS, wire-contract layer), so
+# input tools and batch steps validate against one vocabulary.
 
 # Tool-facing alias set: the full PPSSPP table plus common alternate
 # spellings callers may use.

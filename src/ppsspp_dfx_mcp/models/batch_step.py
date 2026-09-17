@@ -15,6 +15,8 @@ from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from pydantic import Field
 
+from ppsspp_dfx_mcp.models.input import PSPButton
+
 
 # ── AI-usability round: typed step inputs ────────────────────────────────
 # Discriminated-union TypedDicts: the MCP inputSchema gains per-type
@@ -27,7 +29,7 @@ class PressStep(TypedDict):
 
     type: Literal["press"]
     button: Annotated[
-        str,
+        PSPButton,
         Field(description="Button name (25-item whitelist, e.g. 'cross'/'start')."),
     ]
     duration: NotRequired[
