@@ -7,8 +7,11 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-18
+
 ### Changed
 
+- README 增加徽章行（PyPI / CI / Python / License）。
 - 全库 ruff 清债至零并纳入 CI 执法：safe-fix 482 处（导入排序/类型现代化/
   未用导入）、`ruff format` 全库 214 文件、残量 SIM105/SIM117/F841 等手工
   清扫；`.github/workflows/ci.yml` 新增 lint job（`ruff check` +
