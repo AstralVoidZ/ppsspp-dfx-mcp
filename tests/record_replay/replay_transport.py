@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any
 
 from .cassette import CassetteRecord, load_cassette
 
 # Type aliases (mirror FakeTransport for interface compatibility).
-ResponseConfig = Union[dict[str, Any], Callable[..., dict[str, Any]]]
+ResponseConfig = dict[str, Any] | Callable[..., dict[str, Any]]
 FAFHandler = Callable[..., None]
 
 
@@ -62,9 +63,7 @@ class ReplayTransport:
         - broadcast_records: FIFO queue for wait_for_broadcast
         - state_change_records: sequential state_change queue
         """
-        self._call_records: list[CassetteRecord] = [
-            r for r in records if r.type == "call"
-        ]
+        self._call_records: list[CassetteRecord] = [r for r in records if r.type == "call"]
         self._call_cursor = 0
         self._faf_records: list[CassetteRecord] = [
             r for r in records if r.type == "fire_and_forget"
@@ -97,7 +96,7 @@ class ReplayTransport:
                 self._events_queue.put_nowait(record.message)
 
     @classmethod
-    def from_cassette(cls, cassette_path: Path) -> "ReplayTransport":
+    def from_cassette(cls, cassette_path: Path) -> ReplayTransport:
         """Load records from a JSONL cassette file and build a replay transport."""
         records = load_cassette(cassette_path)
         return cls(records)
@@ -182,8 +181,8 @@ class ReplayTransport:
         # Scan forward from cursor for the next matching call record.
         # Best-effort: prefer exact param match; fall back to first
         # record with matching event.
-        exact_match: Optional[CassetteRecord] = None
-        event_match: Optional[CassetteRecord] = None
+        exact_match: CassetteRecord | None = None
+        event_match: CassetteRecord | None = None
         scan_idx = self._call_cursor
         while scan_idx < len(self._call_records):
             record = self._call_records[scan_idx]
@@ -226,7 +225,7 @@ class ReplayTransport:
             )
 
         # Consume the next faf record (sequential, by order).
-        faf_record = self._faf_records[self._faf_cursor]
+        _faf_record = self._faf_records[self._faf_cursor]
         self._faf_cursor += 1
 
         # Apply any paired state_change record (sequential, by order).
@@ -272,7 +271,7 @@ class ReplayTransport:
         self,
         event: str,
         timeout_ms: int = 5000,
-        filter: Optional[Callable[[dict[str, Any]], bool]] = None,
+        filter: Callable[[dict[str, Any]], bool] | None = None,
     ) -> dict[str, Any]:
         """Wait for a broadcast event on the events queue (mirrors FakeTransport).
 
@@ -292,18 +291,13 @@ class ReplayTransport:
                         f"no matching '{event}' broadcast"
                     )
                 try:
-                    msg = await asyncio.wait_for(
-                        self._events_queue.get(), timeout=remaining_s
-                    )
-                except asyncio.TimeoutError:
+                    msg = await asyncio.wait_for(self._events_queue.get(), timeout=remaining_s)
+                except TimeoutError:
                     raise TimeoutError(
                         f"wait_for_broadcast timeout ({timeout_ms}ms) — "
                         f"no matching '{event}' broadcast"
-                    )
-                if (
-                    msg.get("event") == event
-                    and (filter is None or filter(msg))
-                ):
+                    ) from None
+                if msg.get("event") == event and (filter is None or filter(msg)):
                     return msg
                 backlog.append(msg)
         except TimeoutError:

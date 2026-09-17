@@ -38,9 +38,7 @@ async def _pump() -> None:
 
 def _push(transport: _EventQueueTransport, n: int) -> None:
     for i in range(n):
-        transport.events.put_nowait(
-            {"event": "cpu.stepping", "pc": 0x08800000 + i, "seq": f"b{i}"}
-        )
+        transport.events.put_nowait({"event": "cpu.stepping", "pc": 0x08800000 + i, "seq": f"b{i}"})
 
 
 async def _drain(sub: SteppingSubscription, n: int) -> list[dict]:
@@ -96,9 +94,7 @@ async def test_fanout_stalled_subscriber_drops_oldest_not_block():
         # is still flowing (a >cap burst consumed only afterwards would
         # legitimately hit the bounded-backlog cap — see next test).
         for i in range(40):
-            transport.events.put_nowait(
-                {"event": "cpu.stepping", "pc": i, "seq": f"b{i}"}
-            )
+            transport.events.put_nowait({"event": "cpu.stepping", "pc": i, "seq": f"b{i}"})
             if i % 4 == 0:
                 await asyncio.sleep(0.005)
         await consumer

@@ -79,7 +79,9 @@ _DEFAULT_MAX_RESULTS = 100
 # address <= 0, empty match, or WS failure.
 @mcp.tool(
     name="ppsspp_search_disasm",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def search_disasm(
@@ -91,8 +93,7 @@ async def search_disasm(
         str,
         Field(
             description=(
-                "Starting address for the disassembly search, as a hex "
-                "string (e.g. '0x08804000')."
+                "Starting address for the disassembly search, as a hex string (e.g. '0x08804000')."
             ),
         ),
     ],
@@ -134,11 +135,11 @@ async def search_disasm(
     ] = _DEFAULT_MAX_RESULTS,
 ) -> SearchDisasmOutput:
     """PURPOSE: Loop-search disassembly for a substring, collecting matching instructions with context.
-    
+
     USAGE: session_id + match (a leading '$' is stripped); start address; end=0 wraps the search around the whole region; max_results default 100.
-    
+
     BEHAVIOR: READ-ONLY.
-    
+
     RETURNS: {address, match, end, results[{address, text, name, params}], text}."""
     require_session_id(session_id)
     address_int = parse_address(address)
@@ -183,9 +184,7 @@ async def search_disasm(
     except Exception as e:
         raise to_tool_error(e) from e
 
-    result = SearchDisasmResult(
-        address=address_int, match=match, end=end_int, results=results
-    )
+    result = SearchDisasmResult(address=address_int, match=match, end=end_int, results=results)
     return SearchDisasmResponse.from_result(result).model_dump(mode="json")
 
 
@@ -219,12 +218,8 @@ async def _collect_matches(
         if end > start_addr and current >= end:
             break
 
-        response = await client.search_disasm(
-            address=current, match=match, end=end
-        )
-        matched_addr = (
-            response.get("address") if isinstance(response, dict) else None
-        )
+        response = await client.search_disasm(address=current, match=match, end=end)
+        matched_addr = response.get("address") if isinstance(response, dict) else None
         if not isinstance(matched_addr, int):
             break  # No more matches.
 

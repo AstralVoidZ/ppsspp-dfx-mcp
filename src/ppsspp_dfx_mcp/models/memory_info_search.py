@@ -43,7 +43,7 @@ class MemoryInfoSearchResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_raw(cls, raw: dict[str, Any]) -> "MemoryInfoSearchResult":
+    def from_raw(cls, raw: dict[str, Any]) -> MemoryInfoSearchResult:
         """Build MemoryInfoSearchResult from a raw `memory.info.search` response."""
         regions = _extract_regions(raw)
         return cls(

@@ -104,12 +104,9 @@ def parse_replay_blob_b64(base64_data: str) -> ReplayBlobSpan:
         last = ts
     if off != len(blob):
         raise ValueError(
-            f"corrupt replay blob: sidedata walk ended at {off} != "
-            f"{len(blob)} (bad payload length)"
+            f"corrupt replay blob: sidedata walk ended at {off} != {len(blob)} (bad payload length)"
         )
-    return ReplayBlobSpan(
-        event_count=count, t0_s=first / 1e6, end_s=last / 1e6
-    )
+    return ReplayBlobSpan(event_count=count, t0_s=first / 1e6, end_s=last / 1e6)
 
 
 @dataclass(frozen=True)
@@ -207,19 +204,14 @@ class PPRFile:
         """
         raw_fmt = data.get("ppr_format_version")
         if raw_fmt is None:
-            raise ValueError(
-                "invalid .ppr file: missing 'ppr_format_version' field"
-            )
+            raise ValueError("invalid .ppr file: missing 'ppr_format_version' field")
         if int(raw_fmt) != _PPR_FORMAT_VERSION:
             raise ValueError(
-                f"unsupported .ppr format version: got {raw_fmt}, "
-                f"expected {_PPR_FORMAT_VERSION}"
+                f"unsupported .ppr format version: got {raw_fmt}, expected {_PPR_FORMAT_VERSION}"
             )
         for field in ("version", "base64", "base_rtc"):
             if field not in data:
-                raise ValueError(
-                    f"invalid .ppr file: missing required field {field!r}"
-                )
+                raise ValueError(f"invalid .ppr file: missing required field {field!r}")
         return cls(
             version=int(data["version"]),
             base64=str(data["base64"]),

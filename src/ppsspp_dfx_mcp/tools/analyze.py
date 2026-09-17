@@ -36,7 +36,9 @@ from ppsspp_dfx_mcp.views.analyze import (
 )
 
 AnalyzeLogOutput = derive_output_contract("AnalyzeLogOutput", AnalyzeLogResponse)
-AddressConversionOutput = derive_output_contract("AddressConversionOutput", AddressConversionResponse)
+AddressConversionOutput = derive_output_contract(
+    "AddressConversionOutput", AddressConversionResponse
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +86,8 @@ def _resolve_log_path(log_path: str) -> Path:
         raise ArgsInvalid(
             f"log_path is outside the allowed .ppsspp-dfx tree "
             f"(allowed roots: {[str(r) for r in _LOG_ALLOWED_ROOTS]}): "
-            f"{resolved}")
+            f"{resolved}"
+        )
     return resolved
 
 
@@ -97,8 +100,7 @@ def _filter_log_lines(path: Path, keywords: list[str]) -> list[LogMatch]:
     """
     size = path.stat().st_size
     if size > MAX_LOG_BYTES:
-        raise ArgsInvalid(
-            f"log file too large: {path} ({size} bytes; cap {MAX_LOG_BYTES})")
+        raise ArgsInvalid(f"log file too large: {path} ({size} bytes; cap {MAX_LOG_BYTES})")
     matches: list[LogMatch] = []
     with path.open("r", encoding="utf-8", errors="replace") as f:
         for i, line in enumerate(f, 1):
@@ -119,7 +121,9 @@ def _filter_log_lines(path: Path, keywords: list[str]) -> list[LogMatch]:
 # ToolError: if log_path is provided but unreadable.
 @mcp.tool(
     name="ppsspp_analyze_log",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def analyze_log(
@@ -192,9 +196,7 @@ async def analyze_log(
         # lines land in output/ppsspp.log as they are broadcast.
         mirror_path = output_dir() / "ppsspp.log"
         if mirror_path.is_file():
-            matches = await asyncio.to_thread(
-                _filter_log_lines, mirror_path, keywords
-            )
+            matches = await asyncio.to_thread(_filter_log_lines, mirror_path, keywords)
             source = str(mirror_path)
         else:
             matches = []
@@ -226,16 +228,16 @@ async def analyze_log(
 # ToolError (AddrInvalid): on negative address or invalid mode.
 @mcp.tool(
     name="ppsspp_convert_address",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def convert_address(
     address: Annotated[
         str,
         Field(
-            description=(
-                "Address to convert, as a hex string (e.g. '0x08804000')."
-            ),
+            description=("Address to convert, as a hex string (e.g. '0x08804000')."),
         ),
     ],
     mode: Annotated[
@@ -293,8 +295,7 @@ async def convert_address(
     elif resolved_mode == "ida_to_ppsspp":
         converted = address_int + offset
     else:
-        raise ArgsInvalid(
-            f"invalid mode={mode!r}; expected ida_to_ppsspp / ppsspp_to_ida / auto")
+        raise ArgsInvalid(f"invalid mode={mode!r}; expected ida_to_ppsspp / ppsspp_to_ida / auto")
 
     result = AddressConversionResult(
         original=address_int,

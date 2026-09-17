@@ -8,7 +8,6 @@ from ppsspp_dfx_mcp.address import format_address
 from ppsspp_dfx_mcp.models.analyze import (
     AddressConversionResult,
     AnalyzeLogResult,
-    LogMatch,
 )
 from ppsspp_dfx_mcp.views._base import FrozenModel
 
@@ -34,12 +33,10 @@ class AnalyzeLogResponse(FrozenModel):
     filter: str = Field(default="", description="User-supplied keyword filter.")
 
     @classmethod
-    def from_result(cls, result: AnalyzeLogResult) -> "AnalyzeLogResponse":
+    def from_result(cls, result: AnalyzeLogResult) -> AnalyzeLogResponse:
         return cls(
             log_path=result.log_path,
-            matches=[
-                LogMatchView(line_no=m.line_no, text=m.text) for m in result.matches
-            ],
+            matches=[LogMatchView(line_no=m.line_no, text=m.text) for m in result.matches],
             count=result.count,
             filter=result.filter,
         )
@@ -55,7 +52,7 @@ class AddressConversionResponse(FrozenModel):
     top_base_ida: str = Field(description="top.prx IDA base address, hex string.")
 
     @classmethod
-    def from_result(cls, result: AddressConversionResult) -> "AddressConversionResponse":
+    def from_result(cls, result: AddressConversionResult) -> AddressConversionResponse:
         return cls(
             original=format_address(result.original),
             converted=format_address(result.converted),

@@ -47,7 +47,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-
 # ---------- Enumerations ----------
 
 
@@ -102,17 +101,17 @@ class OutputSize(Enum):
     truncation / pagination strategy.
     """
 
-    SMALL = "small"    # < 1 KB
+    SMALL = "small"  # < 1 KB
     MEDIUM = "medium"  # 1–10 KB
-    LARGE = "large"    # 10–100 KB (truncate by default)
-    HUGE = "huge"      # > 100 KB (paginate or strip fields)
+    LARGE = "large"  # 10–100 KB (truncate by default)
+    HUGE = "huge"  # > 100 KB (paginate or strip fields)
 
 
 class SafetyLevel(Enum):
     """Destructiveness of the operation."""
 
     READ_ONLY = "read_only"
-    MUTATING = "mutating"        # mutates memory or register state
+    MUTATING = "mutating"  # mutates memory or register state
     DESTRUCTIVE = "destructive"  # mutates code section / crash risk
 
 
@@ -310,7 +309,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
         safety=SafetyLevel.MUTATING,
         diagnostic_hint="Large writes to the code section may crash PPSSPP",
     ),
-
     # ── CPU (NO_STEPPING for reads, REQUIRED_STEPPING for writes) ────
     "cpu.getAllRegs": WsEventContract(
         event="cpu.getAllRegs",
@@ -373,7 +371,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
         safety=SafetyLevel.READ_ONLY,
         diagnostic_hint="",
     ),
-
     # ── Stepping (fire-and-forget — completion signalled by broadcast) ─
     "cpu.stepInto": WsEventContract(
         event="cpu.stepInto",
@@ -482,7 +479,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "GameStateObserver.wait_for_resume for broadcast-confirmed resume)."
         ),
     ),
-
     # ── Breakpoints (NO_STEPPING — PPSSPP does not gate these) ───────
     "cpu.breakpoint.add": WsEventContract(
         event="cpu.breakpoint.add",
@@ -522,7 +518,17 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
     ),
     "memory.breakpoint.add": WsEventContract(
         event="memory.breakpoint.add",
-        params=("address", "size", "enabled", "read", "write", "change", "log", "condition?", "logFormat?"),
+        params=(
+            "address",
+            "size",
+            "enabled",
+            "read",
+            "write",
+            "change",
+            "log",
+            "condition?",
+            "logFormat?",
+        ),
         cpu_state=CpuStateRequirement.NO_STEPPING,
         trust=TrustLevel.HIGH,
         output=OutputSize.SMALL,
@@ -549,14 +555,23 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
     ),
     "memory.breakpoint.update": WsEventContract(
         event="memory.breakpoint.update",
-        params=("address", "size", "enabled?", "log?", "condition?", "logFormat?", "read?", "write?", "change?"),
+        params=(
+            "address",
+            "size",
+            "enabled?",
+            "log?",
+            "condition?",
+            "logFormat?",
+            "read?",
+            "write?",
+            "change?",
+        ),
         cpu_state=CpuStateRequirement.NO_STEPPING,
         trust=TrustLevel.HIGH,
         output=OutputSize.SMALL,
         safety=SafetyLevel.READ_ONLY,
         diagnostic_hint="PPSSPP matches mem breakpoints by address+size pair; update may silently drop read/write/change params)",
     ),
-
     # ── HLE ──────────────────────────────────────────────────────────
     "hle.thread.list": WsEventContract(
         event="hle.thread.list",
@@ -641,7 +656,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
         safety=SafetyLevel.MUTATING,
         diagnostic_hint="Call step(pause) first; PPSSPP rejects func.remove when CPU is running (HLESubscriber.cpp:322-324)",
     ),
-
     # ── Disasm (NO_STEPPING — but protocol limits apply) ─────────────
     "memory.disasm": WsEventContract(
         event="memory.disasm",
@@ -685,7 +699,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "disassemble to fill text."
         ),
     ),
-
     # ── Input (NO_STEPPING) ──────────────────────────────────────────
     "input.buttons.press": WsEventContract(
         event="input.buttons.press",
@@ -714,7 +727,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
         safety=SafetyLevel.MUTATING,
         diagnostic_hint="",
     ),
-
     # ── System (NO_STEPPING) ─────────────────────────────────────────
     "game.status": WsEventContract(
         event="game.status",
@@ -751,7 +763,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
         safety=SafetyLevel.DESTRUCTIVE,
         diagnostic_hint="Causes game state loss",
     ),
-
     # ── GPU Buffer (REQUIRED_STEPPING_OR_GPU_STEPPING) ────────────────
     "gpu.buffer.renderColor": WsEventContract(
         event="gpu.buffer.renderColor",
@@ -803,7 +814,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
         safety=SafetyLevel.READ_ONLY,
         diagnostic_hint="Requires CPU or GPU stepping; captures the currently-bound CLUT",
     ),
-
     # ── GPU Stats / Record (REQUIRED_RUNNING — depends on Display Flip) ─
     # NOTE on gpu.stats.get dual semantics:
     #   1. Ticketed call (contract below) — caller awaits the next flip's
@@ -850,7 +860,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "base64 payload — batch 3 strips it from the JSON response."
         ),
     ),
-
     # ── Memory Info (NO_STEPPING) ─────────────────────────────────────
     "memory.info.search": WsEventContract(
         event="memory.info.search",
@@ -865,7 +874,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "if no match), not a list."
         ),
     ),
-
     # ── Replay (NO_STEPPING) ─────────────────────────────────────────
     # All replay.* events are
     # usable while the CPU is RUNNING — recording requires the CPU to
@@ -946,7 +954,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
         safety=SafetyLevel.MUTATING,
         diagnostic_hint="Overwrite base RTC; param {value: uint}.",
     ),
-
     # ── Game lifecycle broadcasts (GameBroadcaster.cpp, ticketless) ───
     # Pushed when GlobalUIState transitions. Consumed by GameStateObserver
     # to drive the loading→running→paused→running / running→quit state
@@ -1002,7 +1009,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "transition; freeze detection should recommend session reset."
         ),
     ),
-
     # ── Log broadcast (LogBroadcaster.cpp, ticketless) ───────────────
     # Pushed for each PPSSPP log message. Default enabled (disallowed.logger
     # defaults false). GameStateObserver defensively calls
@@ -1023,7 +1029,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "logging.getLogger('ppsspp_dfx_mcp.ppsspp_log')."
         ),
     ),
-
     # ── GPU stats feed (GPUStatsSubscriber.cpp:171, ticketed call) ────
     # Starts/stops the per-frame gpu.stats.get broadcast feed. No
     # immediate response payload beyond the ticket ack. enable defaults
@@ -1044,7 +1049,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "CpuFreezeSuspected)."
         ),
     ),
-
     # ── Broadcast config (ClientConfigSubscriber.cpp, ticketed calls) ─
     # Per-client disallowed flags. Field names: logger / game / stepping /
     # input. Semantics: true=disabled, false/absent=enabled. Note the
@@ -1079,7 +1083,6 @@ WS_EVENT_CONTRACTS: dict[str, WsEventContract] = {
             "confirmation). NOTE: field name is `logger` not `log`."
         ),
     ),
-
     # ── Version handshake ────────────────────────────────────────────
     "version": WsEventContract(
         event="version",
@@ -1131,6 +1134,5 @@ def requires_stepping_or_gpu_stepping(event: str) -> bool:
         KeyError: if `event` is not in WS_EVENT_CONTRACTS.
     """
     return (
-        WS_EVENT_CONTRACTS[event].cpu_state
-        is CpuStateRequirement.REQUIRED_STEPPING_OR_GPU_STEPPING
+        WS_EVENT_CONTRACTS[event].cpu_state is CpuStateRequirement.REQUIRED_STEPPING_OR_GPU_STEPPING
     )

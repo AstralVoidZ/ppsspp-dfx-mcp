@@ -47,19 +47,17 @@ import asyncio
 import json
 import os
 import sys
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
+from ppsspp_dfx_mcp.core import proc
 from ppsspp_dfx_mcp.errors import IsoNotFound, SessionExpired, SessionNotFound
 from ppsspp_dfx_mcp.models.session import Session
 from ppsspp_dfx_mcp.session import session_manager as sm
-from ppsspp_dfx_mcp.core import proc
-
 
 # ============================================================================
 # _StubLauncher — test double for PpssppLauncher
@@ -80,11 +78,11 @@ class _StubLauncher:
 
     def __init__(
         self,
-        ws_port_value: Optional[int] = 12345,
-        start_exception: Optional[Exception] = None,
+        ws_port_value: int | None = 12345,
+        start_exception: Exception | None = None,
         proc_pid: int = 99999,
     ) -> None:
-        self.ws_port: Optional[int] = ws_port_value
+        self.ws_port: int | None = ws_port_value
         self._start_exception = start_exception
         self._proc_pid = proc_pid
         self.start_calls = 0
@@ -105,13 +103,13 @@ class _StubLauncher:
 def _make_session(
     session_id: str = "test-sess",
     iso_path: str = "/tmp/fake.iso",
-    pid: Optional[int] = 999999,
-    last_active_at: Optional[datetime] = None,
-    created_at: Optional[datetime] = None,
+    pid: int | None = 999999,
+    last_active_at: datetime | None = None,
+    created_at: datetime | None = None,
     exec_count: int = 0,
 ) -> Session:
     """Build a Session with sensible defaults for tests."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return Session(
         session_id=session_id,
         iso_path=iso_path,
@@ -157,11 +155,22 @@ class TestModuleConstants:
         (free-form metadata dict). Test anchors the code reality.
         """
         assert isinstance(sm._SESSION_FIELDS, frozenset)
-        assert sm._SESSION_FIELDS == frozenset({
-            "session_id", "iso_path", "pid", "ws_url",
-            "created_at", "last_active_at", "exec_count",
-            "ws_connected", "extra",
-        })
+        assert (
+            frozenset(
+                {
+                    "session_id",
+                    "iso_path",
+                    "pid",
+                    "ws_url",
+                    "created_at",
+                    "last_active_at",
+                    "exec_count",
+                    "ws_connected",
+                    "extra",
+                }
+            )
+            == sm._SESSION_FIELDS
+        )
         assert len(sm._SESSION_FIELDS) == 9
 
 
@@ -291,35 +300,35 @@ class TestParseDt:
 
     def test_I9a_datetime_passthrough(self):
         """O7-I9: _parse_dt returns datetime instances as-is."""
-        dt = datetime(2026, 7, 22, 12, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 7, 22, 12, 0, 0, tzinfo=UTC)
         assert sm._parse_dt(dt) is dt
 
     def test_I9b_iso8601_string_parsed(self):
         """O7-I9: _parse_dt parses ISO 8601 strings."""
         dt_str = "2026-07-22T12:00:00+00:00"
         result = sm._parse_dt(dt_str)
-        assert result == datetime(2026, 7, 22, 12, 0, 0, tzinfo=timezone.utc)
+        assert result == datetime(2026, 7, 22, 12, 0, 0, tzinfo=UTC)
         assert result.tzinfo is not None
 
     def test_I9c_naive_iso_gets_utc_timezone(self):
         """O7-I9: _parse_dt attaches UTC tzinfo to naive ISO strings."""
         dt_str = "2026-07-22T12:00:00"
         result = sm._parse_dt(dt_str)
-        assert result.tzinfo is timezone.utc
+        assert result.tzinfo is UTC
 
     def test_I9d_invalid_string_falls_back_to_now(self):
         """O7-I9: _parse_dt returns now(utc) on unparseable input."""
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         result = sm._parse_dt("not-a-date")
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
         assert before <= result <= after
-        assert result.tzinfo is timezone.utc
+        assert result.tzinfo is UTC
 
     def test_I9e_none_falls_back_to_now(self):
         """O7-I9: _parse_dt returns now(utc) on None input."""
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         result = sm._parse_dt(None)
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
         assert before <= result <= after
 
 
@@ -335,9 +344,7 @@ class TestSaveSessions:
     mkdir parents=True, datetime → ISO 8601 serialization.
     """
 
-    def test_I10_uses_atomic_write_with_tmp_and_replace(
-        self, isolated_sessions_path: Path
-    ):
+    def test_I10_uses_atomic_write_with_tmp_and_replace(self, isolated_sessions_path: Path):
         """O7-I10: _save_sessions writes sessions.json.tmp then os.replace."""
         captured: dict[str, Path] = {}
         original_replace = os.replace
@@ -350,9 +357,7 @@ class TestSaveSessions:
         with patch("ppsspp_dfx_mcp.session.session_manager.os.replace", spy_replace):
             sm._save_sessions({"x": _make_session(session_id="x")})
 
-        expected_tmp = isolated_sessions_path.with_name(
-            isolated_sessions_path.name + ".tmp"
-        )
+        expected_tmp = isolated_sessions_path.with_name(isolated_sessions_path.name + ".tmp")
         assert captured["src"] == expected_tmp
         assert captured["dst"] == isolated_sessions_path
         # tmp file consumed by os.replace
@@ -368,9 +373,10 @@ class TestSaveSessions:
         def nested_path() -> Path:
             return nested
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager.sessions_path", nested_path
-        ), patch("ppsspp_dfx_mcp.config.sessions_path", nested_path):
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.sessions_path", nested_path),
+            patch("ppsspp_dfx_mcp.config.sessions_path", nested_path),
+        ):
             sm._save_sessions({"x": _make_session(session_id="x")})
 
         assert nested.exists()
@@ -382,8 +388,8 @@ class TestSaveSessions:
             session_id="s1",
             iso_path="/tmp/x.iso",
             pid=123,
-            created_at=datetime(2026, 7, 22, 12, 0, 0, tzinfo=timezone.utc),
-            last_active_at=datetime(2026, 7, 22, 12, 30, 0, tzinfo=timezone.utc),
+            created_at=datetime(2026, 7, 22, 12, 0, 0, tzinfo=UTC),
+            last_active_at=datetime(2026, 7, 22, 12, 30, 0, tzinfo=UTC),
         )
         d = sm._session_to_dict(sess)
         assert d["created_at"] == "2026-07-22T12:00:00+00:00"
@@ -444,7 +450,6 @@ class TestIsPidAlive:
 
     def _simulate_windows_open_process_zero(self) -> None:
         """Helper: simulate the Windows OpenProcess-returns-0 path on non-Windows."""
-        import ctypes
 
         class _FakeKernel32:
             def OpenProcess(self, access, inherit, pid):
@@ -458,10 +463,13 @@ class TestIsPidAlive:
 
         # create=True: `ctypes.windll` doesn't exist on POSIX, so the patch
         # must create the attribute instead of requiring it to be present.
-        with patch("sys.platform", "win32"), patch(
-            "ctypes.windll",
-            new=type("Windll", (), {"kernel32": _FakeKernel32()}),
-            create=True,
+        with (
+            patch("sys.platform", "win32"),
+            patch(
+                "ctypes.windll",
+                new=type("Windll", (), {"kernel32": _FakeKernel32()}),
+                create=True,
+            ),
         ):
             assert proc.is_pid_alive(999999) is False
 
@@ -488,11 +496,13 @@ class TestIsPidAlive:
     def _simulate_linux_zombie(self) -> None:
         """Helper: simulate Linux /proc zombie detection."""
         # os.kill(pid, 0) succeeds (process entry exists).
-        with patch("os.kill", lambda *a, **kw: None), patch(
-            "pathlib.Path.exists", return_value=True
-        ), patch(
-            "pathlib.Path.read_text",
-            return_value="Name:\tzombie\nState:\tZ (zombie)\n",
+        with (
+            patch("os.kill", lambda *a, **kw: None),
+            patch("pathlib.Path.exists", return_value=True),
+            patch(
+                "pathlib.Path.read_text",
+                return_value="Name:\tzombie\nState:\tZ (zombie)\n",
+            ),
         ):
             assert proc.is_pid_alive(999999) is False
 
@@ -504,9 +514,11 @@ class TestIsPidAlive:
         may be reported as alive (documented limitation).
         """
         # Force POSIX non-Linux path: os.kill succeeds, /proc absent.
-        with patch("sys.platform", "darwin"), patch(
-            "os.kill", lambda *a, **kw: None
-        ), patch("pathlib.Path.exists", return_value=False):
+        with (
+            patch("sys.platform", "darwin"),
+            patch("os.kill", lambda *a, **kw: None),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             assert proc.is_pid_alive(999999) is True
 
 
@@ -559,14 +571,15 @@ class TestStartSession:
         manager = sm.SessionManager()
 
         # Patch _save_sessions to raise on the first call.
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub
-        ), patch(
-            "ppsspp_dfx_mcp.session.session_manager._save_sessions",
-            side_effect=OSError("disk full"),
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub),
+            patch(
+                "ppsspp_dfx_mcp.session.session_manager._save_sessions",
+                side_effect=OSError("disk full"),
+            ),
+            pytest.raises(OSError, match="disk full"),
         ):
-            with pytest.raises(OSError, match="disk full"):
-                await manager.start_session(str(iso))
+            await manager.start_session(str(iso))
 
         # Launcher NOT in _launchers (save failed → no registration).
         assert manager._launchers == {}
@@ -581,11 +594,13 @@ class TestStartSession:
         iso.write_bytes(b"\x00" * 16)
 
         stub = _StubLauncher(ws_port_value=None)
-        with patch("ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub), patch(
-            "ppsspp_dfx_mcp.session.session_manager.ws_port", return_value=23456
-        ), patch(
-            "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
-            return_value=False,
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub),
+            patch("ppsspp_dfx_mcp.session.session_manager.ws_port", return_value=23456),
+            patch(
+                "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
+                return_value=False,
+            ),
         ):
             manager = sm.SessionManager()
             sess = await manager.start_session(str(iso))
@@ -639,11 +654,12 @@ class TestStartSessionProbeWS:
         async def _probe_true(ws_url: str) -> bool:
             return True
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub
-        ), patch(
-            "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
-            _probe_true,
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub),
+            patch(
+                "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
+                _probe_true,
+            ),
         ):
             manager = sm.SessionManager()
             sess = await manager.start_session(str(iso))
@@ -664,11 +680,12 @@ class TestStartSessionProbeWS:
         async def _probe_false(ws_url: str) -> bool:
             return False
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub
-        ), patch(
-            "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
-            _probe_false,
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub),
+            patch(
+                "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
+                _probe_false,
+            ),
         ):
             manager = sm.SessionManager()
             sess = await manager.start_session(str(iso))
@@ -693,11 +710,12 @@ class TestStartSessionProbeWS:
         async def _probe_raises(ws_url: str) -> bool:
             raise RuntimeError("unexpected probe failure")
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub
-        ), patch(
-            "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
-            _probe_raises,
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub),
+            patch(
+                "ppsspp_dfx_mcp.session.session_manager._probe_ws_connection",
+                _probe_raises,
+            ),
         ):
             manager = sm.SessionManager()
             try:
@@ -743,9 +761,7 @@ class TestProbeWsConnection:
                 self.closed = True
 
         fake = _FakeTransport()
-        with patch(
-            "ppsspp_dfx_mcp.core.transport.WsTransport", lambda *a, **kw: fake
-        ):
+        with patch("ppsspp_dfx_mcp.core.transport.WsTransport", lambda *a, **kw: fake):
             # patchpath targets the WsTransport import inside the
             # _probe_ws_connection function (lazy import).
             result = await _probe_ws_connection("ws://127.0.0.1:12345/debugger")
@@ -771,9 +787,7 @@ class TestProbeWsConnection:
                 self.closed = True
 
         fake = _FakeTransport()
-        with patch(
-            "ppsspp_dfx_mcp.core.transport.WsTransport", lambda *a, **kw: fake
-        ):
+        with patch("ppsspp_dfx_mcp.core.transport.WsTransport", lambda *a, **kw: fake):
             result = await _probe_ws_connection("ws://127.0.0.1:12345/debugger")
 
         assert result is False
@@ -809,9 +823,7 @@ class TestProbeWsConnection:
                 self.closed = True
 
         fake = _FakeTransport()
-        with patch(
-            "ppsspp_dfx_mcp.core.transport.WsTransport", lambda *a, **kw: fake
-        ):
+        with patch("ppsspp_dfx_mcp.core.transport.WsTransport", lambda *a, **kw: fake):
             result = await _probe_ws_connection("ws://127.0.0.1:12345/debugger")
 
         assert result is False
@@ -831,9 +843,7 @@ class TestStopSession:
     swallowed; returns sess.with_stopped() and pops from sessions dict.
     """
 
-    async def test_I22_stop_session_acquires_lock(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_I22_stop_session_acquires_lock(self, isolated_sessions_path: Path):
         """O7-I22: stop_session runs load-modify-save under self._lock.
 
         Three-phase locking (B.2 refactor): stop_session acquires the
@@ -869,9 +879,7 @@ class TestStopSession:
         # Phase 1 (read session) + Phase 3 (persist removal) = 2 acquisitions.
         assert acquire_calls["n"] == 2
 
-    async def test_I23a_prefers_in_memory_launcher(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_I23a_prefers_in_memory_launcher(self, isolated_sessions_path: Path):
         """O7-I23: stop_session uses in-memory launcher when available."""
         sess = _make_session(session_id="s1")
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
@@ -886,9 +894,7 @@ class TestStopSession:
         # Launcher popped from _launchers.
         assert "s1" not in manager._launchers
 
-    async def test_I23b_falls_back_to_force_kill_pid(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_I23b_falls_back_to_force_kill_pid(self, isolated_sessions_path: Path):
         """O7-I23: no in-memory launcher → _force_kill_pid(sess.pid)."""
         sess = _make_session(session_id="s1", pid=4321)
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
@@ -899,16 +905,12 @@ class TestStopSession:
         def fake_kill(pid: int) -> None:
             kill_calls.append(pid)
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager._force_kill_pid", fake_kill
-        ):
+        with patch("ppsspp_dfx_mcp.session.session_manager._force_kill_pid", fake_kill):
             await manager.stop_session("s1")
 
         assert kill_calls == [4321]
 
-    async def test_I24_force_kill_pid_exception_swallowed(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_I24_force_kill_pid_exception_swallowed(self, isolated_sessions_path: Path):
         """O7-I24: _force_kill_pid exception → silently passed (no raise)."""
         sess = _make_session(session_id="s1", pid=4321)
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
@@ -925,9 +927,7 @@ class TestStopSession:
         assert result.session_id == "s1"
         assert result.pid is None
 
-    async def test_I25_returns_with_stopped_and_pops_session(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_I25_returns_with_stopped_and_pops_session(self, isolated_sessions_path: Path):
         """O7-I25: stop_session returns sess.with_stopped(); session removed from disk."""
         sess = _make_session(session_id="s1", pid=12345)
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
@@ -943,9 +943,7 @@ class TestStopSession:
         data = json.loads(isolated_sessions_path.read_text(encoding="utf-8"))
         assert "s1" not in data
 
-    async def test_stop_session_raises_session_not_found(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_stop_session_raises_session_not_found(self, isolated_sessions_path: Path):
         """stop_session raises SessionNotFound for unknown session_id."""
         manager = sm.SessionManager()
         with pytest.raises(SessionNotFound):
@@ -975,19 +973,24 @@ class TestGetSessionState:
 
         # Replace lock with one that raises if acquired.
         class _NoAcquireLock:
-            def acquire(self): raise AssertionError("lock acquired")
-            def release(self): pass
-            async def __aenter__(self): raise AssertionError("lock acquired")
-            async def __aexit__(self, *a): pass
+            def acquire(self):
+                raise AssertionError("lock acquired")
+
+            def release(self):
+                pass
+
+            async def __aenter__(self):
+                raise AssertionError("lock acquired")
+
+            async def __aexit__(self, *a):
+                pass
 
         manager._lock = _NoAcquireLock()  # type: ignore[assignment]
         # Must NOT raise (no lock acquisition).
         result = await manager.get_session_state("s1")
         assert result.session_id == "s1"
 
-    async def test_I27_raises_session_expired_when_pid_dead(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_I27_raises_session_expired_when_pid_dead(self, isolated_sessions_path: Path):
         """O7-I27: pid set + not alive → SessionExpired."""
         sess = _make_session(session_id="s1", pid=999999)
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
@@ -1025,7 +1028,7 @@ class TestTouchSession:
 
     async def test_I28_runs_under_lock(self, isolated_sessions_path: Path):
         """O7-I28: touch_session acquires _lock for load-modify-save."""
-        old = datetime.now(timezone.utc) - timedelta(seconds=100)
+        old = datetime.now(UTC) - timedelta(seconds=100)
         sess = _make_session(session_id="s1", last_active_at=old, created_at=old)
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
         manager = sm.SessionManager()
@@ -1045,14 +1048,10 @@ class TestTouchSession:
 
         assert acquire_calls["n"] == 1
 
-    async def test_I29_bumps_last_active_at_and_exec_count(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_I29_bumps_last_active_at_and_exec_count(self, isolated_sessions_path: Path):
         """O7-I29: touch_session uses with_updated_activity (last_active_at + exec_count)."""
-        old = datetime.now(timezone.utc) - timedelta(seconds=100)
-        sess = _make_session(
-            session_id="s1", exec_count=5, last_active_at=old, created_at=old
-        )
+        old = datetime.now(UTC) - timedelta(seconds=100)
+        sess = _make_session(session_id="s1", exec_count=5, last_active_at=old, created_at=old)
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
         manager = sm.SessionManager()
 
@@ -1094,10 +1093,17 @@ class TestListSessions:
         manager = sm.SessionManager()
 
         class _NoAcquireLock:
-            def acquire(self): raise AssertionError("lock acquired")
-            def release(self): pass
-            async def __aenter__(self): raise AssertionError("lock acquired")
-            async def __aexit__(self, *a): pass
+            def acquire(self):
+                raise AssertionError("lock acquired")
+
+            def release(self):
+                pass
+
+            async def __aenter__(self):
+                raise AssertionError("lock acquired")
+
+            async def __aexit__(self, *a):
+                pass
 
         manager._lock = _NoAcquireLock()  # type: ignore[assignment]
         result = await manager.list_sessions()
@@ -1108,9 +1114,7 @@ class TestListSessions:
         """O7-I30: sessions with dead PIDs are excluded."""
         alive_sess = _make_session(session_id="alive", pid=None)
         dead_sess = _make_session(session_id="dead", pid=999999)
-        _seed_sessions_json(
-            isolated_sessions_path, {"alive": alive_sess, "dead": dead_sess}
-        )
+        _seed_sessions_json(isolated_sessions_path, {"alive": alive_sess, "dead": dead_sess})
         manager = sm.SessionManager()
 
         result = await manager.list_sessions()
@@ -1122,11 +1126,11 @@ class TestListSessions:
     async def test_I30c_filters_idle_expired(self, isolated_sessions_path: Path):
         """O7-I30: sessions with idle_s > IDLE_GC_THRESHOLD_S are excluded."""
         recent = _make_session(session_id="recent", pid=None)
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=3600)
-        old = _make_session(session_id="old", pid=None, last_active_at=old_time, created_at=old_time)
-        _seed_sessions_json(
-            isolated_sessions_path, {"recent": recent, "old": old}
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
+        old = _make_session(
+            session_id="old", pid=None, last_active_at=old_time, created_at=old_time
         )
+        _seed_sessions_json(isolated_sessions_path, {"recent": recent, "old": old})
         manager = sm.SessionManager()
 
         result = await manager.list_sessions()
@@ -1154,8 +1158,10 @@ class TestGcIdleSessions:
 
     async def test_I31_acquires_lock_in_two_phases(self, isolated_sessions_path: Path):
         """O7-I31: gc_idle_sessions acquires _lock twice (Phase 1 + Phase 3)."""
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=3600)
-        sess = _make_session(session_id="s1", pid=None, last_active_at=old_time, created_at=old_time)
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
+        sess = _make_session(
+            session_id="s1", pid=None, last_active_at=old_time, created_at=old_time
+        )
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
         manager = sm.SessionManager()
 
@@ -1182,7 +1188,7 @@ class TestGcIdleSessions:
         concurrent session operations for 5+ seconds per hung process.
         The three-phase protocol runs stop in Phase 2 (no lock held).
         """
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=3600)
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
         s1 = _make_session(session_id="s1", pid=4321, last_active_at=old_time, created_at=old_time)
         _seed_sessions_json(isolated_sessions_path, {"s1": s1})
         manager = sm.SessionManager()
@@ -1193,21 +1199,19 @@ class TestGcIdleSessions:
         def fake_kill(pid: int) -> None:
             in_lock_state.append(manager._lock.locked())
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager._force_kill_pid", fake_kill
-        ):
+        with patch("ppsspp_dfx_mcp.session.session_manager._force_kill_pid", fake_kill):
             stopped = await manager.gc_idle_sessions()
 
         assert stopped == ["s1"]
         # _force_kill_pid happened while lock was NOT held (Phase 2).
-        assert not any(in_lock_state), (
-            f"expected all stops outside lock, got {in_lock_state}"
-        )
+        assert not any(in_lock_state), f"expected all stops outside lock, got {in_lock_state}"
 
     async def test_I33a_prefers_in_memory_launcher(self, isolated_sessions_path: Path):
         """O7-I33: gc_idle_sessions pops _launchers[sid] when available."""
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=3600)
-        sess = _make_session(session_id="s1", pid=None, last_active_at=old_time, created_at=old_time)
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
+        sess = _make_session(
+            session_id="s1", pid=None, last_active_at=old_time, created_at=old_time
+        )
         _seed_sessions_json(isolated_sessions_path, {"s1": sess})
         manager = sm.SessionManager()
         stub = _StubLauncher()
@@ -1220,7 +1224,7 @@ class TestGcIdleSessions:
 
     async def test_I33b_falls_back_to_force_kill_pid(self, isolated_sessions_path: Path):
         """O7-I33: no in-memory launcher → _force_kill_pid(sess.pid)."""
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=3600)
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
         sess = _make_session(
             session_id="s1", pid=4321, last_active_at=old_time, created_at=old_time
         )
@@ -1232,9 +1236,7 @@ class TestGcIdleSessions:
         def fake_kill(pid: int) -> None:
             kill_calls.append(pid)
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager._force_kill_pid", fake_kill
-        ):
+        with patch("ppsspp_dfx_mcp.session.session_manager._force_kill_pid", fake_kill):
             stopped = await manager.gc_idle_sessions()
 
         assert stopped == ["s1"]
@@ -1242,7 +1244,7 @@ class TestGcIdleSessions:
 
     async def test_I34_returns_stopped_ids_list(self, isolated_sessions_path: Path):
         """O7-I34: gc_idle_sessions returns list[str] of stopped session_ids."""
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=3600)
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
         s1 = _make_session(session_id="s1", pid=None, last_active_at=old_time, created_at=old_time)
         s2 = _make_session(session_id="s2", pid=None, last_active_at=old_time, created_at=old_time)
         _seed_sessions_json(isolated_sessions_path, {"s1": s1, "s2": s2})
@@ -1265,7 +1267,7 @@ class TestGcIdleSessions:
 
     async def test_persists_after_gc(self, isolated_sessions_path: Path):
         """gc_idle_sessions persists the pruned sessions.json after stopping."""
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=3600)
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
         s1 = _make_session(session_id="s1", pid=None, last_active_at=old_time, created_at=old_time)
         recent = _make_session(session_id="recent", pid=None)
         _seed_sessions_json(isolated_sessions_path, {"s1": s1, "recent": recent})
@@ -1318,9 +1320,10 @@ class TestIdleGcLoop:
         async def fake_gc():
             raise RuntimeError("simulated GC failure")
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager.asyncio.sleep", fake_sleep
-        ), patch.object(manager, "gc_idle_sessions", fake_gc):
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.asyncio.sleep", fake_sleep),
+            patch.object(manager, "gc_idle_sessions", fake_gc),
+        ):
             # Should NOT raise RuntimeError — loop continues.
             await manager.idle_gc_loop()
 
@@ -1344,9 +1347,10 @@ class TestIdleGcLoop:
         async def fake_gc():
             gc_call_order.append("gc")
 
-        with patch(
-            "ppsspp_dfx_mcp.session.session_manager.asyncio.sleep", fake_sleep
-        ), patch.object(manager, "gc_idle_sessions", fake_gc):
+        with (
+            patch("ppsspp_dfx_mcp.session.session_manager.asyncio.sleep", fake_sleep),
+            patch.object(manager, "gc_idle_sessions", fake_gc),
+        ):
             await manager.idle_gc_loop()
 
         # sleep was called; gc was NOT called (sleep raised CancelledError

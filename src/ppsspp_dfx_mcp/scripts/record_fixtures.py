@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import sys
@@ -64,7 +65,10 @@ _EXTEND_RECIPE: list[tuple[str, dict[str, Any], str]] = [
 
 
 def _write_fixture(
-    out_dir: Path, event: str, version: str, params: dict[str, Any],
+    out_dir: Path,
+    event: str,
+    version: str,
+    params: dict[str, Any],
     response: dict[str, Any],
 ) -> Path:
     payload = {
@@ -88,7 +92,10 @@ async def record(host: str, port: int, out_dir: Path, extend: bool) -> int:
         # The version event doubles as the subprotocol handshake probe
         # (WebSocket.cpp:43 recommends sending it right after connect).
         version_resp = await transport.call(
-            "version", timeout=2.0, name="ppsspp-dfx-record", version="1.0.0",
+            "version",
+            timeout=2.0,
+            name="ppsspp-dfx-record",
+            version="1.0.0",
         )
         version = str(version_resp.get("version", "unknown"))
 
@@ -108,10 +115,8 @@ async def record(host: str, port: int, out_dir: Path, extend: bool) -> int:
             written += 1
         return written
     finally:
-        try:
+        with contextlib.suppress(Exception):  # best-effort close
             await transport.close()
-        except Exception:  # noqa: BLE001 — best-effort close
-            pass
 
 
 def main(argv: list[str] | None = None) -> int:

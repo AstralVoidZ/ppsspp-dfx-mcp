@@ -28,8 +28,9 @@ Anchor:
 from __future__ import annotations
 
 import inspect
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -64,10 +65,20 @@ class TestV016MemoryMapNoMappingWrapper:
         dict with a `mapping` key wrapping it.
         """
         ranges = [
-            {"type": "ram", "subtype": "primary", "name": "User Memory",
-             "address": 0x08800000, "size": 0x01800000},
-            {"type": "vram", "subtype": "primary", "name": "VRAM",
-             "address": 0x04000000, "size": 0x00200000},
+            {
+                "type": "ram",
+                "subtype": "primary",
+                "name": "User Memory",
+                "address": 0x08800000,
+                "size": 0x01800000,
+            },
+            {
+                "type": "vram",
+                "subtype": "primary",
+                "name": "VRAM",
+                "address": 0x04000000,
+                "size": 0x00200000,
+            },
         ]
         transport.set_response("memory.mapping", {"ranges": ranges})
 
@@ -95,7 +106,7 @@ class TestV016MemoryMapNoMappingWrapper:
             "response should be returned directly. See "
             "MemoryInfoSubscriber.cpp:L48, L78-129."
         )
-        assert 'mapping_resp' not in src, (
+        assert "mapping_resp" not in src, (
             "memory_map source must NOT use a `mapping_resp` local "
             "variable — V016 fix was reverted (wraps the response in a "
             "`mapping` key)."
@@ -113,8 +124,13 @@ class TestV016MemoryMapNoMappingWrapper:
         structure (`{ranges, mapping, text}`) must remain unchanged.
         """
         ranges = [
-            {"type": "ram", "subtype": "primary", "name": "User Memory",
-             "address": 0x08800000, "size": 0x01800000},
+            {
+                "type": "ram",
+                "subtype": "primary",
+                "name": "User Memory",
+                "address": 0x08800000,
+                "size": 0x01800000,
+            },
         ]
         mock_client = AsyncMock()
         # V016 fix: client returns the raw PPSSPP response (no wrapper).

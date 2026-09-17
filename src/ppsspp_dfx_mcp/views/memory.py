@@ -61,13 +61,13 @@ def _format_read_text(action: str, address: int, value: Any, size: int) -> str:
         if isinstance(value, list):
             count = len(value)
             if count == 0:
-                return f"scan: 0 matches"
+                return "scan: 0 matches"
             addrs: list[str] = []
             for m in value[:5]:
                 if isinstance(m, dict) and "address" in m:
                     try:
                         addrs.append(f"0x{int(m['address']):08X}")
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         addrs.append(str(m["address"]))
             head = ", ".join(addrs)
             suffix = ", ..." if count > 5 else ""
@@ -130,7 +130,7 @@ class MemoryReadResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: MemoryReadResult) -> "MemoryReadResponse":
+    def from_result(cls, result: MemoryReadResult) -> MemoryReadResponse:
         text = _format_read_text(
             action=result.action,
             address=result.address,
@@ -169,7 +169,7 @@ class MemoryWriteResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: MemoryWriteResult) -> "MemoryWriteResponse":
+    def from_result(cls, result: MemoryWriteResult) -> MemoryWriteResponse:
         return cls(
             address=format_address(result.address),
             format=result.format,
@@ -190,7 +190,7 @@ class DisassemblyResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: DisassemblyResult) -> "DisassemblyResponse":
+    def from_result(cls, result: DisassemblyResult) -> DisassemblyResponse:
         return cls(
             address=format_address(result.address),
             count=result.count,

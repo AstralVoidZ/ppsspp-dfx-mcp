@@ -19,8 +19,9 @@ a real WebSocket connection.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -41,9 +42,7 @@ class TestStepPausePopulatesPc:
     """
 
     @pytest.mark.asyncio
-    async def test_pause_populates_pc_from_get_pc(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_pause_populates_pc_from_get_pc(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """step(pause) returns StepResult with pc from get_pc.
 
         Verifies the tool-layer orchestration: pause() is called,
@@ -74,9 +73,7 @@ class TestStepPausePopulatesPc:
         )
 
     @pytest.mark.asyncio
-    async def test_pause_calls_get_pc_after_pause(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_pause_calls_get_pc_after_pause(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Order invariant: pause() precedes get_pc().
 
         get_pc() on a running CPU returns a LOW-trust PC (WS contract
@@ -155,9 +152,7 @@ class TestStepResumeResetDoNotPopulatePc:
     """
 
     @pytest.mark.asyncio
-    async def test_resume_does_not_call_get_pc(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_resume_does_not_call_get_pc(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """step(resume) must NOT call get_pc (CPU transitioning to running)."""
         mock_client = AsyncMock()
         mock_client.resume.return_value = {"stepping": False}
@@ -183,9 +178,7 @@ class TestStepResumeResetDoNotPopulatePc:
         mock_client.get_pc.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_reset_does_not_call_get_pc(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_reset_does_not_call_get_pc(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """step(reset) must NOT call get_pc (game reboots, PC irrelevant)."""
         mock_client = AsyncMock()
         mock_client.reset.return_value = {"ok": True}
@@ -205,7 +198,6 @@ class TestStepResumeResetDoNotPopulatePc:
 
         assert result["action"] == "reset"
         assert result["pc"] == "0x00000000", (
-            "step(resume) must NOT populate pc — game reboots, PC is "
-            "irrelevant."
+            "step(resume) must NOT populate pc — game reboots, PC is irrelevant."
         )
         mock_client.get_pc.assert_not_awaited()

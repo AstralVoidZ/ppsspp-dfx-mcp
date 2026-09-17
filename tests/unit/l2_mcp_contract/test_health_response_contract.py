@@ -18,12 +18,11 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from pydantic import BaseModel
 
-from ppsspp_dfx_mcp import __version__, server as server_mod
+from ppsspp_dfx_mcp import __version__
+from ppsspp_dfx_mcp import server as server_mod
 from ppsspp_dfx_mcp.tools.introspect import health
 from ppsspp_dfx_mcp.views.introspect import HealthResponse
-
 
 # ============================================================================
 # health() return shape
@@ -49,9 +48,7 @@ class TestHealthReturnShape:
         """health() dict must contain exactly the 8 expected fields."""
         result = await health()
         assert isinstance(result, dict)
-        assert set(result.keys()) == self._EXPECTED_FIELDS, (
-            f"got keys={sorted(result.keys())}"
-        )
+        assert set(result.keys()) == self._EXPECTED_FIELDS, f"got keys={sorted(result.keys())}"
 
     @pytest.mark.asyncio
     async def test_health_status_is_ok(self):
@@ -122,7 +119,6 @@ class TestHealthResponsePydanticContract:
 
     def test_health_response_is_frozen(self):
         """HealthResponse instances must be immutable (frozen=True)."""
-        from pydantic import ConfigDict
 
         config = HealthResponse.model_config
         assert config.get("frozen") is True, (

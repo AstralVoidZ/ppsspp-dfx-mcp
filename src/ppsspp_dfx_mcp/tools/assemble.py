@@ -60,7 +60,9 @@ __all__ = ["assemble"]
 # (including assembly errors).
 @mcp.tool(
     name="ppsspp_assemble",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def assemble(
@@ -104,11 +106,11 @@ async def assemble(
     ] = False,
 ) -> AssembleOutput:
     """PURPOSE: Assemble MIPS instruction(s) and write the resulting bytes to memory.
-    
+
     USAGE: session_id + address + code ('\n' or ';' separated — PPSSPP assembles one line per call so the tool loops; armips-style ';' comments are NOT supported here).
-    
+
     BEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true. A partial write is reported with an error directing you to disassemble and inspect.
-    
+
     RETURNS: {address, code, bytes_written, response, text}."""
     require_session_id(session_id)
     address_int = parse_address(address)
@@ -133,8 +135,7 @@ async def assemble(
     instructions = _split_instructions(code)
     if not instructions:
         raise ArgsInvalid(
-            "code contains no valid instructions after splitting on "
-            "newline/semicolon"
+            "code contains no valid instructions after splitting on newline/semicolon"
         )
 
     # N-04: Apply the same protected-address check as write_memory.
@@ -158,9 +159,7 @@ async def assemble(
             partial_writes: list[int] = []
             for i, instr in enumerate(instructions):
                 try:
-                    resp = await client.assemble(
-                        address=current_addr, code=instr
-                    )
+                    resp = await client.assemble(address=current_addr, code=instr)
                 except Exception as e:
                     # Instruction N failed after instructions 0..N-1
                     # were already written to memory. Report partial
@@ -175,7 +174,8 @@ async def assemble(
                             f"were already written to memory (addresses "
                             f"0x{address_int:08X}–0x{address_int + len(partial_writes) * 4:08X}). "
                             f"Reason: {e}. "
-                            f"Use disassemble to inspect partial writes.") from e
+                            f"Use disassemble to inspect partial writes."
+                        ) from e
                     raise
                 if isinstance(resp, dict):
                     responses.append(resp)

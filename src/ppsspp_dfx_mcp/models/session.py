@@ -15,13 +15,13 @@ field and the manager's dict.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
 def _now_utc() -> datetime:
     """Timezone-aware UTC now (single source for default_factory)."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class Session:
     ws_connected: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
-    def with_updated_activity(self) -> "Session":
+    def with_updated_activity(self) -> Session:
         """Return a new Session with last_active_at = now and exec_count + 1."""
         # Pass extra explicitly as a shallow copy — without this, two
         # Session objects would share the same mutable dict reference
@@ -65,7 +65,7 @@ class Session:
             extra=self.extra.copy(),
         )
 
-    def with_stopped(self) -> "Session":
+    def with_stopped(self) -> Session:
         """Return a new Session marked as stopped (pid=None, ws_connected=False)."""
         return replace(
             self,
@@ -74,7 +74,7 @@ class Session:
             extra=self.extra.copy(),
         )
 
-    def with_ws_connected(self, connected: bool) -> "Session":
+    def with_ws_connected(self, connected: bool) -> Session:
         """Return a new Session with ws_connected updated.
 
         Called by session_manager.update_ws_connected after a successful

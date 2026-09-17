@@ -35,6 +35,7 @@ multiple PPSSPP instances run concurrently.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import socket
@@ -43,7 +44,6 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
 
 from ppsspp_dfx_mcp.config import ppsspp_exe_path
 from ppsspp_dfx_mcp.errors import IsoNotFound, PpssppNotFound
@@ -77,10 +77,9 @@ def _force_kill_pid(pid: int) -> None:
         )
     else:
         import signal
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass  # already dead or not owned by us
+
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)  # already dead or not owned by us
 
 
 def _pick_free_port(host: str = "127.0.0.1") -> int:
@@ -117,11 +116,7 @@ def _write_appendconfig_ini(port: int) -> Path:
     Returns:
         Path to the written ini file.
     """
-    content = (
-        "[SystemParam]\n"
-        f"iRemoteISOPort = {port}\n"
-        "bRemoteDebuggerOnStartup = True\n"
-    )
+    content = f"[SystemParam]\niRemoteISOPort = {port}\nbRemoteDebuggerOnStartup = True\n"
     # 内存断点在 JIT fastmem 直写下不触发（skill §4）：设 PPSSPP_DFX_IR=1
     # 时强制 CPUCore=2 解释器模式，专供 trace/breakpoint 调试会话。
     if os.environ.get("PPSSPP_DFX_IR"):
@@ -129,10 +124,8 @@ def _write_appendconfig_ini(port: int) -> Path:
     # Use both timestamp and uuid4 suffix to guarantee uniqueness even
     # when two calls land in the same millisecond on fast machines.
     import uuid
-    name = (
-        f"ppsspp_dfx_debug_{os.getpid()}_{int(time.time() * 1000)}"
-        f"_{uuid.uuid4().hex[:8]}.ini"
-    )
+
+    name = f"ppsspp_dfx_debug_{os.getpid()}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.ini"
     tmp_dir = Path(tempfile.gettempdir())
     path = tmp_dir / name
     path.write_text(content, encoding="utf-8")
@@ -145,6 +138,7 @@ def _write_appendconfig_ini(port: int) -> Path:
 # to its global iRemoteISOPort (often 0 → Listen(0) → OS-assigned port).
 # We discover the actual listening port via netstat / ss / lsof so that
 # session.ws_url reflects reality. Cross-platform helpers below.
+
 
 def _parse_netstat_windows(output: str, pid: int) -> list[int]:
     """Parse Windows ``netstat -ano -p tcp`` output, returning listening
@@ -247,7 +241,7 @@ def _get_listening_ports_for_pid_windows(pid: int) -> list[int]:
             errors="replace",
             timeout=5,
         )
-    except (subprocess.SubprocessError, OSError):
+    except subprocess.SubprocessError, OSError:
         return []
     return _parse_netstat_windows(result.stdout or "", pid)
 
@@ -272,7 +266,7 @@ def _get_listening_ports_for_pid_posix(pid: int) -> list[int]:
                 errors="replace",
                 timeout=5,
             )
-        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        except FileNotFoundError, subprocess.SubprocessError, OSError:
             continue
         ports = _parse_ss_or_netstat_posix(result.stdout or "", pid)
         if ports:
@@ -286,7 +280,7 @@ def _get_listening_ports_for_pid_posix(pid: int) -> list[int]:
             errors="replace",
             timeout=5,
         )
-    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+    except FileNotFoundError, subprocess.SubprocessError, OSError:
         return []
     return _parse_lsof_posix(result.stdout or "")
 
@@ -299,8 +293,9 @@ def _get_listening_ports_for_pid(pid: int) -> list[int]:
 
 
 def _discover_listening_port_for_pid(
-    pid: int, timeout: float = 5.0,
-) -> Optional[int]:
+    pid: int,
+    timeout: float = 5.0,
+) -> int | None:
     """Poll until ``pid`` has a listening TCP port, or timeout.
 
     Used to discover PPSSPP's actual WebSocket debugger port when
@@ -337,9 +332,9 @@ class PpssppLauncher:
 
     def __init__(
         self,
-        exe_path: Optional[Path] = None,
-        ws_port: Optional[int] = None,
-        log_path: Optional[Path] = None,
+        exe_path: Path | None = None,
+        ws_port: int | None = None,
+        log_path: Path | None = None,
     ):
         if exe_path is not None:
             self.exe_path = Path(exe_path).resolve()
@@ -351,18 +346,18 @@ class PpssppLauncher:
             else:
                 self.exe_path = resolved
         # None = random port per start(); int = fixed port.
-        self.ws_port: Optional[int] = ws_port
+        self.ws_port: int | None = ws_port
         self.log_path = log_path
-        self._proc: Optional[subprocess.Popen] = None
+        self._proc: subprocess.Popen | None = None
         # Track the appendconfig ini so we can clean it up on stop().
-        self._appendconfig_path: Optional[Path] = None
+        self._appendconfig_path: Path | None = None
 
     async def start(
         self,
         iso_path: Path,
         wait_seconds: float = 5.0,
         windowed: bool = True,
-        extra_args: Optional[list] = None,
+        extra_args: list | None = None,
     ) -> subprocess.Popen:
         """Start PPSSPP loading an ISO (async).
 
@@ -396,10 +391,8 @@ class PpssppLauncher:
 
         # Clear old log (to distinguish this run's log).
         if self.log_path and self.log_path.is_file():
-            try:
+            with contextlib.suppress(OSError):
                 self.log_path.unlink()
-            except OSError:
-                pass
 
         # Write appendconfig ini and pass --appendconfig=<path> to PPSSPP.
         # Desktop PPSSPP does not parse --debugger=PORT (only headless does).
@@ -413,11 +406,12 @@ class PpssppLauncher:
 
         # PPSSPP loading ISO requires graphics subsystem; default windowed.
         # CREATE_NO_WINDOW causes CPU not started, game=null, PC=0x00000000.
-        creationflags = 0 if windowed else (
-            subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        creationflags = (
+            0 if windowed else (subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
         )
         # cwd set to PPSSPP exe dir for portable mode (memstick/ lookup).
         ppsspp_cwd = self.exe_path.parent
+
         # subprocess.Popen is blocking-ish but very short; run in thread
         # to keep event loop free. _wait_for_port polls with time.sleep,
         # so it MUST run in a thread (else it blocks the event loop).
@@ -483,7 +477,8 @@ class PpssppLauncher:
         if self._proc.pid <= 0:
             return False
         discovered = _discover_listening_port_for_pid(
-            self._proc.pid, timeout=phase1_timeout,
+            self._proc.pid,
+            timeout=phase1_timeout,
         )
         if discovered is None:
             return False
@@ -491,7 +486,8 @@ class PpssppLauncher:
             log.info(
                 "PPSSPP listening on discovered port %d (picked %d; "
                 "--appendconfig= likely ignored on this platform)",
-                discovered, self.ws_port,
+                discovered,
+                self.ws_port,
             )
             self.ws_port = discovered
         return self._is_port_listening()
@@ -545,7 +541,7 @@ class PpssppLauncher:
         return self._proc is not None and self._proc.poll() is None
 
     @property
-    def pid(self) -> Optional[int]:
+    def pid(self) -> int | None:
         """Process PID (None if not started)."""
         return self._proc.pid if self._proc else None
 

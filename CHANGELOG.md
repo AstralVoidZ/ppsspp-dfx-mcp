@@ -9,6 +9,14 @@
 
 ### Changed
 
+- 全库 ruff 清债至零并纳入 CI 执法：safe-fix 482 处（导入排序/类型现代化/
+  未用导入）、`ruff format` 全库 214 文件、残量 SIM105/SIM117/F841 等手工
+  清扫；`.github/workflows/ci.yml` 新增 lint job（`ruff check` +
+  `ruff format --check`）。
+- 工具描述空白规范化（协议面唯一变化）：`ruff format` 剥离 docstring
+  空行尾随空白，仅 `ppsspp_assemble` 描述受影响（490→478 字符，纯空白级），
+  基线经 `scripts/dump_tool_surface.py` 同步再生成；41 工具 inputSchema/
+  outputSchema 逐字节不变。
 - 错误码分类学补全：输入参数校验统一为 `ARGS_INVALID`（全仓 83 处从
   `INTERNAL` 迁移；`.ppr` 写盘失败等真实内部错误保留 `INTERNAL`）。
   技能文档 `error-codes.md` 同步新增 `ARGS_INVALID`/`STEP_INVALID` 条目，

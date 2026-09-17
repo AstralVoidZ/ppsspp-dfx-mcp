@@ -36,9 +36,7 @@ class _StubTransport:
         return {"value": 0x12345678}
 
 
-def _patch_production(
-    monkeypatch: pytest.MonkeyPatch, transport: _StubTransport
-) -> None:
+def _patch_production(monkeypatch: pytest.MonkeyPatch, transport: _StubTransport) -> None:
     """Common production-mode patching: no fake mode, liveness noop,
     session_manager.get_transport returns the stub."""
     monkeypatch.setattr(session_tool, "test_mode", lambda: "")
@@ -47,9 +45,7 @@ def _patch_production(
     async def fake_get_transport(session_id: str):
         return transport
 
-    monkeypatch.setattr(
-        session_tool.session_manager, "get_transport", fake_get_transport
-    )
+    monkeypatch.setattr(session_tool.session_manager, "get_transport", fake_get_transport)
 
 
 @pytest.mark.asyncio
@@ -59,9 +55,7 @@ async def test_wait_ready_fake_mode_ready_immediately(
     """A-H0-1 (fake half): fake test mode has no boot concept — the tool
     must short-circuit to ready without touching any transport."""
     monkeypatch.setattr(session_tool, "test_mode", lambda: "fake")
-    out = await session_tool.session(
-        action="wait_ready", session_id="sess-fake"
-    )
+    out = await session_tool.session(action="wait_ready", session_id="sess-fake")
     assert out["ready"] is True
     assert out["action"] == "wait_ready"
     assert "fake" in (out["note"] or "")
@@ -76,9 +70,7 @@ async def test_wait_ready_returns_probed_word_when_cpu_starts(
     probed word and the elapsed time."""
     transport = _StubTransport()
     _patch_production(monkeypatch, transport)
-    out = await session_tool.session(
-        action="wait_ready", session_id="sess-1", timeout_s=5.0
-    )
+    out = await session_tool.session(action="wait_ready", session_id="sess-1", timeout_s=5.0)
     assert out["ready"] is True
     assert out["probe_value"] == "0x12345678"
     assert out["probe_addr"] == "0x08804000"
@@ -95,9 +87,7 @@ async def test_wait_ready_times_out_into_boot_timeout(
     _patch_production(monkeypatch, transport)
     monkeypatch.setattr(session_tool, "_WAIT_READY_POLL_INTERVAL_S", 0.01)
     with pytest.raises(BootTimeout) as ei:
-        await session_tool.session(
-            action="wait_ready", session_id="sess-1", timeout_s=0.05
-        )
+        await session_tool.session(action="wait_ready", session_id="sess-1", timeout_s=0.05)
     msg = str(ei.value)
     assert "[BOOT_TIMEOUT]" in msg
     assert "ppsspp_analyze_log" in msg
@@ -115,21 +105,15 @@ async def test_wait_ready_session_gone_aborts_immediately(
     async def fake_get_transport(session_id: str):
         raise SessionNotFound("gone")
 
-    monkeypatch.setattr(
-        session_tool.session_manager, "get_transport", fake_get_transport
-    )
+    monkeypatch.setattr(session_tool.session_manager, "get_transport", fake_get_transport)
     with pytest.raises(SessionNotFound):
-        await session_tool.session(
-            action="wait_ready", session_id="sess-1", timeout_s=5.0
-        )
+        await session_tool.session(action="wait_ready", session_id="sess-1", timeout_s=5.0)
 
 
 def test_cpu_not_started_error_carries_wait_ready_hint() -> None:
     """A-H0-2 (translation half): an early read failing with PPSSPP's
     'CPU not started' surfaces the wait_ready next step to the agent."""
-    err = to_tool_error(
-        RuntimeError("PPSSPP error: CPU not started (level=2)")
-    )
+    err = to_tool_error(RuntimeError("PPSSPP error: CPU not started (level=2)"))
     assert isinstance(err, PpssppProtocolError)
     text = str(err)
     assert "wait_ready" in text

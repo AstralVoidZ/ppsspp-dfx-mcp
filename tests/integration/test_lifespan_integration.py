@@ -23,7 +23,6 @@ import pytest
 
 from ppsspp_dfx_mcp import server as server_mod
 
-
 # ============================================================================
 # Lifespan startup contract
 # ============================================================================
@@ -43,12 +42,10 @@ class TestLifespanStartup:
 
     async def test_lifespan_calls_load_manifest_on_startup(self):
         """Entering _lifespan must call _load_manifest_and_register_exposed."""
-        with patch.object(
-            server_mod.session_manager, "idle_gc_loop", self._gc_noop
-        ), patch.object(
-            server_mod, "_load_manifest_and_register_exposed"
-        ) as manifest_mock, patch.object(
-            server_mod, "_shutdown_sessions"
+        with (
+            patch.object(server_mod.session_manager, "idle_gc_loop", self._gc_noop),
+            patch.object(server_mod, "_load_manifest_and_register_exposed") as manifest_mock,
+            patch.object(server_mod, "_shutdown_sessions"),
         ):
             async with server_mod._lifespan(server_mod.mcp):
                 pass
@@ -67,12 +64,10 @@ class TestLifespanStartup:
             except asyncio.CancelledError:
                 return
 
-        with patch.object(
-            server_mod.session_manager, "idle_gc_loop", _gc_signaling
-        ), patch.object(
-            server_mod, "_load_manifest_and_register_exposed"
-        ), patch.object(
-            server_mod, "_shutdown_sessions"
+        with (
+            patch.object(server_mod.session_manager, "idle_gc_loop", _gc_signaling),
+            patch.object(server_mod, "_load_manifest_and_register_exposed"),
+            patch.object(server_mod, "_shutdown_sessions"),
         ):
             async with server_mod._lifespan(server_mod.mcp):
                 # GC task should have started during lifespan startup.
@@ -105,19 +100,15 @@ class TestLifespanShutdown:
             nonlocal shutdown_calls
             shutdown_calls += 1
 
-        with patch.object(
-            server_mod.session_manager, "idle_gc_loop", self._gc_noop
-        ), patch.object(
-            server_mod, "_load_manifest_and_register_exposed"
-        ), patch.object(
-            server_mod, "_shutdown_sessions", _fake_shutdown
+        with (
+            patch.object(server_mod.session_manager, "idle_gc_loop", self._gc_noop),
+            patch.object(server_mod, "_load_manifest_and_register_exposed"),
+            patch.object(server_mod, "_shutdown_sessions", _fake_shutdown),
         ):
             async with server_mod._lifespan(server_mod.mcp):
                 pass  # exit immediately (simulates Ctrl+C right after startup)
 
-        assert shutdown_calls == 1, (
-            f"_shutdown_sessions called {shutdown_calls} times, expected 1"
-        )
+        assert shutdown_calls == 1, f"_shutdown_sessions called {shutdown_calls} times, expected 1"
 
     async def test_lifespan_exit_cancels_gc_task(self):
         """Exiting _lifespan must cancel the idle_gc_loop background task.
@@ -141,12 +132,10 @@ class TestLifespanShutdown:
                 cancellation_requested["value"] = True
                 raise  # re-raise so task is marked cancelled
 
-        with patch.object(
-            server_mod.session_manager, "idle_gc_loop", _gc_tracks_cancellation
-        ), patch.object(
-            server_mod, "_load_manifest_and_register_exposed"
-        ), patch.object(
-            server_mod, "_shutdown_sessions"
+        with (
+            patch.object(server_mod.session_manager, "idle_gc_loop", _gc_tracks_cancellation),
+            patch.object(server_mod, "_load_manifest_and_register_exposed"),
+            patch.object(server_mod, "_shutdown_sessions"),
         ):
             async with server_mod._lifespan(server_mod.mcp):
                 # Yield control so the GC task can start and enter its
@@ -185,16 +174,18 @@ class TestLifespanManifestRobustness:
     async def test_lifespan_does_not_raise_on_manifest_error(self):
         """If _load_manifest_and_register_exposed raises, lifespan must
         NOT propagate the exception — it should log and continue."""
+
         def _failing_manifest_load():
             raise RuntimeError("malformed manifest YAML")
 
-        with patch.object(
-            server_mod.session_manager, "idle_gc_loop", self._gc_noop
-        ), patch.object(
-            server_mod, "_load_manifest_and_register_exposed",
-            _failing_manifest_load,
-        ), patch.object(
-            server_mod, "_shutdown_sessions"
+        with (
+            patch.object(server_mod.session_manager, "idle_gc_loop", self._gc_noop),
+            patch.object(
+                server_mod,
+                "_load_manifest_and_register_exposed",
+                _failing_manifest_load,
+            ),
+            patch.object(server_mod, "_shutdown_sessions"),
         ):
             # Must not raise — manifest errors are best-effort.
             # Note: the current implementation does NOT wrap
@@ -207,6 +198,5 @@ class TestLifespanManifestRobustness:
                     pass
             except RuntimeError as e:
                 pytest.xfail(
-                    f"lifespan propagates manifest error (spec says it "
-                    f"should be best-effort): {e}"
+                    f"lifespan propagates manifest error (spec says it should be best-effort): {e}"
                 )

@@ -21,7 +21,6 @@ from record_replay.cassette import (
     save_cassette,
 )
 
-
 # ---------- CassetteRecord serialization ----------
 
 
@@ -203,9 +202,7 @@ class TestPartialCorruptionTolerance:
             timestamp=1.0,
         ).to_json()
         cassette_path.write_text(
-            valid_line + "\n"
-            + "{invalid json line\n"
-            + valid_line + "\n",
+            valid_line + "\n" + "{invalid json line\n" + valid_line + "\n",
             encoding="utf-8",
         )
         loaded = load_cassette(cassette_path)

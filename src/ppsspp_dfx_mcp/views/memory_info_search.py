@@ -43,9 +43,7 @@ class MemoryInfoSearchResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(
-        cls, result: MemoryInfoSearchResult
-    ) -> "MemoryInfoSearchResponse":
+    def from_result(cls, result: MemoryInfoSearchResult) -> MemoryInfoSearchResponse:
         lines: list[str] = []
         for region in result.regions:
             addr = region.get("address", 0)
@@ -57,10 +55,8 @@ class MemoryInfoSearchResponse(FrozenModel):
                 size_int = int(size) if not isinstance(size, int) else size
                 end_int = addr_int + size_int
                 tag_str = f" {tag}" if tag else ""
-                lines.append(
-                    f"0x{addr_int:08X}-0x{end_int:08X} {type_}{tag_str}"
-                )
-            except (TypeError, ValueError):
+                lines.append(f"0x{addr_int:08X}-0x{end_int:08X} {type_}{tag_str}")
+            except TypeError, ValueError:
                 lines.append(f"{addr}-{size} {type_} {tag}")
         return cls(
             regions=list(result.regions),

@@ -35,8 +35,7 @@ async def test_write_u8_u16_partial_overlap():
 async def test_write_bytes_base64_roundtrip():
     t = FakeTransport()
     payload = bytes([1, 2, 3, 4, 5])
-    await t.call("memory.write", address=0x2000,
-                 base64=base64.b64encode(payload).decode("ascii"))
+    await t.call("memory.write", address=0x2000, base64=base64.b64encode(payload).decode("ascii"))
     resp = await t.call("memory.read", address=0x2000, size=5)
     assert base64.b64decode(resp["base64"]) == payload
 

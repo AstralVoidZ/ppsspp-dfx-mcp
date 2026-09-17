@@ -45,8 +45,8 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator
 
 import pytest
 import pytest_asyncio
@@ -152,9 +152,7 @@ async def mcp_inspector() -> AsyncIterator[ClientSession]:
     # must be on the subprocess's import path.
     existing_pp = env.get("PYTHONPATH", "")
     new_pp = os.pathsep.join([str(_SRC_ROOT), str(_TESTS_ROOT)])
-    env["PYTHONPATH"] = (
-        f"{new_pp}{os.pathsep}{existing_pp}" if existing_pp else new_pp
-    )
+    env["PYTHONPATH"] = f"{new_pp}{os.pathsep}{existing_pp}" if existing_pp else new_pp
 
     server_params = StdioServerParameters(
         command=sys.executable,

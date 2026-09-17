@@ -21,11 +21,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.errors import StepNoAdvanceError, StepOutError
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-
 
 # ---------- Test fixtures ----------
 
@@ -41,11 +40,13 @@ def _pause_keep_pc_ticks(t: FakeTransport, **params: Any) -> None:
     can be exercised.
     """
     cur = t.state
-    t.set_state({
-        "stepping": True,
-        "pc": cur.get("pc", 0),
-        "ticks": cur.get("ticks", 0.0),
-    })
+    t.set_state(
+        {
+            "stepping": True,
+            "pc": cur.get("pc", 0),
+            "ticks": cur.get("ticks", 0.0),
+        }
+    )
 
 
 @pytest.fixture
@@ -94,13 +95,15 @@ class TestA1StaleBroadcastFilter:
 
         def _step_faf_stale(t: FakeTransport, **params: Any) -> None:
             # Push a stale broadcast (pc/ticks == pre-step values).
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x08804000,  # same as pre-step
-                "ticks": 100.0,    # same as pre-step
-                "reason": "cpu.stepInto",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x08804000,  # same as pre-step
+                    "ticks": 100.0,  # same as pre-step
+                    "reason": "cpu.stepInto",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepInto", _step_faf_stale)
         # F-4 fix (2026-09-06): repeated no-op broadcasts surface as a
@@ -124,13 +127,15 @@ class TestA1StaleBroadcastFilter:
 
         def _step_faf_fresh(t: FakeTransport, **params: Any) -> None:
             # Push a fresh broadcast (pc advanced, ticks advanced).
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x08804008,  # +8 (2 MIPS instructions)
-                "ticks": 102.0,    # +2 cycles
-                "reason": "cpu.stepInto",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x08804008,  # +8 (2 MIPS instructions)
+                    "ticks": 102.0,  # +2 cycles
+                    "reason": "cpu.stepInto",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepInto", _step_faf_fresh)
         result = await client.step_into(timeout_ms=500, interval_ms=10)
@@ -153,13 +158,15 @@ class TestA1StaleBroadcastFilter:
         assert transport.state["stepping"] is False
 
         def _step_faf(t: FakeTransport, **params: Any) -> None:
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x08804008,
-                "ticks": 102.0,
-                "reason": "cpu.stepInto",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x08804008,
+                    "ticks": 102.0,
+                    "reason": "cpu.stepInto",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepInto", _step_faf)
         await client.step_into(timeout_ms=500, interval_ms=10)
@@ -186,13 +193,15 @@ class TestA1StaleBroadcastFilter:
         transport.set_state({"stepping": True, "pc": 0x08804000, "ticks": 100.0})
 
         def _step_faf(t: FakeTransport, **params: Any) -> None:
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x08804008,
-                "ticks": 102.0,
-                "reason": "cpu.stepInto",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x08804008,
+                    "ticks": 102.0,
+                    "reason": "cpu.stepInto",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepInto", _step_faf)
         await client.step_into(timeout_ms=500, interval_ms=10)
@@ -277,13 +286,15 @@ class TestA2StepOutPcValidation:
         """
 
         def _step_faf_invalid(t: FakeTransport, **params: Any) -> None:
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x08000000,  # PSP RAM base — invalid code addr
-                "ticks": 102.0,
-                "reason": "cpu.stepOut",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x08000000,  # PSP RAM base — invalid code addr
+                    "ticks": 102.0,
+                    "reason": "cpu.stepOut",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepOut", _step_faf_invalid)
         with pytest.raises(StepOutError) as exc_info:
@@ -298,13 +309,15 @@ class TestA2StepOutPcValidation:
         """A2: pc inside 0x08800000–0x0C000000 → no error."""
 
         def _step_faf_valid(t: FakeTransport, **params: Any) -> None:
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x08804000,  # top.prx base — valid
-                "ticks": 102.0,
-                "reason": "cpu.stepOut",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x08804000,  # top.prx base — valid
+                    "ticks": 102.0,
+                    "reason": "cpu.stepOut",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepOut", _step_faf_valid)
         result = await client.step_out(timeout_ms=500, interval_ms=10)
@@ -317,13 +330,15 @@ class TestA2StepOutPcValidation:
         """A2: pc=0x0C000000 (inclusive upper bound) → no error."""
 
         def _step_faf_upper(t: FakeTransport, **params: Any) -> None:
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x0C000000,  # inclusive upper bound
-                "ticks": 102.0,
-                "reason": "cpu.stepOut",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x0C000000,  # inclusive upper bound
+                    "ticks": 102.0,
+                    "reason": "cpu.stepOut",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepOut", _step_faf_upper)
         result = await client.step_out(timeout_ms=500, interval_ms=10)
@@ -336,13 +351,15 @@ class TestA2StepOutPcValidation:
         """A2: pc above 0x0C000000 → StepOutError (kernel/devkit memory)."""
 
         def _step_faf_above(t: FakeTransport, **params: Any) -> None:
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": 0x0C000001,  # just above range
-                "ticks": 102.0,
-                "reason": "cpu.stepOut",
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": 0x0C000001,  # just above range
+                    "ticks": 102.0,
+                    "reason": "cpu.stepOut",
+                    "relatedAddress": 0,
+                }
+            )
 
         transport.set_faf_handler("cpu.stepOut", _step_faf_above)
         with pytest.raises(StepOutError):
@@ -360,13 +377,15 @@ class TestA2StepOutPcValidation:
         """
 
         def _step_faf_no_pc(t: FakeTransport, **params: Any) -> None:
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "ticks": 102.0,
-                "reason": "cpu.stepOut",
-                "relatedAddress": 0,
-                # No "pc" key.
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "ticks": 102.0,
+                    "reason": "cpu.stepOut",
+                    "relatedAddress": 0,
+                    # No "pc" key.
+                }
+            )
 
         transport.set_faf_handler("cpu.stepOut", _step_faf_no_pc)
         result = await client.step_out(timeout_ms=500, interval_ms=10)

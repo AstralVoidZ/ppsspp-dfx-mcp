@@ -54,12 +54,8 @@ class TestV004ConfirmStepLegacySinglePoll:
         self, client: PpssppDebugClient, transport: Any
     ) -> None:
         """L4 anchor: wait_for_state is called exactly once (not twice)."""
-        transport.wait_for_state = AsyncMock(
-            return_value={"stepping": True}
-        )
-        await client._confirm_step_completed(
-            timeout_ms=1000, interval_ms=50, use_broadcast=False
-        )
+        transport.wait_for_state = AsyncMock(return_value={"stepping": True})
+        await client._confirm_step_completed(timeout_ms=1000, interval_ms=50, use_broadcast=False)
         assert transport.wait_for_state.await_count == 1, (
             "_confirm_step_completed(use_broadcast=False) must call "
             "wait_for_state exactly once — if this fails, the legacy "
@@ -71,12 +67,8 @@ class TestV004ConfirmStepLegacySinglePoll:
         self, client: PpssppDebugClient, transport: Any
     ) -> None:
         """L4 anchor: forwarded predicate is `s.get('stepping') is True`."""
-        transport.wait_for_state = AsyncMock(
-            return_value={"stepping": True}
-        )
-        await client._confirm_step_completed(
-            timeout_ms=500, interval_ms=50, use_broadcast=False
-        )
+        transport.wait_for_state = AsyncMock(return_value={"stepping": True})
+        await client._confirm_step_completed(timeout_ms=500, interval_ms=50, use_broadcast=False)
         assert transport.wait_for_state.await_count == 1
         captured_predicate = transport.wait_for_state.await_args.args[0]
         # Predicate must accept the cpu.status state dict.
@@ -118,16 +110,10 @@ class TestV004ConfirmStepLegacySinglePoll:
         self, client: PpssppDebugClient, transport: Any
     ) -> None:
         """L4 anchor: timeout_ms forwarded unchanged (not split in half)."""
-        transport.wait_for_state = AsyncMock(
-            return_value={"stepping": True}
-        )
-        await client._confirm_step_completed(
-            timeout_ms=2000, interval_ms=50, use_broadcast=False
-        )
+        transport.wait_for_state = AsyncMock(return_value={"stepping": True})
+        await client._confirm_step_completed(timeout_ms=2000, interval_ms=50, use_broadcast=False)
         assert transport.wait_for_state.await_count == 1
-        forwarded_timeout = transport.wait_for_state.await_args.kwargs.get(
-            "timeout_ms"
-        )
+        forwarded_timeout = transport.wait_for_state.await_args.kwargs.get("timeout_ms")
         assert forwarded_timeout == 2000, (
             f"wait_for_state must receive the full timeout_ms=2000, "
             f"got {forwarded_timeout!r} — if this is 1000, the legacy "

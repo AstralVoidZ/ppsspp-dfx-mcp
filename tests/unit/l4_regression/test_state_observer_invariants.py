@@ -15,8 +15,8 @@ level _REGISTRY singleton to avoid cross-test pollution.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -61,24 +61,18 @@ class TestRegisterValidation:
         mock = AsyncMock()
         _patch_client(monkeypatch, mock)
         with pytest.raises(ToolError, match="name is required"):
-            await state_observer(
-                session_id="s", action="register", address=0x08A0D000
-            )
+            await state_observer(session_id="s", action="register", address=0x08A0D000)
 
     @pytest.mark.asyncio
     async def test_register_requires_address(self, monkeypatch):
         mock = AsyncMock()
         _patch_client(monkeypatch, mock)
         with pytest.raises(ToolError, match="address is required"):
-            await state_observer(
-                session_id="s", action="register", name="probe1"
-            )
+            await state_observer(session_id="s", action="register", name="probe1")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("bad_size", [0, 3, 5, 8, -1])
-    async def test_register_rejects_invalid_size(
-        self, monkeypatch, bad_size
-    ):
+    async def test_register_rejects_invalid_size(self, monkeypatch, bad_size):
         mock = AsyncMock()
         _patch_client(monkeypatch, mock)
         with pytest.raises(ToolError, match="size must be one of"):
@@ -92,9 +86,7 @@ class TestRegisterValidation:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("valid_size", [1, 2, 4])
-    async def test_register_accepts_valid_size(
-        self, monkeypatch, valid_size
-    ):
+    async def test_register_accepts_valid_size(self, monkeypatch, valid_size):
         mock = AsyncMock()
         _patch_client(monkeypatch, mock)
         result = await state_observer(
@@ -201,9 +193,7 @@ class TestObserveValidation:
             address=0x1000,
         )
         with pytest.raises(ToolError, match="unknown probe name"):
-            await state_observer(
-                session_id="s", action="observe", names="unknown"
-            )
+            await state_observer(session_id="s", action="observe", names="unknown")
 
     @pytest.mark.asyncio
     async def test_observe_rejects_samples_zero(self, monkeypatch):
@@ -216,9 +206,7 @@ class TestObserveValidation:
             address=0x1000,
         )
         with pytest.raises(ToolError, match="samples must be >= 1"):
-            await state_observer(
-                session_id="s", action="observe", samples=0
-            )
+            await state_observer(session_id="s", action="observe", samples=0)
 
 
 class TestObserveReadRouting:
@@ -239,14 +227,14 @@ class TestObserveReadRouting:
             address=0x1000,
             size=4,
         )
-        result = await state_observer(
-            session_id="s", action="observe", names="probe32"
-        )
+        result = await state_observer(session_id="s", action="observe", names="probe32")
         mock.read_u32.assert_awaited_once_with(0x1000)
         mock.read_u8.assert_not_awaited()
         mock.read_u16.assert_not_awaited()
         obs = result["observations"][0]
-        assert obs["value"] == "0xDEADBEEF"  # view layer serializes value as hex string (6bd3bff contract)
+        assert (
+            obs["value"] == "0xDEADBEEF"
+        )  # view layer serializes value as hex string (6bd3bff contract)
         assert obs["error"] == ""
         assert result["success_count"] == 1
         assert result["failure_count"] == 0
@@ -263,9 +251,7 @@ class TestObserveReadRouting:
             address=0x2000,
             size=2,
         )
-        await state_observer(
-            session_id="s", action="observe", names="probe16"
-        )
+        await state_observer(session_id="s", action="observe", names="probe16")
         mock.read_u16.assert_awaited_once_with(0x2000)
         mock.read_u32.assert_not_awaited()
 
@@ -281,9 +267,7 @@ class TestObserveReadRouting:
             address=0x3000,
             size=1,
         )
-        await state_observer(
-            session_id="s", action="observe", names="probe8"
-        )
+        await state_observer(session_id="s", action="observe", names="probe8")
         mock.read_u8.assert_awaited_once_with(0x3000)
         mock.read_u32.assert_not_awaited()
 
@@ -313,9 +297,7 @@ class TestObserveReadRouting:
         mock.read_u16.assert_awaited_once_with(0x2000)
 
     @pytest.mark.asyncio
-    async def test_observe_multi_sample_calls_read_n_times(
-        self, monkeypatch
-    ):
+    async def test_observe_multi_sample_calls_read_n_times(self, monkeypatch):
         mock = AsyncMock()
         mock.read_u32.return_value = 0x1234
         _patch_client(monkeypatch, mock)
@@ -325,15 +307,11 @@ class TestObserveReadRouting:
             name="probe1",
             address=0x1000,
         )
-        await state_observer(
-            session_id="s", action="observe", names="probe1", samples=3
-        )
+        await state_observer(session_id="s", action="observe", names="probe1", samples=3)
         assert mock.read_u32.await_count == 3
 
     @pytest.mark.asyncio
-    async def test_observe_read_failure_recorded_as_error(
-        self, monkeypatch
-    ):
+    async def test_observe_read_failure_recorded_as_error(self, monkeypatch):
         mock = AsyncMock()
         mock.read_u32.side_effect = RuntimeError("read failed")
         _patch_client(monkeypatch, mock)
@@ -343,12 +321,12 @@ class TestObserveReadRouting:
             name="probe1",
             address=0x1000,
         )
-        result = await state_observer(
-            session_id="s", action="observe", names="probe1"
-        )
+        result = await state_observer(session_id="s", action="observe", names="probe1")
         obs = result["observations"][0]
         assert obs["error"] != ""
-        assert obs["value"] == "0x00000000"  # hex-string contract; last good value retained on failure
+        assert (
+            obs["value"] == "0x00000000"
+        )  # hex-string contract; last good value retained on failure
         assert result["failure_count"] == 1
         assert result["success_count"] == 0
 

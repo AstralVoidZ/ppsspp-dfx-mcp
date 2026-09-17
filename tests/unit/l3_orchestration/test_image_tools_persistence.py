@@ -25,9 +25,10 @@ Covered requirements (all from `imagecontent-output`):
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -39,12 +40,7 @@ pytestmark = pytest.mark.asyncio
 
 # A 24-byte PNG header: 8-byte signature, 8 filler bytes, then the IHDR
 # width/height at the offsets `_image_dims` reads (16:20 / 20:24).
-_PNG = (
-    b"\x89PNG\r\n\x1a\n"
-    + b"\x00" * 8
-    + (64).to_bytes(4, "big")
-    + (32).to_bytes(4, "big")
-)
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + (64).to_bytes(4, "big") + (32).to_bytes(4, "big")
 assert len(_PNG) == 24  # _image_dims bails below 24 bytes.
 
 

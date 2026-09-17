@@ -34,10 +34,7 @@ def memory_breakpoint_wizard(
     address: Annotated[
         str,
         Field(
-            description=(
-                "Memory address to watch, as a hex string "
-                "(e.g. '0x08804000')."
-            ),
+            description=("Memory address to watch, as a hex string (e.g. '0x08804000')."),
         ),
     ],
     size: Annotated[
@@ -111,10 +108,7 @@ def memory_trace_wizard(
     address: Annotated[
         str,
         Field(
-            description=(
-                "Memory address to trace, as a hex string "
-                "(e.g. '0x08A0D000')."
-            ),
+            description=("Memory address to trace, as a hex string (e.g. '0x08A0D000')."),
         ),
     ],
     purpose: Annotated[

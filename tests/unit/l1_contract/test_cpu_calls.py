@@ -83,7 +83,6 @@ class TestCpuRegContract:
         await client.get_reg("pc", thread=7)
         assert transport.calls[-1][1] == {"name": "pc", "thread": 7}
 
-
     @pytest.mark.asyncio
     async def test_set_reg_forwards_event_name_value_thread(self, client, transport):
         """L1 anchor: set_reg forwards cpu.setReg with name+value+thread.
@@ -97,9 +96,7 @@ class TestCpuRegContract:
         transport.set_state({"stepping": True})
         transport.set_response("cpu.setReg", {})
         await client.set_reg("r5", 0x100, thread=7)
-        set_reg_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "cpu.setReg"
-        ]
+        set_reg_calls = [(ev, p) for ev, p in transport.calls if ev == "cpu.setReg"]
         assert len(set_reg_calls) == 1
         # F-5 fix (2026-09-06): numeric GPR names are translated to the
         # ABI name PPSSPP requires — r5 -> a1 (MIPSDebugInterface.cpp:280).
@@ -120,9 +117,7 @@ class TestCpuRegContract:
         transport.set_state({"stepping": True})
         transport.set_response("cpu.evaluate", {"value": 0x110})
         await client.evaluate("r5 + 0x10", thread=3)
-        eval_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "cpu.evaluate"
-        ]
+        eval_calls = [(ev, p) for ev, p in transport.calls if ev == "cpu.evaluate"]
         assert len(eval_calls) == 1
         assert eval_calls[0][1] == {
             "expression": "r5 + 0x10",

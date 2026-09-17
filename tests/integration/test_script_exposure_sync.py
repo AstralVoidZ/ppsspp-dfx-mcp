@@ -43,7 +43,7 @@ from ppsspp_dfx_mcp.spec.script_manifest import (
 # Session-recording probe script used across the sync/enforcement tests.
 # `run` echoes ctx.session_id into the Output so tests can assert the
 # F2/F3 session resolution without any PPSSPP dependency.
-_PROBE_SCRIPT = '''
+_PROBE_SCRIPT = """
 from pydantic import BaseModel
 
 
@@ -58,9 +58,9 @@ class ProbeOutput(BaseModel):
 
 async def run(input: ProbeInput, ctx) -> ProbeOutput:
     return ProbeOutput(status="ok", observed_session_id=ctx.session_id)
-'''
+"""
 
-_PLAIN_SCRIPT = '''
+_PLAIN_SCRIPT = """
 from pydantic import BaseModel
 
 
@@ -74,7 +74,7 @@ class PlainOutput(BaseModel):
 
 async def run(input: PlainInput, ctx) -> PlainOutput:
     return PlainOutput(status="ok")
-'''
+"""
 
 
 def _write_script(tmp_path: Path, filename: str, source: str) -> str:
@@ -140,8 +140,11 @@ class TestStatusInference:
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
             tmp_path,
-            [_manifest_entry("probe", path, status="migrated",
-                             description="[skeleton] mismatched prefix")],
+            [
+                _manifest_entry(
+                    "probe", path, status="migrated", description="[skeleton] mismatched prefix"
+                )
+            ],
         )
         manifest = _inject_manifest(manifest_path)
         assert manifest.get_script("probe").status == "migrated"
@@ -151,8 +154,7 @@ class TestStatusInference:
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
             tmp_path,
-            [_manifest_entry("probe", path,
-                             description="[skeleton] body not re-wired")],
+            [_manifest_entry("probe", path, description="[skeleton] body not re-wired")],
         )
         manifest = _inject_manifest(manifest_path)
         assert manifest.get_script("probe").status == "skeleton"
@@ -163,8 +165,7 @@ class TestStatusInference:
         manifest_path = _write_manifest(
             tmp_path,
             [
-                _manifest_entry("probe_a", path,
-                                description="[migrated] converted"),
+                _manifest_entry("probe_a", path, description="[migrated] converted"),
                 _manifest_entry("probe_b", path, description="no marker"),
             ],
         )
@@ -175,9 +176,7 @@ class TestStatusInference:
     def test_invalid_status_raises_manifest_error(self, tmp_path: Path):
         """An unknown status value fails manifest validation loudly."""
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
-        manifest_path = _write_manifest(
-            tmp_path, [_manifest_entry("probe", path, status="wip")]
-        )
+        manifest_path = _write_manifest(tmp_path, [_manifest_entry("probe", path, status="wip")])
         with pytest.raises(ManifestError, match="invalid status"):
             _inject_manifest(manifest_path)
 
@@ -195,11 +194,13 @@ class TestSkeletonExposedPreflight:
         and its module is never imported (path is intentionally bogus)."""
         manifest_path = _write_manifest(
             tmp_path,
-            [_manifest_entry(
-                "skeleton_probe",
-                str(tmp_path / "does_not_matter.py"),
-                description="[skeleton] not implemented",
-            )],
+            [
+                _manifest_entry(
+                    "skeleton_probe",
+                    str(tmp_path / "does_not_matter.py"),
+                    description="[skeleton] not implemented",
+                )
+            ],
         )
         _inject_manifest(manifest_path)
         with caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp"):
@@ -214,18 +215,17 @@ class TestSkeletonExposedPreflight:
         """Loading a manifest with exposed+skeleton logs a warning."""
         manifest_path = _write_manifest(
             tmp_path,
-            [_manifest_entry(
-                "skeleton_probe",
-                str(tmp_path / "does_not_matter.py"),
-                description="[skeleton] not implemented",
-            )],
+            [
+                _manifest_entry(
+                    "skeleton_probe",
+                    str(tmp_path / "does_not_matter.py"),
+                    description="[skeleton] not implemented",
+                )
+            ],
         )
-        with caplog.at_level(logging.WARNING,
-                             logger="ppsspp_dfx_mcp.spec.script_manifest"):
+        with caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp.spec.script_manifest"):
             _inject_manifest(manifest_path)
-        assert any(
-            "exposed but status=skeleton" in r.message for r in caplog.records
-        )
+        assert any("exposed but status=skeleton" in r.message for r in caplog.records)
 
 
 # ============================================================================
@@ -241,9 +241,11 @@ class TestSyncExposedTools:
         path = _write_script(tmp_path, "plain.py", _PLAIN_SCRIPT)
         manifest_path = _write_manifest(
             tmp_path,
-            [_manifest_entry("sync_probe", path,
-                             input_model="PlainInput",
-                             output_model="PlainOutput")],
+            [
+                _manifest_entry(
+                    "sync_probe", path, input_model="PlainInput", output_model="PlainOutput"
+                )
+            ],
         )
         _inject_manifest(manifest_path)
 
@@ -253,9 +255,7 @@ class TestSyncExposedTools:
         assert "ppsspp_script_sync_probe" in registered_tool_names()
 
         # Manifest edit drops the entry → next sync unregisters the tool.
-        manifest_path.write_text(
-            yaml.safe_dump({"scripts": []}), encoding="utf-8"
-        )
+        manifest_path.write_text(yaml.safe_dump({"scripts": []}), encoding="utf-8")
         _inject_manifest(manifest_path)
         report = sync_exposed_tools()
         assert report["removed"] == ["sync_probe"]
@@ -267,19 +267,31 @@ class TestSyncExposedTools:
         path = _write_script(tmp_path, "plain.py", _PLAIN_SCRIPT)
         manifest_path = _write_manifest(
             tmp_path,
-            [_manifest_entry("sync_probe", path, status="migrated",
-                             input_model="PlainInput",
-                             output_model="PlainOutput")],
+            [
+                _manifest_entry(
+                    "sync_probe",
+                    path,
+                    status="migrated",
+                    input_model="PlainInput",
+                    output_model="PlainOutput",
+                )
+            ],
         )
         _inject_manifest(manifest_path)
         assert sync_exposed_tools()["registered"] == 1
 
         _write_manifest(
             tmp_path,
-            [_manifest_entry("sync_probe", path, status="skeleton",
-                             input_model="PlainInput",
-                             output_model="PlainOutput",
-                             description="[skeleton] withdrawn")],
+            [
+                _manifest_entry(
+                    "sync_probe",
+                    path,
+                    status="skeleton",
+                    input_model="PlainInput",
+                    output_model="PlainOutput",
+                    description="[skeleton] withdrawn",
+                )
+            ],
         )
         _inject_manifest(manifest_path)
         report = sync_exposed_tools()
@@ -313,8 +325,7 @@ class TestSessionResolution:
 
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
-            tmp_path, [_manifest_entry("sess_probe", path,
-                                       requires_ppsspp=True)]
+            tmp_path, [_manifest_entry("sess_probe", path, requires_ppsspp=True)]
         )
         _inject_manifest(manifest_path)
 
@@ -327,14 +338,11 @@ class TestSessionResolution:
 
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
-            tmp_path, [_manifest_entry("sess_probe", path,
-                                       requires_ppsspp=True)]
+            tmp_path, [_manifest_entry("sess_probe", path, requires_ppsspp=True)]
         )
         _inject_manifest(manifest_path)
 
-        result = await run_script(
-            name="sess_probe", input={}, session_id="sess-123"
-        )
+        result = await run_script(name="sess_probe", input={}, session_id="sess-123")
         assert result["output"]["observed_session_id"] == "sess-123"
 
     async def test_input_field_session_used_when_param_absent(self, tmp_path: Path):
@@ -343,14 +351,11 @@ class TestSessionResolution:
 
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
-            tmp_path, [_manifest_entry("sess_probe", path,
-                                       requires_ppsspp=True)]
+            tmp_path, [_manifest_entry("sess_probe", path, requires_ppsspp=True)]
         )
         _inject_manifest(manifest_path)
 
-        result = await run_script(
-            name="sess_probe", input={"session_id": "from-input"}
-        )
+        result = await run_script(name="sess_probe", input={"session_id": "from-input"})
         assert result["output"]["observed_session_id"] == "from-input"
 
     async def test_tool_param_wins_over_input_field(self, tmp_path: Path):
@@ -359,8 +364,7 @@ class TestSessionResolution:
 
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
-            tmp_path, [_manifest_entry("sess_probe", path,
-                                       requires_ppsspp=True)]
+            tmp_path, [_manifest_entry("sess_probe", path, requires_ppsspp=True)]
         )
         _inject_manifest(manifest_path)
 
@@ -380,12 +384,9 @@ class TestSessionResolution:
             _load_script_module,
             _project_root,
         )
-        from ppsspp_dfx_mcp.spec.script_manifest import ScriptEntry
 
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
-        manifest_path = _write_manifest(
-            tmp_path, [_manifest_entry("sess_probe", path)]
-        )
+        manifest_path = _write_manifest(tmp_path, [_manifest_entry("sess_probe", path)])
         manifest = _inject_manifest(manifest_path)
 
         entry = manifest.get_script("sess_probe")
@@ -412,17 +413,15 @@ class TestSyncReport:
         manifest_path = _write_manifest(
             tmp_path,
             [
-                _manifest_entry("ok_probe", ok_path,
-                                input_model="PlainInput",
-                                output_model="PlainOutput"),
+                _manifest_entry(
+                    "ok_probe", ok_path, input_model="PlainInput", output_model="PlainOutput"
+                ),
                 _manifest_entry(
                     "skel_probe",
                     str(tmp_path / "unused.py"),
                     description="[skeleton] not implemented",
                 ),
-                _manifest_entry(
-                    "broken_probe", str(tmp_path / "missing.py")
-                ),
+                _manifest_entry("broken_probe", str(tmp_path / "missing.py")),
             ],
         )
         _inject_manifest(manifest_path)

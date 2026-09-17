@@ -10,20 +10,18 @@ READ-ONLY: does not modify memory or CPU state.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools._common import require_session_id
 from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.memory_map import MemoryMapResult
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.memory_map import MemoryMapResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.memory_map import MemoryMapResponse
 
 MemoryMapOutput = derive_output_contract("MemoryMapOutput", MemoryMapResponse)
 
@@ -43,7 +41,9 @@ __all__ = ["memory_map"]
 # failure.
 @mcp.tool(
     name="ppsspp_memory_map",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def memory_map(
@@ -53,11 +53,11 @@ async def memory_map(
     ],
 ) -> MemoryMapOutput:
     """PURPOSE: Get the PPSSPP memory region map (user / kernel / VRAM ranges).
-    
+
     USAGE: session_id.
-    
+
     BEHAVIOR: READ-ONLY.
-    
+
     RETURNS: {ranges[], mapping, text}."""
     require_session_id(session_id)
 

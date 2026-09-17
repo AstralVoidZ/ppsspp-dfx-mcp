@@ -33,16 +33,18 @@ from ppsspp_dfx_mcp.core.transport import WsTransport
 
 # The ratified subscription set (R14). If you genuinely need a new
 # subscribed event, extend this tuple AND the dispatch behavior together.
-EXPECTED_SUBSCRIBED: frozenset[str] = frozenset({
-    "game.start",
-    "game.quit",
-    "game.pause",
-    "game.resume",
-    "log",
-    "cpu.resume",
-    "cpu.stepping",
-    "gpu.stats.get",
-})
+EXPECTED_SUBSCRIBED: frozenset[str] = frozenset(
+    {
+        "game.start",
+        "game.quit",
+        "game.pause",
+        "game.resume",
+        "log",
+        "cpu.resume",
+        "cpu.stepping",
+        "gpu.stats.get",
+    }
+)
 
 
 def test_subscription_set_matches_ratified_set() -> None:
@@ -69,29 +71,27 @@ async def test_every_subscribed_event_routes_to_its_dedicated_queue(
                 # Its routing contract is the log record, not queue access.
                 import logging
 
-                with caplog.at_level(
-                    logging.INFO, logger="ppsspp_dfx_mcp.ppsspp_log"
-                ):
-                    await transport.events.put({
-                        "event": "log", "level": 2,
-                        "message": "R14-routing-probe",
-                        "channel": "t", "header": "h",
-                    })
+                with caplog.at_level(logging.INFO, logger="ppsspp_dfx_mcp.ppsspp_log"):
+                    await transport.events.put(
+                        {
+                            "event": "log",
+                            "level": 2,
+                            "message": "R14-routing-probe",
+                            "channel": "t",
+                            "header": "h",
+                        }
+                    )
                     for _ in range(40):
-                        if any("R14-routing-probe" in r.getMessage()
-                               for r in caplog.records):
+                        if any("R14-routing-probe" in r.getMessage() for r in caplog.records):
                             break
                         await asyncio.sleep(0.05)
-                    assert any(
-                        "R14-routing-probe" in r.getMessage()
-                        for r in caplog.records
-                    ), "log broadcast never surfaced as a Python log record"
+                    assert any("R14-routing-probe" in r.getMessage() for r in caplog.records), (
+                        "log broadcast never surfaced as a Python log record"
+                    )
                 assert transport.events.empty()
                 continue
             await transport.events.put({"event": event, "probe": event})
-            msg = await asyncio.wait_for(
-                observer._queues[event].get(), timeout=2.0
-            )
+            msg = await asyncio.wait_for(observer._queues[event].get(), timeout=2.0)
             assert msg["probe"] == event
             assert transport.events.empty(), (
                 f"{event}: the dispatcher must be the only transport.events "
@@ -112,9 +112,7 @@ async def test_unsubscribed_events_reach_no_dedicated_queue() -> None:
         await asyncio.sleep(0.1)
         assert transport.events.empty(), "dispatcher must consume everything"
         for event, queue in observer._queues.items():
-            assert queue.empty(), (
-                f"unsubscribed event leaked into the {event} queue"
-            )
+            assert queue.empty(), f"unsubscribed event leaked into the {event} queue"
     finally:
         await observer.stop()
         await transport.close()

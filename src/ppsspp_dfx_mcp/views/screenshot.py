@@ -47,7 +47,7 @@ class ScreenshotResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: ScreenshotResult) -> "ScreenshotResponse":
+    def from_result(cls, result: ScreenshotResult) -> ScreenshotResponse:
         b64 = result.image_base64
         if not b64 and result.image_data:
             b64 = base64.b64encode(result.image_data).decode("ascii")
@@ -80,7 +80,7 @@ class TextureDumpResponse(FrozenModel):
     format: str = Field(default="png", description="Image format ('png' or 'jpeg').")
 
     @classmethod
-    def from_result(cls, result: TextureDumpResult) -> "TextureDumpResponse":
+    def from_result(cls, result: TextureDumpResult) -> TextureDumpResponse:
         b64 = result.image_base64
         if not b64 and result.image_data:
             b64 = base64.b64encode(result.image_data).decode("ascii")

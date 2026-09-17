@@ -104,7 +104,7 @@ class TestMemoryReadContract:
 
         The bounded read forwards address + the default 4096-byte cap.
         """
-        payload = "你好".encode("utf-8") + b"\x00" + b"trailing"
+        payload = "你好".encode() + b"\x00" + b"trailing"
         import base64 as _b64
 
         transport.set_response(
@@ -199,7 +199,7 @@ class TestMemoryWriteContract:
         See MemorySubscriber.cpp:L42 — payload is base64-encoded and sent
         under the `base64` param name.
         """
-        payload = b"\x00\x01\x02\xFF"
+        payload = b"\x00\x01\x02\xff"
         expected_b64 = base64.b64encode(payload).decode("ascii")
         await client.write_bytes(0x08804000, payload)
         assert transport.calls[-1][0] == "memory.write"

@@ -28,9 +28,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from contract_recorder.fixture_loader import load_all
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
 log = logging.getLogger(__name__)
@@ -38,9 +38,7 @@ log = logging.getLogger(__name__)
 # Path to recorded real PPSSPP fixtures (one JSON file per event).
 # Produced by `python -m ppsspp_dfx_mcp.scripts.record_fixtures`.
 # conftest.py is at tests/unit/l1_contract/conftest.py → parents[2]=tests.
-_REAL_FIXTURE_DIR = (
-    Path(__file__).resolve().parents[2] / "cassettes" / "fixtures"
-)
+_REAL_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "cassettes" / "fixtures"
 
 
 def _set_stepping_true(t: FakeTransport, **params: Any) -> None:

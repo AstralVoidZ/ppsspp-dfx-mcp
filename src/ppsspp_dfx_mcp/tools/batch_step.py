@@ -96,6 +96,7 @@ class BatchCancelOutput(TypedDict):
     status: str
     note: str
 
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["batch_step", "batch_status", "batch_cancel", "batch_list"]
@@ -120,8 +121,7 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
     stype = step["type"]
     if stype not in STEP_TYPES:
         raise ArgsInvalid(
-            f"step[{index}] invalid type={stype!r}; "
-            f"expected one of {STEP_TYPES}",
+            f"step[{index}] invalid type={stype!r}; expected one of {STEP_TYPES}",
         )
     if stype == "press":
         button = step.get("button")
@@ -129,21 +129,18 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
             raise StepInvalid(f"step[{index}] type=press requires 'button' field")
         if button not in _VALID_BUTTONS:
             raise StepInvalid(
-                f"step[{index}] invalid button={button!r}; "
-                f"expected one of {_VALID_BUTTONS}",
+                f"step[{index}] invalid button={button!r}; expected one of {_VALID_BUTTONS}",
             )
         duration = step.get("duration", 1)
         if not isinstance(duration, int) or duration < 0:
             raise StepInvalid(
-                f"step[{index}] duration must be int >= 0; "
-                f"got {duration!r}",
+                f"step[{index}] duration must be int >= 0; got {duration!r}",
             )
         if duration > MAX_PRESS_DURATION_FRAMES:
             # WS ticket timeout scales with duration — an
             # unbounded press hung the whole batch indefinitely.
             raise StepInvalid(
-                f"step[{index}] duration {duration} exceeds the cap "
-                f"{MAX_PRESS_DURATION_FRAMES}",
+                f"step[{index}] duration {duration} exceeds the cap {MAX_PRESS_DURATION_FRAMES}",
             )
     elif stype == "wait":
         frames = step.get("frames")
@@ -163,8 +160,7 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
         samples = step.get("samples", 1)
         if not isinstance(samples, int) or samples < 1:
             raise StepInvalid(
-                f"step[{index}] samples must be int >= 1; "
-                f"got {samples!r}",
+                f"step[{index}] samples must be int >= 1; got {samples!r}",
             )
     # screenshot: no required fields (source / mode optional).
 
@@ -200,9 +196,7 @@ async def _execute_batch(
         except Exception as e:
             # If replay_status fails (e.g. old PPSSPP without replay),
             # assume not recording and continue.
-            logger.warning(
-                "replay_status probe failed in batch_step: %s", e
-            )
+            logger.warning("replay_status probe failed in batch_step: %s", e)
             recording_mode = False
 
         for i, step in enumerate(steps):
@@ -230,9 +224,7 @@ async def _execute_batch(
                 if stype == "press":
                     button = step["button"]
                     duration = step.get("duration", 1)
-                    await client.press_button(
-                        button=button, duration=duration
-                    )
+                    await client.press_button(button=button, duration=duration)
                     step_data = {"button": button, "duration": duration}
                 elif stype == "wait":
                     frames = step["frames"]
@@ -241,9 +233,7 @@ async def _execute_batch(
                     # interval (<=0 used to silently become sleep(0),
                     # i.e. the wait step did nothing) and adds the same
                     # mid-sleep session-liveness checks as wait_frames.
-                    elapsed = await wait_frames_chunked(
-                        frames, interval, session_id
-                    )
+                    elapsed = await wait_frames_chunked(frames, interval, session_id)
                     step_data = {"frames": frames, "elapsed_s": elapsed}
                 elif stype == "state_probe":
                     # Reuse the batch_step's client to avoid opening a
@@ -260,13 +250,9 @@ async def _execute_batch(
                     names_str = step.get("names", "")
                     samples = step.get("samples", 1)
                     target_probes = _resolve_target_probes(names_str)
-                    observe_result = await _observe_probes(
-                        client, target_probes, samples
-                    )
-                    step_data = (
-                        StateObserverResponse.from_observe(
-                            observe_result
-                        ).model_dump(mode="json")
+                    observe_result = await _observe_probes(client, target_probes, samples)
+                    step_data = StateObserverResponse.from_observe(observe_result).model_dump(
+                        mode="json"
                     )
                 elif stype == "screenshot":
                     # Call the screenshot tool function directly. Middleware
@@ -288,9 +274,7 @@ async def _execute_batch(
                         kwargs["source"] = source
                     if mode is not None:
                         kwargs["mode"] = mode
-                    parts = await screenshot(
-                        session_id=session_id, **kwargs
-                    )
+                    parts = await screenshot(session_id=session_id, **kwargs)
                     # parts[0] is JSON metadata string.
                     if parts and isinstance(parts[0], str):
                         try:
@@ -321,16 +305,12 @@ async def _execute_batch(
                     data=step_data,
                 )
             )
-            await _report(
-                on_progress, i + 1, len(steps), stype, step_status
-            )
+            await _report(on_progress, i + 1, len(steps), stype, step_status)
 
             # on_failure=abort: stop after first failure.
             if step_status == "failure" and on_failure == "abort":
                 aborted = True
-                abort_reason = (
-                    f"step[{i}] type={stype} failed: {step_error}"
-                )
+                abort_reason = f"step[{i}] type={stype} failed: {step_error}"
                 break
 
     return BatchResult(
@@ -392,12 +372,8 @@ def _make_ctx_progress(ctx: Context) -> ProgressCallback:
     swallowed by _report so notification hiccups never kill a batch.
     """
 
-    async def on_progress(
-        processed: int, total: int, stype: str, status: str
-    ) -> None:
-        await ctx.report_progress(
-            processed, total, f"step {processed}/{total} {stype} {status}"
-        )
+    async def on_progress(processed: int, total: int, stype: str, status: str) -> None:
+        await ctx.report_progress(processed, total, f"step {processed}/{total} {stype} {status}")
 
     return on_progress
 
@@ -405,9 +381,7 @@ def _make_ctx_progress(ctx: Context) -> ProgressCallback:
 def _make_job_progress(job: BatchJob) -> ProgressCallback:
     """Record executed-step count on the job for batch_status pollers (A1)."""
 
-    async def on_progress(
-        processed: int, total: int, stype: str, status: str
-    ) -> None:
+    async def on_progress(processed: int, total: int, stype: str, status: str) -> None:
         job.executed = processed
 
     return on_progress
@@ -415,7 +389,9 @@ def _make_job_progress(job: BatchJob) -> ProgressCallback:
 
 @mcp.tool(
     name="ppsspp_batch_step",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def batch_step(
@@ -517,13 +493,10 @@ async def batch_step(
                 f"another",
                 code="SESSION_BUSY",
             )
+
         async def runner(job: BatchJob) -> dict[str, Any]:
-            result = await _execute_batch(
-                session_id, steps, on_failure, _make_job_progress(job)
-            )
-            response = BatchStepResponse.from_result(result).model_dump(
-                mode="json"
-            )
+            result = await _execute_batch(session_id, steps, on_failure, _make_job_progress(job))
+            response = BatchStepResponse.from_result(result).model_dump(mode="json")
             # Store before raising so a poller sees the partial result.
             job.result = response
             failure = _batch_failure_error(result)
@@ -587,7 +560,9 @@ async def batch_step(
 
 @mcp.tool(
     name="ppsspp_batch_status",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def batch_status(
@@ -625,7 +600,9 @@ async def batch_status(
 
 @mcp.tool(
     name="ppsspp_batch_cancel",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def batch_cancel(
@@ -666,7 +643,9 @@ async def batch_cancel(
 
 @mcp.tool(
     name="ppsspp_batch_list",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def batch_list() -> BatchListOutput:

@@ -95,9 +95,7 @@ class TestV015ThreadParamPassthrough:
         transport.set_state({"stepping": True})
         await client.set_reg("r5", 0x100, thread=5)
         # Find the cpu.setReg call (with_stepping also calls cpu.status).
-        set_reg_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "cpu.setReg"
-        ]
+        set_reg_calls = [(ev, p) for ev, p in transport.calls if ev == "cpu.setReg"]
         assert len(set_reg_calls) == 1
         params = set_reg_calls[0][1]
         assert params["thread"] == 5, (
@@ -123,9 +121,7 @@ class TestV015ThreadParamPassthrough:
         """L1 anchor: evaluate(thread=5) forwards thread=5 to cpu.evaluate."""
         transport.set_state({"stepping": True})
         await client.evaluate("r5 + 0x10", thread=5)
-        eval_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "cpu.evaluate"
-        ]
+        eval_calls = [(ev, p) for ev, p in transport.calls if ev == "cpu.evaluate"]
         assert len(eval_calls) == 1
         params = eval_calls[0][1]
         assert params["thread"] == 5, (
@@ -153,8 +149,7 @@ class TestV015ThreadParamPassthrough:
         assert transport.calls[-1][0] == "memory.disasm"
         params = transport.calls[-1][1]
         assert params["thread"] == 5, (
-            "thread=5 must be forwarded as `thread: 5` to PPSSPP — see "
-            "DisasmSubscriber.cpp:L58-59."
+            "thread=5 must be forwarded as `thread: 5` to PPSSPP — see DisasmSubscriber.cpp:L58-59."
         )
 
     @pytest.mark.asyncio
@@ -163,9 +158,7 @@ class TestV015ThreadParamPassthrough:
         await client.disasm(0x08804000, count=4)
         assert transport.calls[-1][0] == "memory.disasm"
         params = transport.calls[-1][1]
-        assert "thread" not in params, (
-            "Default thread=None must NOT be forwarded to PPSSPP."
-        )
+        assert "thread" not in params, "Default thread=None must NOT be forwarded to PPSSPP."
 
     # -------------------- search_disasm --------------------
 
@@ -187,8 +180,7 @@ class TestV015ThreadParamPassthrough:
         assert transport.calls[-1][0] == "memory.searchDisasm"
         params = transport.calls[-1][1]
         assert params["thread"] == 5, (
-            "thread=5 must be forwarded as `thread: 5` to PPSSPP — see "
-            "DisasmSubscriber.cpp:L58-59."
+            "thread=5 must be forwarded as `thread: 5` to PPSSPP — see DisasmSubscriber.cpp:L58-59."
         )
 
     @pytest.mark.asyncio
@@ -197,6 +189,4 @@ class TestV015ThreadParamPassthrough:
         await client.search_disasm(0x08804000, match="jal")
         assert transport.calls[-1][0] == "memory.searchDisasm"
         params = transport.calls[-1][1]
-        assert "thread" not in params, (
-            "Default thread=None must NOT be forwarded to PPSSPP."
-        )
+        assert "thread" not in params, "Default thread=None must NOT be forwarded to PPSSPP."

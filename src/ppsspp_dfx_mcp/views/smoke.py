@@ -29,7 +29,7 @@ class SmokeTestResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: SmokeTestResult) -> "SmokeTestResponse":
+    def from_result(cls, result: SmokeTestResult) -> SmokeTestResponse:
         return cls(
             checks=[
                 CheckResultView(name=c.name, passed=c.passed, detail=c.detail)

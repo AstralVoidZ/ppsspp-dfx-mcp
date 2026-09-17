@@ -12,15 +12,14 @@ Anchors D-01 + D-22 + D-13 (batch 2 protocol-adapter fixes):
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
 
-from ppsspp_dfx_mcp.tools.assemble import assemble, _split_instructions
+from ppsspp_dfx_mcp.tools.assemble import _split_instructions, assemble
 from ppsspp_dfx_mcp.tools.memory import read_memory
-
 
 # ============================================================================
 # D-01: read_string max_len fallback to read_bytes
@@ -66,9 +65,7 @@ class TestReadStringMaxLenFallback:
         # (which itself does read_bytes + local NUL scan) — the dangerous
         # PPSSPP memory.readString event is never used. max_len=256 is
         # forwarded as the cap.
-        mock_client.read_string.assert_awaited_once_with(
-            address=0x08804000, max_length=256
-        )
+        mock_client.read_string.assert_awaited_once_with(address=0x08804000, max_length=256)
         # Value is truncated at NUL.
         assert result["value"] == "hello"
 
@@ -98,9 +95,7 @@ class TestReadStringMaxLenFallback:
             session_id="sess-1",
         )
 
-        mock_client.read_string.assert_awaited_once_with(
-            address=0x08804000, max_length=4096
-        )
+        mock_client.read_string.assert_awaited_once_with(address=0x08804000, max_length=4096)
         assert result["value"] == "hello"
 
     @pytest.mark.asyncio
@@ -129,9 +124,7 @@ class TestReadStringMaxLenFallback:
             session_id="sess-1",
         )
 
-        mock_client.read_string.assert_awaited_once_with(
-            address=0x08804000, max_length=6
-        )
+        mock_client.read_string.assert_awaited_once_with(address=0x08804000, max_length=6)
         assert result["value"] == "abcdef"
         assert result["size"] == 6
 
@@ -152,26 +145,30 @@ class TestAssembleMultiInstructionSplit:
     def test_split_semicolon(self):
         """_split_instructions splits on ';'."""
         assert _split_instructions("nop; addiu r5, r0, 1; jr ra") == [
-            "nop", "addiu r5, r0, 1", "jr ra"
+            "nop",
+            "addiu r5, r0, 1",
+            "jr ra",
         ]
 
     def test_split_newline(self):
         """_split_instructions splits on '\\n'."""
         assert _split_instructions("nop\naddiu r5, r0, 1\njr ra") == [
-            "nop", "addiu r5, r0, 1", "jr ra"
+            "nop",
+            "addiu r5, r0, 1",
+            "jr ra",
         ]
 
     def test_split_mixed(self):
         """_split_instructions handles mixed ';' and '\\n'."""
         assert _split_instructions("nop; addiu r5, r0, 1\njr ra") == [
-            "nop", "addiu r5, r0, 1", "jr ra"
+            "nop",
+            "addiu r5, r0, 1",
+            "jr ra",
         ]
 
     def test_split_strips_whitespace(self):
         """_split_instructions strips whitespace from each fragment."""
-        assert _split_instructions("  nop  ;  addiu r5  ") == [
-            "nop", "addiu r5"
-        ]
+        assert _split_instructions("  nop  ;  addiu r5  ") == ["nop", "addiu r5"]
 
     def test_split_drops_empty(self):
         """_split_instructions drops empty fragments."""
@@ -222,9 +219,7 @@ class TestAssembleMultiInstructionSplit:
         assert result["bytes_written"] == 12
 
     @pytest.mark.asyncio
-    async def test_single_instruction_one_call(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_single_instruction_one_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Single instruction (no separator) → 1 client.assemble call."""
         mock_client = AsyncMock()
         mock_client.assemble.return_value = {"encoding": 0x00000000}
@@ -265,9 +260,7 @@ class TestScanPatternType:
     """
 
     @pytest.mark.asyncio
-    async def test_ascii_pattern_type_encodes_string(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_ascii_pattern_type_encodes_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """pattern_type='ascii' encodes 'hello' as b'hello'."""
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
@@ -295,14 +288,11 @@ class TestScanPatternType:
         # Verify scan_memory received ASCII-encoded bytes.
         call_kwargs = mock_client.scan_memory.call_args.kwargs
         assert call_kwargs["pattern"] == b"hello", (
-            "pattern_type='ascii' must encode 'hello' as b'hello' — "
-            "not hex-decode it."
+            "pattern_type='ascii' must encode 'hello' as b'hello' — not hex-decode it."
         )
 
     @pytest.mark.asyncio
-    async def test_hex_pattern_type_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_hex_pattern_type_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """pattern_type='hex' (default) hex-decodes the pattern."""
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
@@ -327,9 +317,8 @@ class TestScanPatternType:
         )
 
         call_kwargs = mock_client.scan_memory.call_args.kwargs
-        assert call_kwargs["pattern"] == b"\xAA\xBB", (
-            "Default pattern_type='hex' must hex-decode 'AABB' as "
-            "b'\\xAA\\xBB'."
+        assert call_kwargs["pattern"] == b"\xaa\xbb", (
+            "Default pattern_type='hex' must hex-decode 'AABB' as b'\\xAA\\xBB'."
         )
 
     @pytest.mark.asyncio

@@ -14,6 +14,7 @@ Usage:
 `--encoding auto` (default) tries utf-8 / shift_jis / gbk and reports each;
 a named encoding decodes with errors="replace".
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,14 +53,20 @@ def _decode_strict(data: bytes, enc: str) -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Decode multi-byte text from PSP memory captures (hex / file / stdin).")
-    parser.add_argument("hexbytes", nargs="?", default="",
-                        help="hex string (0x prefix and spaces tolerated), or '-' for stdin")
+        description="Decode multi-byte text from PSP memory captures (hex / file / stdin)."
+    )
+    parser.add_argument(
+        "hexbytes",
+        nargs="?",
+        default="",
+        help="hex string (0x prefix and spaces tolerated), or '-' for stdin",
+    )
     parser.add_argument("--file", help="read raw bytes from this file instead")
     parser.add_argument("--offset", type=lambda s: int(s, 0), help="byte offset into --file")
     parser.add_argument("--size", type=lambda s: int(s, 0), help="byte count to read from --file")
-    parser.add_argument("--encoding", default="auto",
-                        help="auto (default) | utf-8 | shift_jis | gbk")
+    parser.add_argument(
+        "--encoding", default="auto", help="auto (default) | utf-8 | shift_jis | gbk"
+    )
     args = parser.parse_args()
 
     try:
@@ -73,7 +80,9 @@ def main() -> int:
 
     if args.encoding != "auto":
         if args.encoding not in ENCODINGS:
-            parser.error(f"unsupported encoding {args.encoding!r}; choose from: auto, {', '.join(ENCODINGS)}")
+            parser.error(
+                f"unsupported encoding {args.encoding!r}; choose from: auto, {', '.join(ENCODINGS)}"
+            )
         text = data.decode(args.encoding, errors="replace")
         print(f"[{args.encoding}, len={len(data)}B]")
         print(text)
@@ -91,10 +100,14 @@ def main() -> int:
     elif len(clean) > 1:
         # shift_jis covers the half-width kana range, making almost any byte
         # stream "valid" — a clean decode under several encodings is ambiguous.
-        print(f"# AMBIGUOUS: decodes cleanly under {', '.join(clean)}; "
-              "pick the game's actual encoding with --encoding")
+        print(
+            f"# AMBIGUOUS: decodes cleanly under {', '.join(clean)}; "
+            "pick the game's actual encoding with --encoding"
+        )
     else:
-        print("# no encoding decoded cleanly; lines above are best-effort (replacement chars mark bad bytes)")
+        print(
+            "# no encoding decoded cleanly; lines above are best-effort (replacement chars mark bad bytes)"
+        )
     return 0
 
 

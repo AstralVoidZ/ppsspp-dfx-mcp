@@ -14,15 +14,14 @@ import time
 from typing import Any
 
 import pydantic
-
-from ppsspp_dfx_mcp import __version__
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.session import session_manager
-from ppsspp_dfx_mcp.views.introspect import HealthResponse
-from ppsspp_dfx_mcp.server import mcp
 from mcp.types import ToolAnnotations
 
+from ppsspp_dfx_mcp import __version__
+from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.session import session_manager
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.introspect import HealthResponse
 
 HealthOutput = derive_output_contract("HealthOutput", HealthResponse)
 
@@ -40,6 +39,7 @@ def _probe_sessions_file() -> str | None:
     malformed, or None when healthy/absent/empty.
     """
     from ppsspp_dfx_mcp.config import sessions_path
+
     sp = sessions_path()
     if sp.exists():
         try:
@@ -59,7 +59,6 @@ def _probe_sessions_file() -> str | None:
     return None
 
 
-
 # Former docstring (kept as comment; description is now the TDQS docstring):
 # Probe server liveness and readiness.
 #
@@ -71,7 +70,9 @@ def _probe_sessions_file() -> str | None:
 # from "sessions.json may be broken".
 @mcp.tool(
     name="ppsspp_health",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def health() -> HealthOutput:
@@ -110,6 +111,7 @@ async def health() -> HealthOutput:
     # (static tools registered via decorators at import, dynamic exposed
     # scripts via add_tool in lifespan).
     from ppsspp_dfx_mcp.server import registered_tool_count
+
     tool_count = registered_tool_count()
     response = HealthResponse(
         status="degraded" if session_error is not None else "ok",

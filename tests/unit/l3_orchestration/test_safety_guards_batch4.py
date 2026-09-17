@@ -15,8 +15,8 @@ L3 focus (tool wrapper orchestration, NOT WS forwarding):
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -31,7 +31,6 @@ from ppsspp_dfx_mcp.tools.assemble import assemble
 from ppsspp_dfx_mcp.tools.breakpoint import breakpoint
 from ppsspp_dfx_mcp.tools.memory import disassemble, read_memory, write_memory
 
-
 # ============================================================================
 # D-19: disassemble count<=0 returns empty
 # ============================================================================
@@ -41,9 +40,7 @@ class TestDisassembleCountZero:
     """L3: disassemble(count=0) returns empty result without calling PPSSPP."""
 
     @pytest.mark.asyncio
-    async def test_count_zero_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_count_zero_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """count=0 → empty instructions, client.disasm NOT called."""
         mock_client = AsyncMock()
 
@@ -58,9 +55,7 @@ class TestDisassembleCountZero:
             fake_session_client,
         )
 
-        result = await disassemble(
-            session_id="sess-1", address=0x08804000, count=0
-        )
+        result = await disassemble(session_id="sess-1", address=0x08804000, count=0)
 
         assert result["count"] == 0
         assert result["instructions"] == []
@@ -70,9 +65,7 @@ class TestDisassembleCountZero:
         )
 
     @pytest.mark.asyncio
-    async def test_count_negative_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_count_negative_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """count=-1 → empty result, client.disasm NOT called."""
         mock_client = AsyncMock()
 
@@ -87,9 +80,7 @@ class TestDisassembleCountZero:
             fake_session_client,
         )
 
-        result = await disassemble(
-            session_id="sess-1", address=0x08804000, count=-1
-        )
+        result = await disassemble(session_id="sess-1", address=0x08804000, count=-1)
 
         assert result["count"] == 0
         assert result["instructions"] == []
@@ -105,9 +96,7 @@ class TestWriteMemoryProtectedAddress:
     """L3: write_memory rejects protected addresses unless force=True."""
 
     @pytest.mark.asyncio
-    async def test_kernel_address_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_kernel_address_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Writing to kernel memory (< 0x08800000) raises ToolError."""
         mock_client = AsyncMock()
 
@@ -134,9 +123,7 @@ class TestWriteMemoryProtectedAddress:
         mock_client.write_u32.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_code_section_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_code_section_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Writing to top.prx code section raises ToolError."""
         mock_client = AsyncMock()
 
@@ -162,9 +149,7 @@ class TestWriteMemoryProtectedAddress:
         mock_client.write_u32.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_force_overrides_protection(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_force_overrides_protection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """force=True allows writing to protected address."""
         mock_client = AsyncMock()
 
@@ -187,15 +172,11 @@ class TestWriteMemoryProtectedAddress:
             force=True,
         )
 
-        mock_client.write_u32.assert_awaited_once_with(
-            address=0x08804000, value=0x00000000
-        )
+        mock_client.write_u32.assert_awaited_once_with(address=0x08804000, value=0x00000000)
         assert result["bytes_written"] == 4
 
     @pytest.mark.asyncio
-    async def test_safe_address_not_blocked(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_safe_address_not_blocked(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Writing to data section (0x09000000) works without force."""
         mock_client = AsyncMock()
 
@@ -238,9 +219,7 @@ class TestAssembleProtectedAddress:
     """
 
     @pytest.mark.asyncio
-    async def test_kernel_address_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_kernel_address_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Assembling to kernel memory (< 0x08800000) raises ToolError."""
         mock_client = AsyncMock()
 
@@ -266,9 +245,7 @@ class TestAssembleProtectedAddress:
         mock_client.assemble.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_code_section_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_code_section_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Assembling to top.prx code section raises ToolError."""
         mock_client = AsyncMock()
 
@@ -293,9 +270,7 @@ class TestAssembleProtectedAddress:
         mock_client.assemble.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_multi_instruction_range_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_multi_instruction_range_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Multi-instruction range straddling protected boundary rejected.
 
         The full write range [address, address + len(instructions) * 4)
@@ -330,9 +305,7 @@ class TestAssembleProtectedAddress:
         mock_client.assemble.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_force_overrides_protection(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_force_overrides_protection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """force=True allows assembling into protected address."""
         mock_client = AsyncMock()
         mock_client.assemble.return_value = {"encoding": 0x00000000}
@@ -355,15 +328,11 @@ class TestAssembleProtectedAddress:
             force=True,
         )
 
-        mock_client.assemble.assert_awaited_once_with(
-            address=0x08804000, code="nop"
-        )
+        mock_client.assemble.assert_awaited_once_with(address=0x08804000, code="nop")
         assert result["bytes_written"] == 4
 
     @pytest.mark.asyncio
-    async def test_safe_address_not_blocked(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_safe_address_not_blocked(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Assembling to data section (0x09000000) works without force."""
         mock_client = AsyncMock()
         mock_client.assemble.return_value = {"encoding": 0x00000000}
@@ -443,9 +412,7 @@ class TestMemUpdateParamMerge:
         # read=False (from caller), write=True (from current state),
         # change=False (from current state).
         call_kwargs = mock_client.mem_bp_update.call_args.kwargs
-        assert call_kwargs["read"] is False, (
-            "D-21: read=False from caller must be forwarded."
-        )
+        assert call_kwargs["read"] is False, "D-21: read=False from caller must be forwarded."
         assert call_kwargs["write"] is True, (
             "D-21: write must be merged from current state (True), not "
             "silently reset to False by PPSSPP's default."
@@ -568,12 +535,14 @@ class TestPortConflictCheck:
             ),
         }
         # Stub is_pid_alive so the fake PID is treated as live.
-        with patch(
-            "ppsspp_dfx_mcp.core.proc.is_pid_alive",
-            return_value=True,
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.proc.is_pid_alive",
+                return_value=True,
+            ),
+            pytest.raises(PortConflict) as exc_info,
         ):
-            with pytest.raises(PortConflict) as exc_info:
-                _check_port_conflict(sessions, "sess-2", 12345)
+            _check_port_conflict(sessions, "sess-2", 12345)
 
         assert "12345" in str(exc_info.value)
         assert "sess-1" in str(exc_info.value)
@@ -644,9 +613,7 @@ class TestW4ScanClamp:
     bypass the 64 KiB single-read cap, and oversized ranges are rejected."""
 
     @pytest.mark.asyncio
-    async def test_huge_chunk_clamped_to_64k(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_huge_chunk_clamped_to_64k(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
 
@@ -673,9 +640,7 @@ class TestW4ScanClamp:
         assert kwargs["chunk_size"] == 65536
 
     @pytest.mark.asyncio
-    async def test_tiny_chunk_clamped_to_64(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_tiny_chunk_clamped_to_64(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
 
@@ -714,9 +679,7 @@ class TestW4ScanClamp:
             )
 
     @pytest.mark.asyncio
-    async def test_normal_range_still_allowed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_normal_range_still_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
 

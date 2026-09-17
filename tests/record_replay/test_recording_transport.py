@@ -10,7 +10,6 @@ Verifies that RecordingTransport:
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +17,6 @@ import pytest
 
 from record_replay.cassette import CassetteRecord, load_cassette
 from record_replay.recording_transport import RecordingTransport
-
 
 # ---------- Test doubles ----------
 

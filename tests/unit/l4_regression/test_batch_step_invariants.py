@@ -18,8 +18,8 @@ the same client to control recording_mode detection.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -96,27 +96,21 @@ class TestStepValidation:
         mock = _make_mock_client()
         _patch_client(monkeypatch, mock)
         with pytest.raises(ToolError, match="missing required 'type'"):
-            await batch_step(
-                session_id="s", steps=[{"button": "cross"}]
-            )
+            await batch_step(session_id="s", steps=[{"button": "cross"}])
 
     @pytest.mark.asyncio
     async def test_step_invalid_type_raises(self, monkeypatch):
         mock = _make_mock_client()
         _patch_client(monkeypatch, mock)
         with pytest.raises(ToolError, match="invalid type"):
-            await batch_step(
-                session_id="s", steps=[{"type": "bogus"}]
-            )
+            await batch_step(session_id="s", steps=[{"type": "bogus"}])
 
     @pytest.mark.asyncio
     async def test_press_missing_button_raises(self, monkeypatch):
         mock = _make_mock_client()
         _patch_client(monkeypatch, mock)
         with pytest.raises(ToolError, match="requires 'button'"):
-            await batch_step(
-                session_id="s", steps=[{"type": "press", "duration": 30}]
-            )
+            await batch_step(session_id="s", steps=[{"type": "press", "duration": 30}])
 
     @pytest.mark.asyncio
     async def test_press_invalid_button_raises(self, monkeypatch):
@@ -150,9 +144,7 @@ class TestStepValidation:
         mock = _make_mock_client()
         _patch_client(monkeypatch, mock)
         with pytest.raises(ToolError, match="frames must be int >= 0"):
-            await batch_step(
-                session_id="s", steps=[{"type": "wait", "frames": -5}]
-            )
+            await batch_step(session_id="s", steps=[{"type": "wait", "frames": -5}])
 
 
 # ============================================================================
@@ -187,13 +179,12 @@ class TestRecordingModeScreenshotSkip:
     async def test_screenshot_executed_when_not_recording(self, monkeypatch):
         mock = _make_mock_client(saving=False)
         _patch_client(monkeypatch, mock)
+
         # Patch the screenshot tool to avoid real framebuffer capture.
         async def fake_screenshot(**kwargs):
             return ['{"mode":"render","size_bytes":100,"width":480,"height":272}']
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.screenshot.screenshot", fake_screenshot
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.screenshot.screenshot", fake_screenshot)
         result = await batch_step(
             session_id="s",
             steps=[{"type": "screenshot"}],
@@ -366,6 +357,4 @@ class TestAggregateCounts:
         # executed = total - skipped.
         assert result["executed"] == result["total"] - result["skipped"]
         # succeeded + failed = executed.
-        assert (
-            result["succeeded"] + result["failed"] == result["executed"]
-        )
+        assert result["succeeded"] + result["failed"] == result["executed"]

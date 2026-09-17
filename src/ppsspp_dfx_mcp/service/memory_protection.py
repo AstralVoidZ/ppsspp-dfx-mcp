@@ -46,9 +46,7 @@ def _effective_ranges() -> tuple[tuple[str, tuple[int, int]], ...]:
     )
 
 
-def check_protected_address(
-    address: int, *, byte_count: int = 0, force: bool = False
-) -> None:
+def check_protected_address(address: int, *, byte_count: int = 0, force: bool = False) -> None:
     """Raise ToolError if the address range overlaps a protected range.
 
     The top.prx section base follows addresses.yaml `top_base.ppsspp`

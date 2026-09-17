@@ -40,9 +40,9 @@ class MockWebSocket:
     async def send(self, data: str) -> None:
         self.sent.append(data)
         msg = json.loads(data)
-        self.incoming.append(json.dumps(
-            {"event": msg.get("event", "unknown"), "ticket": msg["ticket"]}
-        ))
+        self.incoming.append(
+            json.dumps({"event": msg.get("event", "unknown"), "ticket": msg["ticket"]})
+        )
 
     async def close(self) -> None:
         self.state = State.CLOSED
@@ -55,9 +55,7 @@ def _patch_connect_seq(mocks: list[MockWebSocket]):
     async def _connect(*args: Any, **kwargs: Any) -> MockWebSocket:
         return next(it)
 
-    return patch(
-        "ppsspp_dfx_mcp.core.transport.websockets.connect", new=_connect
-    )
+    return patch("ppsspp_dfx_mcp.core.transport.websockets.connect", new=_connect)
 
 
 @pytest.mark.asyncio
@@ -91,12 +89,11 @@ async def test_call_reconnects_after_drop():
 async def test_call_raises_when_reconnect_fails():
     """F-3 contract: reconnect failure surfaces a descriptive RuntimeError
     (not a silent hang, not a context-free crash)."""
+
     async def _fail_connect(*args: Any, **kwargs: Any) -> Any:
         raise ConnectionRefusedError("refused")
 
-    with patch(
-        "ppsspp_dfx_mcp.core.transport.websockets.connect", new=_fail_connect
-    ):
+    with patch("ppsspp_dfx_mcp.core.transport.websockets.connect", new=_fail_connect):
         t = WsTransport("127.0.0.1", 12345)
         with pytest.raises(RuntimeError, match="not connected"):
             await t.call("cpu.status")
@@ -111,6 +108,5 @@ async def test_fire_and_forget_reconnects_after_drop():
         t = WsTransport("127.0.0.1", 12345)
         await t.connect()
         dead.state = State.CLOSED
-        await asyncio.wait_for(
-            t.fire_and_forget("cpu.stepInto"), timeout=5.0)
+        await asyncio.wait_for(t.fire_and_forget("cpu.stepInto"), timeout=5.0)
         assert any('"cpu.stepInto"' in m for m in fresh.sent)

@@ -58,16 +58,34 @@ SRC_DIR = str(PACKAGE_ROOT / "src")
 ISO_PATH = os.environ.get("PPSSPP_DFX_TEST_ISO_PATH", "game.iso")
 
 SESSION_TOOLS_ALL = {
-    "ppsspp_read_memory", "ppsspp_write_memory", "ppsspp_get_pc",
-    "ppsspp_query", "ppsspp_write_register", "ppsspp_evaluate",
-    "ppsspp_disassemble", "ppsspp_search_disasm", "ppsspp_assemble",
-    "ppsspp_breakpoint", "ppsspp_step", "ppsspp_state_observer",
-    "ppsspp_batch_step", "ppsspp_wait_frames", "ppsspp_press_button",
-    "ppsspp_hold_buttons", "ppsspp_send_analog", "ppsspp_screenshot",
-    "ppsspp_dump_texture", "ppsspp_dump_clut", "ppsspp_gpu_stats",
-    "ppsspp_gpu_record", "ppsspp_replay", "ppsspp_smoke_test",
-    "ppsspp_run_script", "ppsspp_memory_info_search",
-    "ppsspp_wait_breakpoint", "ppsspp_trace_memory_access",
+    "ppsspp_read_memory",
+    "ppsspp_write_memory",
+    "ppsspp_get_pc",
+    "ppsspp_query",
+    "ppsspp_write_register",
+    "ppsspp_evaluate",
+    "ppsspp_disassemble",
+    "ppsspp_search_disasm",
+    "ppsspp_assemble",
+    "ppsspp_breakpoint",
+    "ppsspp_step",
+    "ppsspp_state_observer",
+    "ppsspp_batch_step",
+    "ppsspp_wait_frames",
+    "ppsspp_press_button",
+    "ppsspp_hold_buttons",
+    "ppsspp_send_analog",
+    "ppsspp_screenshot",
+    "ppsspp_dump_texture",
+    "ppsspp_dump_clut",
+    "ppsspp_gpu_stats",
+    "ppsspp_gpu_record",
+    "ppsspp_replay",
+    "ppsspp_smoke_test",
+    "ppsspp_run_script",
+    "ppsspp_memory_info_search",
+    "ppsspp_wait_breakpoint",
+    "ppsspp_trace_memory_access",
     "ppsspp_frame_snapshot",
 }
 
@@ -89,11 +107,11 @@ def check_editable_install_health() -> str | None:
     (and never silently fixes it — the operator should re-install)."""
     try:
         import importlib.util
+
         spec = importlib.util.find_spec(_CANARY_MODULE)
     except Exception:  # noqa: BLE001 — diagnostics must not raise
         spec = None
-    env_has_path = SRC_DIR in sys.path or any(
-        p.rstrip("\\/") == SRC_DIR for p in sys.path)
+    env_has_path = SRC_DIR in sys.path or any(p.rstrip("\\/") == SRC_DIR for p in sys.path)
     if spec is not None and not env_has_path:
         return None  # importable without our override — healthy
     if spec is not None:
@@ -137,15 +155,13 @@ async def stop_all_sessions(session: Any) -> int:
     stopped = 0
     try:
         r = await session.call_tool("ppsspp_session_list", {})
-        s = (getattr(r, "structured_content", None)
-             or getattr(r, "structuredContent", None) or {})
+        s = getattr(r, "structured_content", None) or getattr(r, "structuredContent", None) or {}
         for sess in s.get("sessions", []):
             sid = sess.get("session_id")
             if not sid:
                 continue
             try:
-                await session.call_tool(
-                    "ppsspp_session", {"action": "stop", "session_id": sid})
+                await session.call_tool("ppsspp_session", {"action": "stop", "session_id": sid})
                 stopped += 1
             except Exception:  # noqa: BLE001
                 pass
@@ -154,11 +170,15 @@ async def stop_all_sessions(session: Any) -> int:
     return stopped
 
 
-async def call_tool(session: Any, tool: str, args: dict[str, Any],
-                    *, session_id: str | None = None,
-                    timeout_s: float = 120.0,
-                    session_tools: set[str] = SESSION_TOOLS_ALL,
-                    ) -> dict[str, Any]:
+async def call_tool(
+    session: Any,
+    tool: str,
+    args: dict[str, Any],
+    *,
+    session_id: str | None = None,
+    timeout_s: float = 120.0,
+    session_tools: set[str] = SESSION_TOOLS_ALL,
+) -> dict[str, Any]:
     """Single tool call returning a plain record dict:
     {status, latency_ms, structured, text, error}. status ∈
     ok | tool_error | rpc_error | exception | timeout. session_id is
@@ -167,20 +187,23 @@ async def call_tool(session: Any, tool: str, args: dict[str, Any],
     if tool in session_tools and "session_id" not in args:
         args = {**args, "session_id": session_id or "sess_unknown_guard"}
     sid = session_id or ""
-    args = {k: (sid if v == "__SESSION_ID__" else v)
-            for k, v in args.items()}
+    args = {k: (sid if v == "__SESSION_ID__" else v) for k, v in args.items()}
     import asyncio
+
     t0 = time.perf_counter()
     rec: dict[str, Any] = {"structured": None, "text": "", "error": ""}
     try:
-        r = await asyncio.wait_for(session.call_tool(tool, args),
-                                   timeout=timeout_s)
+        r = await asyncio.wait_for(session.call_tool(tool, args), timeout=timeout_s)
         rec["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-        texts = [c.text for c in (getattr(r, "content", None) or [])
-                 if getattr(c, "type", None) == "text"]
+        texts = [
+            c.text
+            for c in (getattr(r, "content", None) or [])
+            if getattr(c, "type", None) == "text"
+        ]
         rec["text"] = "\n".join(texts)[:1200]
-        rec["structured"] = (getattr(r, "structured_content", None)
-                             or getattr(r, "structuredContent", None))
+        rec["structured"] = getattr(r, "structured_content", None) or getattr(
+            r, "structuredContent", None
+        )
         err = getattr(r, "is_error", None)
         if err is None:
             err = getattr(r, "isError", False)
@@ -198,10 +221,14 @@ async def call_tool(session: Any, tool: str, args: dict[str, Any],
     return rec
 
 
-async def boot_session(session: Any, *, iso_path: str = ISO_PATH,
-                       resilient: bool = True, wait_ready_s: float = 100.0,
-                       settle_s: float = 12.0,
-                       ) -> tuple[bool, str, dict[str, Any]]:
+async def boot_session(
+    session: Any,
+    *,
+    iso_path: str = ISO_PATH,
+    resilient: bool = True,
+    wait_ready_s: float = 100.0,
+    settle_s: float = 12.0,
+) -> tuple[bool, str, dict[str, Any]]:
     """Pre-clean → resilient start → wait_ready → title-screen settle.
 
     Returns (ok, message, structured-from-wait_ready). A healthy boot
@@ -210,35 +237,37 @@ async def boot_session(session: Any, *, iso_path: str = ISO_PATH,
     stale = await stop_all_sessions(session)
     if stale:
         print(f"  [pre-clean] stopped {stale} stale session(s)")
-    r = await call_tool(session, "ppsspp_session",
-                        {"action": "start", "iso_path": iso_path,
-                         "resilient": resilient})
+    r = await call_tool(
+        session, "ppsspp_session", {"action": "start", "iso_path": iso_path, "resilient": resilient}
+    )
     if r["status"] != "ok":
         return False, f"start failed: {r['error'][:200]}", None
     sid = (r.get("structured") or {}).get("session_id")
     if not sid:
         return False, "start returned no session_id", None
-    r_ready = await call_tool(session, "ppsspp_session",
-                              {"action": "wait_ready", "session_id": sid,
-                               "timeout_s": wait_ready_s})
+    r_ready = await call_tool(
+        session,
+        "ppsspp_session",
+        {"action": "wait_ready", "session_id": sid, "timeout_s": wait_ready_s},
+    )
     if r_ready["status"] != "ok":
-        return False, f"wait_ready failed: {r_ready['error'][:200]}", (
-            r_ready.get("structured"))
+        return False, f"wait_ready failed: {r_ready['error'][:200]}", (r_ready.get("structured"))
     if settle_s:
         time.sleep(settle_s)
     return True, f"booted {sid}", r_ready.get("structured")
 
 
-def liveness_three_checks(smoke_structured: dict[str, Any] | None,
-                          ) -> tuple[bool, dict[str, bool]]:
+def liveness_three_checks(
+    smoke_structured: dict[str, Any] | None,
+) -> tuple[bool, dict[str, bool]]:
     """R-C three-check liveness judge (F-07): iso_loaded / cpu_running /
     ws_connected must all pass. game_mode_valid is game-phase dependent
     (title-screen attract mode flips it after minutes) and is
     deliberately EXCLUDED — a smoke `overall_status=fail` alone is not
     a liveness signal. Returns (alive, per-check dict)."""
     s = smoke_structured or {}
-    checks = {c.get("name"): bool(c.get("passed"))
-              for c in s.get("checks", []) if isinstance(c, dict)}
-    alive = all(checks.get(k) for k in
-                ("iso_loaded", "cpu_running", "ws_connected"))
+    checks = {
+        c.get("name"): bool(c.get("passed")) for c in s.get("checks", []) if isinstance(c, dict)
+    }
+    alive = all(checks.get(k) for k in ("iso_loaded", "cpu_running", "ws_connected"))
     return alive, checks

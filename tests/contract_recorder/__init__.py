@@ -16,11 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from record_replay.cassette import CassetteRecord, load_cassette
+from record_replay.cassette import load_cassette
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ class ContractRecorder:
     def __init__(
         self,
         real_transport: Any,
-        ppsspp_version: Optional[str] = None,
+        ppsspp_version: str | None = None,
     ) -> None:
         """Initialize the contract recorder.
 
@@ -60,9 +59,7 @@ class ContractRecorder:
         """Read-only access to the in-memory call fixtures dict."""
         return {k: list(v) for k, v in self._call_fixtures.items()}
 
-    async def call(
-        self, event: str, timeout: float = 5.0, **params: Any
-    ) -> dict[str, Any]:
+    async def call(self, event: str, timeout: float = 5.0, **params: Any) -> dict[str, Any]:
         """Forward call to real transport and record the response by event."""
         response = await self._real.call(event, timeout=timeout, **params)
         self._call_fixtures.setdefault(event, []).append(
@@ -73,23 +70,17 @@ class ContractRecorder:
     async def fire_and_forget(self, event: str, **params: Any) -> None:
         """Forward fire_and_forget to real transport and record by event."""
         await self._real.fire_and_forget(event, **params)
-        self._faf_fixtures.setdefault(event, []).append(
-            {"params": dict(params)}
-        )
+        self._faf_fixtures.setdefault(event, []).append({"params": dict(params)})
 
     async def wait_for_broadcast(
         self,
         event: str,
         timeout_ms: int = 5000,
-        filter: Optional[Any] = None,
+        filter: Any | None = None,
     ) -> dict[str, Any]:
         """Forward to real transport's wait_for_broadcast and record the message."""
-        msg = await self._real.wait_for_broadcast(
-            event, timeout_ms=timeout_ms, filter=filter
-        )
-        self._broadcast_fixtures.setdefault(event, []).append(
-            {"message": dict(msg)}
-        )
+        msg = await self._real.wait_for_broadcast(event, timeout_ms=timeout_ms, filter=filter)
+        self._broadcast_fixtures.setdefault(event, []).append({"message": dict(msg)})
         return msg
 
     def flush(self, fixture_dir: Path) -> dict[str, int]:
@@ -157,8 +148,8 @@ class ContractRecorder:
     def from_cassette(
         cls,
         cassette_path: Path,
-        ppsspp_version: Optional[str] = None,
-    ) -> "ContractRecorder":
+        ppsspp_version: str | None = None,
+    ) -> ContractRecorder:
         """Build a ContractRecorder from a recorded cassette file.
 
         Useful for deriving fixtures from an existing cassette without

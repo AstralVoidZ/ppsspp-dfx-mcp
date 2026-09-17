@@ -34,8 +34,6 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-import pytest
-
 from ppsspp_dfx_mcp.service.capture import CaptureService
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
@@ -115,8 +113,8 @@ class TestV023CaptureEncapsulation:
             if "_client._transport" in line:
                 violations.append(f"line {line_no}: {line.rstrip()}")
         assert not violations, (
-            f"V023 I15 violation: capture.py contains `_client._transport` "
-            f"in code (not comments/docstrings):\n  " + "\n  ".join(violations)
+            "V023 I15 violation: capture.py contains `_client._transport` "
+            "in code (not comments/docstrings):\n  " + "\n  ".join(violations)
         )
 
     def test_debug_client_does_not_expose_screenshot_output(self):
@@ -137,8 +135,8 @@ class TestV023CaptureEncapsulation:
             if "gpu.buffer.screenshot" in line:
                 violations.append(f"line {line_no}: {line.rstrip()}")
         assert not violations, (
-            f"V023 I16 violation: debug_client.py contains "
-            f"`gpu.buffer.screenshot` in code (not comments/docstrings):\n  "
+            "V023 I16 violation: debug_client.py contains "
+            "`gpu.buffer.screenshot` in code (not comments/docstrings):\n  "
             + "\n  ".join(violations)
         )
 
@@ -152,8 +150,8 @@ class TestV023CaptureEncapsulation:
         sig = inspect.signature(CaptureService.__init__)
         params = sig.parameters
         assert "transport" in params, (
-            f"CaptureService.__init__ missing `transport` parameter. "
-            f"V023 I17 requires explicit transport injection."
+            "CaptureService.__init__ missing `transport` parameter. "
+            "V023 I17 requires explicit transport injection."
         )
         assert params["transport"].default is inspect.Parameter.empty, (
             f"V023 I17: `transport` must be required (no default). "

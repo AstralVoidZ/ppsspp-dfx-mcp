@@ -94,12 +94,11 @@ async def _get_live_observer(session_id: str) -> Any:
             f"live PPSSPP WebSocket link; fake-mode and disk-loaded "
             f"sessions have none. Recovery: check ppsspp_smoke_test "
             f"(ws_connected), then start a fresh session via "
-            f"ppsspp_session(action='start') and retry.") from e
+            f"ppsspp_session(action='start') and retry."
+        ) from e
 
 
-def _find_mem_bp_by_addr(
-    listing: Any, address: int
-) -> dict[str, Any] | None:
+def _find_mem_bp_by_addr(listing: Any, address: int) -> dict[str, Any] | None:
     """Find a memory breakpoint by address in a mem_bp_list response.
 
     Local copy of the tools/breakpoint.py finder (kept tiny on purpose):
@@ -127,22 +126,23 @@ async def _remove_mem_bp_quietly(session_id: str, address: int) -> bool:
             existing = _find_mem_bp_by_addr(listing, address)
             if existing is None:
                 return True
-            await client.mem_bp_remove(
-                address=address, size=int(existing.get("size", 4))
-            )
+            await client.mem_bp_remove(address=address, size=int(existing.get("size", 4)))
             listing = await client.mem_bp_list()
             return _find_mem_bp_by_addr(listing, address) is None
     except Exception as e:  # noqa: BLE001 — cleanup must not mask callers
         logger.warning(
             "trace cleanup: mem bp remove failed for 0x%08X: %s",
-            address, e,
+            address,
+            e,
         )
         return False
 
 
 @mcp.tool(
     name="ppsspp_wait_breakpoint",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def wait_breakpoint(
@@ -163,11 +163,11 @@ async def wait_breakpoint(
     ] = 30.0,
 ) -> WaitBreakpointOutput:
     """PURPOSE: Block until a breakpoint hit (any kind) — replaces polling gpu_stats errors as a hit probe.
-    
+
     USAGE: session_id; timeout_s default 30. Arm a breakpoint first via ppsspp_breakpoint (set or mem_set). Use when you only need to know a hit happened; call ppsspp_trace_memory_access instead to capture the hit scene (registers/backtrace) in one step.
-    
+
     BEHAVIOR: READ-ONLY. Subscribes to the cpu.stepping broadcast and holds NO session lock — concurrent reads/observes keep working, but do NOT submit step/pause/resume during the wait. An already-paused CPU returns hit=true + already_paused=true with a high-trust pc (a manual pause is indistinguishable from a hit).
-    
+
     RETURNS: {hit, already_paused, timeout_s, pc, reason, related_address, ticks} — timeout returns hit=false (pollable, not an error); reason/related_address may be null on some builds."""
     budget = _clamp_timeout(timeout_s)
     logger.info(
@@ -197,9 +197,9 @@ async def wait_breakpoint(
                 already_paused=True,
                 pc=pc_trusted,
             )
-            return WaitBreakpointResponse.from_result(
-                result, timeout_s=budget
-            ).model_dump(mode="json")
+            return WaitBreakpointResponse.from_result(result, timeout_s=budget).model_dump(
+                mode="json"
+            )
 
         # Lock-free wait: consume OUR subscription only.
         deadline = time.monotonic() + budget
@@ -207,9 +207,9 @@ async def wait_breakpoint(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 result = WaitBreakpointResult(hit=False)
-                return WaitBreakpointResponse.from_result(
-                    result, timeout_s=budget
-                ).model_dump(mode="json")
+                return WaitBreakpointResponse.from_result(result, timeout_s=budget).model_dump(
+                    mode="json"
+                )
             msg = await subscription.get(timeout_s=remaining)
             if msg is not None:
                 result = WaitBreakpointResult(
@@ -220,9 +220,9 @@ async def wait_breakpoint(
                     related_address=msg.get("relatedAddress"),
                     ticks=msg.get("ticks"),
                 )
-                return WaitBreakpointResponse.from_result(
-                    result, timeout_s=budget
-                ).model_dump(mode="json")
+                return WaitBreakpointResponse.from_result(result, timeout_s=budget).model_dump(
+                    mode="json"
+                )
     finally:
         subscription.close()
 
@@ -232,7 +232,9 @@ async def wait_breakpoint(
 
 @mcp.tool(
     name="ppsspp_frame_snapshot",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def frame_snapshot(
@@ -259,11 +261,11 @@ async def frame_snapshot(
     ] = True,
 ) -> FrameSnapshotOutput:
     """PURPOSE: One-call paused scene snapshot — pause (unless already paused), capture pc + registers + optional named probes, then resume.
-    
+
     USAGE: session_id; probes = optional comma-separated state_observer registry names; want_registers default true. Prefer this over a manual pause + query(registers) + resume sequence.
-    
+
     BEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.
-    
+
     RETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — F-8 nullable-key contract, 2026-09-08."""
     logger.info(
         "tool_call",
@@ -278,7 +280,6 @@ async def frame_snapshot(
             was_stepping = bool(status.get("stepping"))
             if not was_stepping:
                 await client.pause()
-            resumed = False
             try:
                 pc, trust = await client.safe_get_pc()
                 result: dict[str, Any] = {
@@ -302,12 +303,9 @@ async def frame_snapshot(
                     )
 
                     _seed_from_yaml()
-                    observation = await _observe_probes(
-                        client, _resolve_target_probes(probes), 1
-                    )
-                    result["probes"] = (
-                        StateObserverResponse.from_observe(observation)
-                        .model_dump(mode="json")
+                    observation = await _observe_probes(client, _resolve_target_probes(probes), 1)
+                    result["probes"] = StateObserverResponse.from_observe(observation).model_dump(
+                        mode="json"
                     )
             except Exception:
                 # Never leave the game frozen when OUR pause started it.
@@ -315,16 +313,14 @@ async def frame_snapshot(
                     try:
                         await client.resume()
                     except Exception as e:  # noqa: BLE001
-                        logger.warning(
-                            "frame_snapshot: recovery resume failed: %s", e
-                        )
+                        logger.warning("frame_snapshot: recovery resume failed: %s", e)
                 raise
             if not was_stepping:
                 await client.resume()
                 result["resumed"] = True
-            return FrameSnapshotResponse.from_result(
-                FrameSnapshotResult(**result)
-            ).model_dump(mode="json")
+            return FrameSnapshotResponse.from_result(FrameSnapshotResult(**result)).model_dump(
+                mode="json"
+            )
     except ToolError:
         raise
     except Exception as e:
@@ -333,7 +329,9 @@ async def frame_snapshot(
 
 @mcp.tool(
     name="ppsspp_trace_memory_access",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def trace_memory_access(
@@ -344,19 +342,14 @@ async def trace_memory_access(
     address: Annotated[
         str,
         Field(
-            description=(
-                "Address to trace, as a hex string (e.g. '0x08A0D000')."
-            ),
+            description=("Address to trace, as a hex string (e.g. '0x08A0D000')."),
         ),
     ],
     access: Annotated[
         Literal["read", "write", "read_write"],
         Field(
             default="read",
-            description=(
-                "Access kind to trap: 'read', 'write', or 'read_write' "
-                "(default 'read')."
-            ),
+            description=("Access kind to trap: 'read', 'write', or 'read_write' (default 'read')."),
         ),
     ] = "read",
     size: Annotated[
@@ -393,20 +386,18 @@ async def trace_memory_access(
     ] = False,
 ) -> TraceAccessOutput:
     """PURPOSE: One-call answer to 'what code reads/writes this address' — arm a memory breakpoint, wait for the hit, capture pc (+registers/backtrace), remove the breakpoint, and resume.
-    
+
     USAGE: session_id + hex address; access='read'|'write'|'read_write' (default read); size 1/2/4 (default 4); timeout_s default 30; want_registers/want_backtrace optional. Game must be RUNNING (call after session wait_ready).
-    
+
     BEHAVIOR: MUTATING. Arms a temporary breakpoint and always removes it (list-verified real-size removal). The lock is held only for arm/capture/cleanup — the wait is lock-free (concurrent reads OK). Do NOT run other breakpoint/step tools during the wait: the first cpu.stepping broadcast wins. An already-paused CPU short-circuits (nothing can hit). Error paths still remove the breakpoint and resume.
-    
+
     RETURNS: {hit, already_paused, address, access, timeout_s, hits:[{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}. reason/related_address may be null on some builds; mem_hits is the attribution counter."""
     budget = _clamp_timeout(timeout_s)
     addr = parse_address(address)
     if addr == 0:
-        raise ArgsInvalid(
-            f"address must be a valid hex address, got {address!r}")
+        raise ArgsInvalid(f"address must be a valid hex address, got {address!r}")
     if size not in (1, 2, 4):
-        raise ArgsInvalid(
-            f"size must be 1, 2, or 4 bytes, got {size}")
+        raise ArgsInvalid(f"size must be 1, 2, or 4 bytes, got {size}")
     read_flag = access in ("read", "read_write")
     write_flag = access in ("write", "read_write")
 
@@ -442,8 +433,7 @@ async def trace_memory_access(
                     already_paused=True,
                     bp_removed=False,
                     resumed=False,
-                    note="CPU already paused at arm time — resume it "
-                         "first, then trace",
+                    note="CPU already paused at arm time — resume it first, then trace",
                 )
                 return TraceAccessResponse.from_result(
                     result, address=addr, access=access, timeout_s=budget
@@ -477,8 +467,9 @@ async def trace_memory_access(
                 hit=False,
                 bp_removed=bp_removed,
                 resumed=False,
-                note=None if bp_removed else
-                "breakpoint removal failed on the timeout path — check "
+                note=None
+                if bp_removed
+                else "breakpoint removal failed on the timeout path — check "
                 "ppsspp_breakpoint(action='mem_list')",
             )
             return TraceAccessResponse.from_result(
@@ -514,9 +505,7 @@ async def trace_memory_access(
                 # (the broadcast's reason/relatedAddress are absent on some
                 # PPSSPP builds; the counter only increments for this addr).
                 entry["mem_hits"] = int(existing.get("hits", 0))
-                await client.mem_bp_remove(
-                    address=addr, size=int(existing.get("size", size))
-                )
+                await client.mem_bp_remove(address=addr, size=int(existing.get("size", size)))
             listing = await client.mem_bp_list()
             bp_removed = _find_mem_bp_by_addr(listing, addr) is None
             if bp_removed:
@@ -528,8 +517,9 @@ async def trace_memory_access(
             hits=[entry],
             bp_removed=bp_removed,
             resumed=True,
-            note=None if bp_removed else
-            "hit captured but breakpoint removal could not be verified — "
+            note=None
+            if bp_removed
+            else "hit captured but breakpoint removal could not be verified — "
             "check ppsspp_breakpoint(action='mem_list')",
         )
         return TraceAccessResponse.from_result(
@@ -544,9 +534,7 @@ async def trace_memory_access(
                 async with session_client(session_id) as client:
                     await client.resume()
             except Exception as e:  # noqa: BLE001 — recovery is best-effort
-                logger.warning(
-                    "trace cleanup: resume after hit failed: %s", e
-                )
+                logger.warning("trace cleanup: resume after hit failed: %s", e)
         raise
     finally:
         if bp_armed:

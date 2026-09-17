@@ -27,7 +27,10 @@ from ppsspp_dfx_mcp import server as server_mod
 
 DEFAULT_OUT = (
     Path(__file__).resolve().parents[1]
-    / "tests" / "unit" / "l2_mcp_contract" / "tool_surface_baseline.json"
+    / "tests"
+    / "unit"
+    / "l2_mcp_contract"
+    / "tool_surface_baseline.json"
 )
 
 
@@ -74,20 +77,14 @@ async def _dump() -> dict:
             "description_words": words,
             "description_chars": len(desc),
             "input_schema_chars": len(schema_json),
-            "input_schema_sha1": hashlib.sha1(
-                schema_json.encode("utf-8")).hexdigest(),
+            "input_schema_sha1": hashlib.sha1(schema_json.encode("utf-8")).hexdigest(),
             # Parameter NAMES as a sorted list, not just a hash: when a
             # rename does happen, the baseline diff shows the name instead
             # of two opaque digests.
-            "input_schema_properties": sorted(
-                (input_schema or {}).get("properties") or {}
-            ),
+            "input_schema_properties": sorted((input_schema or {}).get("properties") or {}),
             "output_schema_chars": len(output_json),
-            "output_schema_sha1": hashlib.sha1(
-                output_json.encode("utf-8")).hexdigest(),
-            "annotations": _annotations_dict(
-                getattr(t, "annotations", None)
-            ),
+            "output_schema_sha1": hashlib.sha1(output_json.encode("utf-8")).hexdigest(),
+            "annotations": _annotations_dict(getattr(t, "annotations", None)),
         }
     return {
         "note": (
@@ -112,9 +109,11 @@ def main() -> None:
         json.dumps(dump, ensure_ascii=False, indent=1, sort_keys=True),
         encoding="utf-8",
     )
-    print(f"tools={dump['tool_count']} "
-          f"desc_chars={dump['total_description_chars']} "
-          f"schema_chars={dump['total_input_schema_chars']}")
+    print(
+        f"tools={dump['tool_count']} "
+        f"desc_chars={dump['total_description_chars']} "
+        f"schema_chars={dump['total_input_schema_chars']}"
+    )
     print(f"written: {args.out}")
 
 

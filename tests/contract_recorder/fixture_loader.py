@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,10 @@ def _load_fixture_file(path: Path) -> tuple[str, str, list[dict[str, Any]]]:
     ppsspp_version = data.get("ppsspp_version", "unknown")
     logger.debug(
         "loaded fixture %s: type=%s, %d records, ppsspp_version=%s",
-        event, record_type, len(records), ppsspp_version,
+        event,
+        record_type,
+        len(records),
+        ppsspp_version,
     )
     return event, record_type, records
 
@@ -67,7 +71,8 @@ def load_all(fixture_dir: Path, fake_transport: Any) -> dict[str, int]:
         # which is transport-specific behavior not covered by load_all.
     logger.info(
         "load_all: %d events loaded into %s",
-        len(counts), type(fake_transport).__name__,
+        len(counts),
+        type(fake_transport).__name__,
     )
     return counts
 
@@ -92,6 +97,7 @@ def load_with_params(fixture_dir: Path, fake_transport: Any) -> dict[str, int]:
         event, record_type, records = _load_fixture_file(path)
         counts[event] = len(records)
         if record_type == "call" and records:
+
             def make_matcher(recs: list[dict[str, Any]]) -> Callable[..., dict[str, Any]]:
                 def matcher(**params: Any) -> dict[str, Any]:
                     # Exact param match first.
@@ -100,16 +106,19 @@ def load_with_params(fixture_dir: Path, fake_transport: Any) -> dict[str, int]:
                             return dict(r.get("response", {}))
                     # Fallback to first record.
                     return dict(recs[0].get("response", {}))
+
                 return matcher
+
             fake_transport.set_response(event, make_matcher(records))
     logger.info(
         "load_with_params: %d events loaded into %s",
-        len(counts), type(fake_transport).__name__,
+        len(counts),
+        type(fake_transport).__name__,
     )
     return counts
 
 
-def check_ppsspp_version(fixture_dir: Path, expected_version: Optional[str] = None) -> list[str]:
+def check_ppsspp_version(fixture_dir: Path, expected_version: str | None = None) -> list[str]:
     """Check fixture files for ppsspp_version metadata.
 
     If `expected_version` is given, logs a warning for any fixture
@@ -128,6 +137,8 @@ def check_ppsspp_version(fixture_dir: Path, expected_version: Optional[str] = No
             logger.warning(
                 "fixture %s: ppsspp_version mismatch (recorded=%s, expected=%s) — "
                 "consider re-recording fixtures if PPSSPP behavior changed",
-                path.name, v, expected_version,
+                path.name,
+                v,
+                expected_version,
             )
     return versions

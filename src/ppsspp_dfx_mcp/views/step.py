@@ -19,8 +19,7 @@ class StepResponse(FrozenModel):
 
     action: str = Field(
         description=(
-            "'into' / 'over' / 'out' / 'pause' / 'resume' / 'reset' / "
-            "'run_until' / 'next_hle'."
+            "'into' / 'over' / 'out' / 'pause' / 'resume' / 'reset' / 'run_until' / 'next_hle'."
         ),
     )
     address: str = Field(
@@ -53,7 +52,7 @@ class StepResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: StepResult) -> "StepResponse":
+    def from_result(cls, result: StepResult) -> StepResponse:
         return cls(
             action=result.action,
             address=format_address(result.address),

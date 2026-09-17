@@ -77,7 +77,9 @@ def _find_mem_bp(
 
 @mcp.tool(
     name="ppsspp_breakpoint",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def breakpoint(
@@ -170,8 +172,7 @@ async def breakpoint(
         Field(
             default=None,
             description=(
-                "Log format string (update / mem_set / mem_update only; "
-                "None = don't change)."
+                "Log format string (update / mem_set / mem_update only; None = don't change)."
             ),
         ),
     ] = None,
@@ -213,29 +214,30 @@ async def breakpoint(
     ] = None,
 ) -> BreakpointOutput:
     """PURPOSE: Set, remove, update, and list CPU execution breakpoints and memory watchpoints.
-    
+
     USAGE: action + session_id; set/remove/update manage CPU exec breakpoints (address required); mem_set/mem_remove/mem_update manage memory watchpoints (size 1/2/4+, read/write flags); list/mem_list take no address.
-    
+
     BEHAVIOR: MUTATING. Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification.
-    
+
     RETURNS: {action, address, enabled, breakpoints[]}."""
     if action not in _BP_ACTIONS:
-        raise ArgsInvalid(
-            f"invalid action={action!r}; expected one of {_BP_ACTIONS}")
+        raise ArgsInvalid(f"invalid action={action!r}; expected one of {_BP_ACTIONS}")
     address_int = parse_address(address)
     if action in _BP_ACTIONS_REQUIRING_ADDRESS and address_int == 0:
         # Not worded "address is required": this also fires when the caller
         # explicitly passes 0x0, so the message says what actually happened.
         raise ArgsInvalid(
             f"address 0x0 is not a valid breakpoint target (the zero "
-            f"address is reserved) for action={action!r}")
+            f"address is reserved) for action={action!r}"
+        )
     if action in ("mem_set", "mem_remove", "mem_update") and size < 1:
         # A zero/negative-width watchpoint is stored by PPSSPP but can
         # never hit, and it stacks invisibly with same-address memchecks.
         raise ArgsInvalid(
             f"invalid memcheck size {size} for action={action!r} — must "
             f"be a positive byte count (1/2/4 typical; removal matches "
-            f"the watchpoint's exact address+size pair)")
+            f"the watchpoint's exact address+size pair)"
+        )
 
     logger.info(
         "tool_call",
@@ -275,9 +277,7 @@ async def breakpoint(
                     for bp in pre_bps
                     if isinstance(bp, dict)
                 ):
-                    raise BreakpointError(
-                        f"no CPU breakpoint at 0x{address_int:08X}"
-                    )
+                    raise BreakpointError(f"no CPU breakpoint at 0x{address_int:08X}")
                 await client.cpu_bp_remove(address=address_int)
                 resp = await client.cpu_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
@@ -287,9 +287,7 @@ async def breakpoint(
             elif action == "list":
                 resp = await client.cpu_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
-                result = BreakpointResult(
-                    action=action, address=0, enabled=True, breakpoints=bps
-                )
+                result = BreakpointResult(action=action, address=0, enabled=True, breakpoints=bps)
             elif action == "update":
                 await client.cpu_bp_update(
                     address=address_int,
@@ -338,9 +336,7 @@ async def breakpoint(
                 # alone silently fails when it differs (e.g. a 16-byte
                 # watch removed with the default size=4).
                 listing = await client.mem_bp_list()
-                existing = _find_mem_bp(
-                    listing if isinstance(listing, dict) else {}, address_int
-                )
+                existing = _find_mem_bp(listing if isinstance(listing, dict) else {}, address_int)
                 if existing is None:
                     # Fail loudly whenever no memcheck exists at this
                     # address, regardless of the caller's size: deferring
@@ -361,9 +357,7 @@ async def breakpoint(
             elif action == "mem_list":
                 resp = await client.mem_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
-                result = BreakpointResult(
-                    action=action, address=0, enabled=True, breakpoints=bps
-                )
+                result = BreakpointResult(action=action, address=0, enabled=True, breakpoints=bps)
             else:  # mem_update
                 # PPSSPP's WebSocketMemoryBreakpointUpdate takes OPTIONAL
                 # bool params that default to false (NOT keep-current —
@@ -377,9 +371,7 @@ async def breakpoint(
                 # size=4) and leave the merge empty, silently resetting
                 # read/write to false.
                 listing = await client.mem_bp_list()
-                existing = _find_mem_bp(
-                    listing if isinstance(listing, dict) else {}, address_int
-                )
+                existing = _find_mem_bp(listing if isinstance(listing, dict) else {}, address_int)
                 cur_read = existing.get("read", True) if existing else True
                 cur_write = existing.get("write", True) if existing else True
                 cur_change = existing.get("change", False) if existing else False

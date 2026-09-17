@@ -19,6 +19,7 @@ Anchor: openspec change `ppsspp-dfx-mcp-protocol-and-schema`
 方式就是**不被看见**。只抽查的守卫会放过它——本仓库已有先例（`imagecontent-output`
 主 spec 因 delta 头而 11 条 requirement 对解析器不可见，同类问题）。
 """
+
 from __future__ import annotations
 
 from typing import Any, TypedDict
@@ -62,7 +63,7 @@ def _detect_multi_shape_tools() -> dict[str, list[str]]:
         try:
             src = textwrap.dedent(inspect.getsource(fn))
             tree = ast.parse(src)
-        except (OSError, TypeError, SyntaxError):
+        except OSError, TypeError, SyntaxError:
             continue
         classes: set[str] = set()
         for node in ast.walk(tree):
@@ -106,11 +107,11 @@ class TestMultiShapeToolsAreRegistered:
 
         missing = sorted(set(detected) - set(MULTI_SHAPE_OUTPUT_TOOLS))
         assert not missing, (
-            f"检测到未登记的多形态工具：\n  "
+            "检测到未登记的多形态工具：\n  "
             + "\n  ".join(f"{n}: {detected[n]}" for n in missing)
             + "\n修复：把它们的契约改为 derive_output_contract(..., partial=True)，"
-              "并在 tools/_common.MULTI_SHAPE_OUTPUT_TOOLS 登记理由。"
-              "否则这些工具的某些分支会在真实调用时报 ValidationError。"
+            "并在 tools/_common.MULTI_SHAPE_OUTPUT_TOOLS 登记理由。"
+            "否则这些工具的某些分支会在真实调用时报 ValidationError。"
         )
 
     def test_registry_has_no_stale_entries(self):
@@ -140,8 +141,7 @@ class TestMultiShapeToolsAreRegistered:
             if required:
                 offenders.append(f"{name} 仍声明 required={sorted(required)[:6]}")
         assert not offenders, (
-            "多形态工具的契约未放宽（会在非主分支上校验失败）：\n  "
-            + "\n  ".join(offenders)
+            "多形态工具的契约未放宽（会在非主分支上校验失败）：\n  " + "\n  ".join(offenders)
         )
 
 
@@ -158,13 +158,14 @@ class TestDynamicScriptToolContract:
     """
 
     def test_envelope_contract_shape(self):
-        from typing import TypedDict
 
         from ppsspp_dfx_mcp.views._contract import derive_output_contract
         from ppsspp_dfx_mcp.views.screenshot import TextureDumpResponse
 
         inner = derive_output_contract("_InnerProbe", TextureDumpResponse)
-        envelope = TypedDict(  # type: ignore[operator]
+        # 动态 TypedDict：output 字段是运行时求值的 inner（镜像 server.py
+        # 的动态 envelope 模式），类语法无法表达，故 noqa。
+        envelope = TypedDict(  # type: ignore[operator]  # noqa: UP013
             "_EnvelopeProbe",
             {"name": str, "output": inner, "output_model": str},
         )
@@ -185,8 +186,7 @@ class TestDynamicScriptToolContract:
         found_envelope = False
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign) and any(
-                isinstance(t, ast.Name) and t.id == "output_contract"
-                for t in node.targets
+                isinstance(t, ast.Name) and t.id == "output_contract" for t in node.targets
             ):
                 text = ast.dump(node.value)
                 if "'output'" in text and "'output_model'" in text:
@@ -200,6 +200,7 @@ class TestDynamicScriptToolContract:
 # ============================================================================
 # 形态判定工具函数
 # ============================================================================
+
 
 def _is_freeform(schema: dict[str, Any] | None) -> bool:
     """无契约形态：只有 `additionalProperties: true`，没有任何字段声明。"""
@@ -235,9 +236,7 @@ class TestOutputSchemaIsStructured:
 
         该形态的语义是「返回任意内容」——不构成契约，Agent 无法据此判断返回字段。
         """
-        offenders = sorted(
-            t.name for t in _registered_tools() if _is_freeform(t.output_schema)
-        )
+        offenders = sorted(t.name for t in _registered_tools() if _is_freeform(t.output_schema))
         assert not offenders, (
             f"{len(offenders)} 个工具的 outputSchema 无契约（additionalProperties 单键形态）：\n  "
             + "\n  ".join(offenders)
@@ -249,8 +248,8 @@ class TestOutputSchemaIsStructured:
         offenders = sorted(
             t.name for t in _registered_tools() if _has_unconstrained_items(t.output_schema)
         )
-        assert not offenders, (
-            f"{len(offenders)} 个工具的数组 items 无约束：\n  " + "\n  ".join(offenders)
+        assert not offenders, f"{len(offenders)} 个工具的数组 items 无约束：\n  " + "\n  ".join(
+            offenders
         )
 
 
@@ -283,7 +282,7 @@ class TestOutputSchemaFieldsAreConstrained:
             f"{len(offenders)} 个输出字段无任何约束关键字（空 schema 形态）：\n  "
             + "\n  ".join(sorted(offenders))
             + "\n修复：在 derive_output_contract(..., overrides={...}) 中声明该字段"
-              "真实的联合类型，而不是留它作 Any"
+            "真实的联合类型，而不是留它作 Any"
         )
 
 
@@ -312,8 +311,8 @@ class TestInputSchemaIsStructured:
                     field = f"{tool.name}.{prop}"
                     if field not in self.DYNAMIC_INPUT_FIELDS:
                         offenders.append(field)
-        assert not offenders, (
-            f"{len(offenders)} 个参数无类型约束：\n  " + "\n  ".join(sorted(offenders))
+        assert not offenders, f"{len(offenders)} 个参数无类型约束：\n  " + "\n  ".join(
+            sorted(offenders)
         )
 
     def test_exempted_dynamic_params_are_documented(self):
@@ -335,6 +334,7 @@ class TestInputSchemaIsStructured:
 # ============================================================================
 # 2. 契约一致性 —— TypedDict 输出标注 vs 对应 view
 # ============================================================================
+
 
 #: (TypedDict 输出标注, 对应 Pydantic view, 被 exclude 掉的字段) 三元组。
 #: **自动**收集：`derive_output_contract` 把来源 view 记在产物上
@@ -376,9 +376,7 @@ class TestOutputContractMatchesView:
     def test_registry_is_populated(self):
         """自动收集不得为空——空集会让下面的参数化静默变成 0 个用例。"""
         pairs = _collect_pairs()
-        assert len(pairs) >= 30, (
-            f"只自动发现 {len(pairs)} 个派生契约，疑似扫描失效（应为 40 左右）"
-        )
+        assert len(pairs) >= 30, f"只自动发现 {len(pairs)} 个派生契约，疑似扫描失效（应为 40 左右）"
 
     @pytest.mark.parametrize(
         "out_cls,view_cls,excluded",
@@ -394,7 +392,6 @@ class TestOutputContractMatchesView:
         抹掉——实测 `ppsspp_read_memory.value` 就是这样丢掉说明的。这条断言把
         「替换时保留说明」固化为契约。
         """
-        import typing
 
         missing: list[str] = []
         for field_name, annotation in out_cls.__annotations__.items():
@@ -404,18 +401,14 @@ class TestOutputContractMatchesView:
             metadata = getattr(annotation, "__metadata__", ())
             if not any(getattr(m, "description", None) for m in metadata):
                 missing.append(field_name)
-        assert not missing, (
-            f"{out_cls.__name__} 中以下字段丢失了 view 的 description：{missing}"
-        )
+        assert not missing, f"{out_cls.__name__} 中以下字段丢失了 view 的 description：{missing}"
 
     @pytest.mark.parametrize(
         "out_cls,view_cls,excluded",
         _collect_pairs(),
         ids=lambda x: getattr(x, "__name__", str(x)),
     )
-    def test_keys_match_view_fields(
-        self, out_cls: type, view_cls: type, excluded: frozenset[str]
-    ):
+    def test_keys_match_view_fields(self, out_cls: type, view_cls: type, excluded: frozenset[str]):
         out_keys = set(out_cls.__annotations__)
         view_keys = set(view_cls.model_fields) - set(excluded)
         assert out_keys == view_keys, (

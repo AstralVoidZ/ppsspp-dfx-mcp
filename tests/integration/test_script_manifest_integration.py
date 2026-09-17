@@ -19,7 +19,6 @@ Contract:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -30,7 +29,6 @@ from ppsspp_dfx_mcp.spec.script_manifest import (
     get_manifest,
     reset_manifest_for_tests,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -219,5 +217,6 @@ class TestManifestPathResolution:
         """Without an explicit path, manifest_path() falls back to config_dir()."""
         manifest = ScriptManifest()
         from ppsspp_dfx_mcp.config import config_dir
+
         expected = config_dir() / "scripts.manifest.yaml"
         assert manifest.manifest_path() == expected

@@ -105,10 +105,7 @@ class TestToolsListOrdering:
     """
 
     def test_tools_list_order_stable_across_calls(self, _registered):
-        lists = [
-            [t.name for t in asyncio.run(server_mod.mcp.list_tools())]
-            for _ in range(3)
-        ]
+        lists = [[t.name for t in asyncio.run(server_mod.mcp.list_tools())] for _ in range(3)]
         assert lists[0] == lists[1] == lists[2], (
             "tools/list order differs between calls — client-side tool "
             "caching and prompt cache hits would thrash"

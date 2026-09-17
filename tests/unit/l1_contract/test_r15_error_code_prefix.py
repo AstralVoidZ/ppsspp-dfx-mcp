@@ -9,8 +9,6 @@ messages untouched.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from ppsspp_dfx_mcp.errors import (

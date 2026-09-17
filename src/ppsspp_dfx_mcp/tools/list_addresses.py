@@ -94,7 +94,9 @@ def _format_value(v: Any) -> Any:
 # not exist, an empty dict is returned.
 @mcp.tool(
     name="ppsspp_list_addresses",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def list_addresses(
@@ -111,11 +113,11 @@ async def list_addresses(
     ] = None,
 ) -> ListAddressesOutput:
     """PURPOSE: List the project's known address constants from addresses.yaml — the single source of truth; never guess hex addresses.
-    
+
     USAGE: optional section filter; an unknown section returns an error listing the valid ones.
-    
+
     BEHAVIOR: READ-ONLY. Int values ≥0x1000 are returned as hex strings that can be pasted straight into address parameters.
-    
+
     RETURNS: {sections, count, section_filter}."""
     try:
         addrs = config.addresses()
@@ -132,7 +134,8 @@ async def list_addresses(
             # silently returning an empty result.
             raise ArgsInvalid(
                 f"unknown section {section!r}; valid sections: "
-                f"{sorted(k for k in addrs if isinstance(k, str))}")
+                f"{sorted(k for k in addrs if isinstance(k, str))}"
+            )
         return {
             "sections": result,
             "count": len(result),

@@ -27,25 +27,27 @@ import os
 import platform
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
-
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import get_default_environment, stdio_client
+from typing import Any
 
 # R-E (2026-09-08): shared runner primitives — the MCP error
 # classification, launch params and stale-session pre-clean live in
 # _wire.py so this gate and probe_boundary_matrix.py cannot diverge.
+# ── Server launch params — MUST mirror the project-level MCP client config ──
 from _wire import (  # noqa: F401 — re-exported for scenario helpers
+    ISO_PATH,  # noqa: F401 — env-driven (PPSSPP_DFX_TEST_ISO_PATH)
+    PACKAGE_ROOT,
+    WORKSPACE_ROOT,
     _is_mcp_error,
     build_stdio_params,
+)
+from _wire import (
     stop_all_sessions as _wire_stop_all_sessions,
 )
-
-# ── Server launch params — MUST mirror the project-level MCP client config ──
-from _wire import PACKAGE_ROOT, WORKSPACE_ROOT
-from _wire import ISO_PATH  # noqa: F401 — env-driven (PPSSPP_DFX_TEST_ISO_PATH)
+from mcp import ClientSession
+from mcp.client.stdio import stdio_client
 
 PYTHON_EXE = sys.executable
 SRC_DIR = str(PACKAGE_ROOT / "src")
@@ -79,6 +81,8 @@ def _seed_ppsspp_mirror() -> None:
     PPSSPP_MIRROR_LOG.parent.mkdir(parents=True, exist_ok=True)
     with PPSSPP_MIRROR_LOG.open("a", encoding="utf-8") as f:
         f.write("ERROR harness-seed: mirror default-path probe\n")
+
+
 REPORT_PATH = WORKSPACE_ROOT / ".ppsspp-dfx" / "output" / "real_mcp_verification" / "report.json"
 
 SCRATCH = "0x09FE0000"  # high user-RAM scratch area (>=4KB clear of the top boundary)
@@ -169,6 +173,7 @@ SESSION_ID_TOOLS: set[str] = set()
 def subst(args: dict[str, Any]) -> dict[str, Any]:
     """Substitute __SESSION_ID__-style placeholders from STATE."""
     out = json.loads(json.dumps(args))  # deep copy
+
     def walk(v: Any) -> Any:
         if isinstance(v, str):
             for k, val in STATE.items():
@@ -179,6 +184,7 @@ def subst(args: dict[str, Any]) -> dict[str, Any]:
         if isinstance(v, list):
             return [walk(x) for x in v]
         return v
+
     return walk(out)
 
 
@@ -189,10 +195,12 @@ def summarize_content(result: Any, rec: Record) -> None:
         if ctype == "text":
             texts.append(c.text)
         elif ctype == "image":
-            rec.images.append([
-                getattr(c, "mimeType", "?"),
-                len(getattr(c, "data", "") or ""),
-            ])
+            rec.images.append(
+                [
+                    getattr(c, "mimeType", "?"),
+                    len(getattr(c, "data", "") or ""),
+                ]
+            )
     if texts:
         # 1200 chars is enough for error text and for the tools that still
         # answer in the text channel. Tool *metadata* must NOT be validated
@@ -207,9 +215,8 @@ def summarize_content(result: Any, rec: Record) -> None:
     if rec.structured is not None:
         try:
             if len(json.dumps(rec.structured)) > 65536:
-                rec.structured = {"_truncated": True,
-                                  "note": "structured response >64KB"}
-        except (TypeError, ValueError):
+                rec.structured = {"_truncated": True, "note": "structured response >64KB"}
+        except TypeError, ValueError:
             rec.structured = {"_unserializable": str(rec.structured)[:200]}
 
 
@@ -221,6 +228,7 @@ def _hex_of(v: Any) -> str:
 
 
 # ── Validators ──────────────────────────────────────────────────────────────
+
 
 def _v_session_started(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
@@ -250,12 +258,14 @@ def _v_memory_map(rec: Record, state: dict[str, Any]) -> list[str]:
 
 def _v_scratch_value(expected_bytes: list[int]):
     """read_bytes returns value as a list of ints — compare byte lists."""
+
     def v(rec: Record, state: dict[str, Any]) -> list[str]:
         s = rec.structured or {}
         val = s.get("value", s.get("data"))
         if val != expected_bytes:
             return [f"scratch read-back {val!r} != expected {expected_bytes}"]
         return []
+
     return v
 
 
@@ -267,6 +277,7 @@ def _v_register_equal(expected: str):
         if val != tgt:
             return [f"register read-back {val} != expected {tgt}"]
         return []
+
     return v
 
 
@@ -326,8 +337,10 @@ def _v_burst_limited(rec: Record, state: dict[str, Any]) -> list[str]:
 def _v_batch_all_ok(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     if s.get("failed", 0) or s.get("skipped", 0):
-        return [f"batch reported failed={s.get('failed')} skipped={s.get('skipped')} "
-                f"while tool returned ok (hollow success)"]
+        return [
+            f"batch reported failed={s.get('failed')} skipped={s.get('skipped')} "
+            f"while tool returned ok (hollow success)"
+        ]
     return []
 
 
@@ -350,14 +363,17 @@ def _v_v2_string_8000(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     val = s.get("value", "")
     if not isinstance(val, str) or len(val) != 8000:
-        return [f"expected 8000-char string (W1 64KiB contract), got "
-                f"{len(val) if isinstance(val, str) else type(val).__name__}"]
+        return [
+            f"expected 8000-char string (W1 64KiB contract), got "
+            f"{len(val) if isinstance(val, str) else type(val).__name__}"
+        ]
     if s.get("truncated") is True or "TRUNCATED" in str(s.get("text", "")):
         return ["string reported truncated — cap must not trigger at 8000"]
     return []
 
 
 # ── V3 validators (review-r2 behavioral contracts) ─────────────────────────
+
 
 def _v_scan_pattern_cap(rec: Record, state: dict[str, Any]) -> list[str]:
     """S1: the rejection must name the scan pattern cap (fail-fast with
@@ -403,8 +419,7 @@ def _v_screenshot_meta(rec: Record, state: dict[str, Any]) -> list[str]:
     if not isinstance(meta, dict) or not meta:
         return [f"no structured_content metadata: {meta!r}"]
     if "empty" not in meta:
-        return [f"metadata missing explicit 'empty' flag (S2): "
-                f"{sorted(meta.keys())}"]
+        return [f"metadata missing explicit 'empty' flag (S2): {sorted(meta.keys())}"]
     return []
 
 
@@ -432,11 +447,12 @@ def _v_session_busy(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     hay = " ".join([str(s.get("victim_text", "")), rec.error, rec.text_head])
     if "[SESSION_BUSY]" not in hay:
-        return [f"expected '[SESSION_BUSY]' error (W1+R15), got victim_text="
-                f"{str(s.get('victim_text'))[:150]!r}"]
+        return [
+            f"expected '[SESSION_BUSY]' error (W1+R15), got victim_text="
+            f"{str(s.get('victim_text'))[:150]!r}"
+        ]
     if not s.get("holder_ok", False):
-        return ["holder call failed — serialization must not break the "
-                "long-running call itself"]
+        return ["holder call failed — serialization must not break the long-running call itself"]
     return []
 
 
@@ -456,20 +472,24 @@ def _v_wait_bp_no_lock_race(rec: Record, state: dict[str, Any]) -> list[str]:
     succeed immediately — the wait is lock-free (PARTIAL_HOLD)."""
     s = rec.structured or {}
     if s.get("victim_status") != "ok":
-        return [f"victim read failed during wait: "
-                f"{str(s.get('victim_text'))[:150]!r}"]
+        return [f"victim read failed during wait: {str(s.get('victim_text'))[:150]!r}"]
     if "SESSION_BUSY" in str(s.get("victim_text", "")):
-        return ["victim got SESSION_BUSY — wait_breakpoint is holding "
-                "the session lock (contract violation)"]
+        return [
+            "victim got SESSION_BUSY — wait_breakpoint is holding "
+            "the session lock (contract violation)"
+        ]
     if not s.get("holder_ok", False):
         return ["holder wait_breakpoint failed"]
     if rec.latency_ms > 3000.0:
-        return [f"victim latency {rec.latency_ms:.0f}ms ≈ holder duration "
-                f"— the read queued instead of running concurrently"]
+        return [
+            f"victim latency {rec.latency_ms:.0f}ms ≈ holder duration "
+            f"— the read queued instead of running concurrently"
+        ]
     return []
 
 
 # ── R-A validators (probe-collected contracts, 2026-09-08) ─────────────────
+
 
 def _v_trace_hit(rec: Record, state: dict[str, Any]) -> list[str]:
     """trace_memory_access hit contract: four-key result + S3 attribution."""
@@ -539,8 +559,10 @@ def _v_wb_paused(rec: Record, state: dict[str, Any]) -> list[str]:
 def _v_wb_clamp_floor(rec: Record, state: dict[str, Any]) -> list[str]:
     """timeout_s=0.1 must clamp to the 0.5s floor — observable latency."""
     if rec.latency_ms < 450.0:
-        return [f"latency {rec.latency_ms:.0f}ms < 450ms — timeout_s=0.1 "
-                f"was NOT clamped to the 0.5 floor"]
+        return [
+            f"latency {rec.latency_ms:.0f}ms < 450ms — timeout_s=0.1 "
+            f"was NOT clamped to the 0.5 floor"
+        ]
     return []
 
 
@@ -565,16 +587,14 @@ def _v_fs_stays_paused(rec: Record, state: dict[str, Any]) -> list[str]:
     if s.get("was_stepping") is not True:
         p.append(f"was_stepping={s.get('was_stepping')!r}")
     if s.get("resumed") is not False:
-        p.append(f"resumed={s.get('resumed')!r} (already-paused CPU must "
-                 f"STAY paused)")
+        p.append(f"resumed={s.get('resumed')!r} (already-paused CPU must STAY paused)")
     return p
 
 
 def _v_fs_no_regs(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     if s.get("registers") not in (None, {}, []):
-        return [f"registers populated despite want_registers=false: "
-                f"{s.get('registers')!r}"]
+        return [f"registers populated despite want_registers=false: {s.get('registers')!r}"]
     return []
 
 
@@ -584,8 +604,7 @@ def _v_fs_probes(rec: Record, state: dict[str, Any]) -> list[str]:
     if not probes:
         return ["snapshot carried no probes section"]
     if "harness_scratch" not in json.dumps(probes):
-        return [f"harness_scratch missing from probes section: "
-                f"{json.dumps(probes)[:200]}"]
+        return [f"harness_scratch missing from probes section: {json.dumps(probes)[:200]}"]
     return []
 
 
@@ -593,14 +612,11 @@ def _v_smoke_liveness(rec: Record, state: dict[str, Any]) -> list[str]:
     """R-C three-check liveness judge (F-07): game_mode_valid is
     game-phase dependent (attract mode) and must NOT gate liveness."""
     s = rec.structured or {}
-    checks = {c.get("name"): c.get("passed")
-              for c in s.get("checks", []) if isinstance(c, dict)}
-    missing = [k for k in ("iso_loaded", "cpu_running", "ws_connected")
-               if k not in checks]
+    checks = {c.get("name"): c.get("passed") for c in s.get("checks", []) if isinstance(c, dict)}
+    missing = [k for k in ("iso_loaded", "cpu_running", "ws_connected") if k not in checks]
     if missing:
         return [f"smoke battery missing liveness checks: {missing}"]
-    failed = [k for k in ("iso_loaded", "cpu_running", "ws_connected")
-              if checks[k] is not True]
+    failed = [k for k in ("iso_loaded", "cpu_running", "ws_connected") if checks[k] is not True]
     return [f"liveness checks failed: {failed}"] if failed else []
 
 
@@ -608,8 +624,7 @@ def _v_bp_mem_list_empty(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     bps = s.get("breakpoints", [])
     if bps:
-        addrs = [hex(int(b.get("address", 0))) for b in bps
-                 if isinstance(b, dict)]
+        addrs = [hex(int(b.get("address", 0))) for b in bps if isinstance(b, dict)]
         return [f"leaked mem breakpoints after full phase B: {addrs}"]
     return []
 
@@ -618,8 +633,7 @@ def _v_observer_no_scratch(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     flat = json.dumps(s)
     if "harness_scratch" in flat:
-        return ["observer probe harness_scratch leaked (clear must have "
-                "removed it before hygiene)"]
+        return ["observer probe harness_scratch leaked (clear must have removed it before hygiene)"]
     return []
 
 
@@ -631,18 +645,19 @@ def _v_read_cap_exact(rec: Record, state: dict[str, Any]) -> list[str]:
         return []
     val = s.get("value") or []
     if len(val) != 65536:
-        return [f"read_bytes(65536) returned {len(val)} bytes — W1 exact "
-                f"cap boundary violated"]
+        return [f"read_bytes(65536) returned {len(val)} bytes — W1 exact cap boundary violated"]
     return []
 
 
 # ── R-B generic shape validators (anti hollow-ok, batch 1) ─────────────────
+
 
 def _v_has_keys(*keys: str):
     def v(rec: Record, state: dict[str, Any]) -> list[str]:
         s = rec.structured or {}
         missing = [k for k in keys if k not in s]
         return [f"response missing shape keys {missing}"] if missing else []
+
     return v
 
 
@@ -663,10 +678,8 @@ def _v_reg_query(rec: Record, state: dict[str, Any]) -> list[str]:
     if s.get("_truncated"):
         return []
     data = s.get("data")
-    if not isinstance(data, dict) or not isinstance(
-            data.get("uintValue"), int):
-        return [f"register query data not a cpu.getReg payload: "
-                f"{data!r}"]
+    if not isinstance(data, dict) or not isinstance(data.get("uintValue"), int):
+        return [f"register query data not a cpu.getReg payload: {data!r}"]
     return []
 
 
@@ -692,16 +705,18 @@ def _v_script_output(rec: Record, state: dict[str, Any]) -> list[str]:
     hay = rec.text_head
     if '"name"' in hay and '"output"' in hay:
         return []
-    return ["script response carried neither structured payload nor "
-            f"text-channel ScriptRunOutput JSON: {hay[:120]!r}"]
+    return [
+        "script response carried neither structured payload nor "
+        f"text-channel ScriptRunOutput JSON: {hay[:120]!r}"
+    ]
 
 
 # prompts / resources validators (session-independent surface)
 
+
 def _v_prompts_list(rec: Record, state: dict[str, Any]) -> list[str]:
     names = (rec.structured or {}).get("prompts", [])
-    missing = [n for n in ("memory-trace-wizard", "memory-breakpoint-wizard")
-               if n not in names]
+    missing = [n for n in ("memory-trace-wizard", "memory-breakpoint-wizard") if n not in names]
     return [f"prompts missing: {missing}"] if missing else []
 
 
@@ -716,18 +731,17 @@ def _v_prompt_render(rec: Record, state: dict[str, Any]) -> list[str]:
 
 def _v_resources_list(rec: Record, state: dict[str, Any]) -> list[str]:
     uris = (rec.structured or {}).get("resources", [])
-    missing = [u for u in ("ppsspp://game-state", "ppsspp://registers")
-               if u not in uris]
+    missing = [u for u in ("ppsspp://game-state", "ppsspp://registers") if u not in uris]
     return [f"resources missing: {missing}"] if missing else []
 
 
 def _v_exposed_scripts(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     scripts = s.get("scripts", [])
-    exposed = {sc.get("name") for sc in scripts
-               if isinstance(sc, dict) and sc.get("exposed")}
-    missing = [n for n in ("hello_diagnostic", "find_0e_source",
-                           "check_cpu_state") if n not in exposed]
+    exposed = {sc.get("name") for sc in scripts if isinstance(sc, dict) and sc.get("exposed")}
+    missing = [
+        n for n in ("hello_diagnostic", "find_0e_source", "check_cpu_state") if n not in exposed
+    ]
     return [f"exposed scripts missing: {missing}"] if missing else []
 
 
@@ -753,13 +767,12 @@ def _v_mem_list_size(expected: int):
     def v(rec: Record, state: dict[str, Any]) -> list[str]:
         s = rec.structured or {}
         for b in s.get("breakpoints", []):
-            if (isinstance(b, dict)
-                    and int(b.get("address", 0)) == int(SCRATCH, 16)):
+            if isinstance(b, dict) and int(b.get("address", 0)) == int(SCRATCH, 16):
                 if int(b.get("size", 0)) != expected:
-                    return [f"SCRATCH memcheck size {b.get('size')} != "
-                            f"{expected}"]
+                    return [f"SCRATCH memcheck size {b.get('size')} != {expected}"]
                 return []
         return [f"no memcheck at {SCRATCH} (size={expected} arm lost?)"]
+
     return v
 
 
@@ -842,520 +855,1010 @@ PHASE_A: list[Scenario] = [
     Scenario("A.session.get.no_id", "ppsspp_session", {"action": "get"}, "error"),
     Scenario("A.session.stop.no_id", "ppsspp_session", {"action": "stop"}, "error"),
     Scenario("A.session.start.no_iso", "ppsspp_session", {"action": "start"}, "error"),
-    Scenario("A.session.start.bad_iso", "ppsspp_session",
-             {"action": "start", "iso_path": "Z:/definitely/not/real.iso"}, "error"),
-    Scenario("A.convert.ida_to_ppsspp.zero", "ppsspp_convert_address",
-             {"address": "0x0", "mode": "ida_to_ppsspp"}),
-    Scenario("A.convert.ppsspp_to_ida.base", "ppsspp_convert_address",
-             {"address": "0x08804000", "mode": "ppsspp_to_ida"}),
-    Scenario("A.convert.bad_hex", "ppsspp_convert_address",
-             {"address": "zzz", "mode": "auto"}, "error"),
-    Scenario("A.convert.below_base", "ppsspp_convert_address",
-             {"address": "0x08000000", "mode": "ppsspp_to_ida"}, "error"),
+    Scenario(
+        "A.session.start.bad_iso",
+        "ppsspp_session",
+        {"action": "start", "iso_path": "Z:/definitely/not/real.iso"},
+        "error",
+    ),
+    Scenario(
+        "A.convert.ida_to_ppsspp.zero",
+        "ppsspp_convert_address",
+        {"address": "0x0", "mode": "ida_to_ppsspp"},
+    ),
+    Scenario(
+        "A.convert.ppsspp_to_ida.base",
+        "ppsspp_convert_address",
+        {"address": "0x08804000", "mode": "ppsspp_to_ida"},
+    ),
+    Scenario(
+        "A.convert.bad_hex", "ppsspp_convert_address", {"address": "zzz", "mode": "auto"}, "error"
+    ),
+    Scenario(
+        "A.convert.below_base",
+        "ppsspp_convert_address",
+        {"address": "0x08000000", "mode": "ppsspp_to_ida"},
+        "error",
+    ),
     Scenario("A.list_addresses.default", "ppsspp_list_addresses", {}),
-    Scenario("A.list_addresses.bad_section", "ppsspp_list_addresses",
-             {"section": "no_such_section"}, "error"),
+    Scenario(
+        "A.list_addresses.bad_section",
+        "ppsspp_list_addresses",
+        {"section": "no_such_section"},
+        "error",
+    ),
     Scenario("A.list_scripts", "ppsspp_list_scripts", {}),
     Scenario("A.reload_scripts", "ppsspp_reload_scripts", {}),
-    Scenario("A.run_script.unknown", "ppsspp_run_script",
-             {"name": "definitely_not_a_script"}, "error"),
-    Scenario("A.analyze_log.missing", "ppsspp_analyze_log",
-             {"log_path": "Z:/no/such/log.log"}, "error"),
-    Scenario("A.read_memory.unknown_action", "ppsspp_read_memory",
-             {"action": "read_u64", "address": "0x08804000"}, "error"),
-    Scenario("A.read_memory.no_address", "ppsspp_read_memory",
-             {"action": "read_bytes"}, "error"),
-    Scenario("A.read_memory.bad_hex", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "kernel", "size": 4}, "error"),
+    Scenario(
+        "A.run_script.unknown", "ppsspp_run_script", {"name": "definitely_not_a_script"}, "error"
+    ),
+    Scenario(
+        "A.analyze_log.missing", "ppsspp_analyze_log", {"log_path": "Z:/no/such/log.log"}, "error"
+    ),
+    Scenario(
+        "A.read_memory.unknown_action",
+        "ppsspp_read_memory",
+        {"action": "read_u64", "address": "0x08804000"},
+        "error",
+    ),
+    Scenario("A.read_memory.no_address", "ppsspp_read_memory", {"action": "read_bytes"}, "error"),
+    Scenario(
+        "A.read_memory.bad_hex",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "kernel", "size": 4},
+        "error",
+    ),
     Scenario("A.convert_address.no_args", "ppsspp_convert_address", {}, "error"),
-
     # ── R-A additions: MCP surface beyond call_tool (v4 report G-4) ──
     # Prompts + resources are session-independent; they must be exercised
     # on the REAL wire, not only via the offline mcp_inspector stubs.
     # Kinds __prompts_list__/__prompt_get__/__resources_list__/
     # __resource_read__ are handled in _call (pseudo tools keep the
     # latency grouping readable).
-    Scenario("A.prompts.list", "(prompts)", {"__prompts_list__": True},
-             "ok", validator=_v_prompts_list,
-             note="R-A: kebab-case wizard prompts discoverable on the wire"),
-    Scenario("A.prompts.trace_wizard_renders", "(prompt)",
-             {"__prompt_get__": "memory-trace-wizard",
-              "__prompt_args__": {"address": GAME_MODE}},
-             "ok", validator=_v_prompt_render,
-             note="R-A: prompt content must route to the H1 trace tool"),
-    Scenario("A.prompts.unknown", "(prompt)",
-             {"__prompt_get__": "no_such_wizard", "__prompt_args__": None},
-             "error", note="unknown prompt → deterministic rejection"),
-    Scenario("A.resources.list", "(resources)", {"__resources_list__": True},
-             "ok", validator=_v_resources_list),
-    Scenario("A.resources.guard_no_session", "(resource)",
-             {"__resource_read__": "ppsspp://game-state"}, "error",
-             note="single-session guard: zero sessions → deterministic "
-                  "rejection (deterministic because run() pre-cleans "
-                  "stale sessions before phase A — F-06)"),
+    Scenario(
+        "A.prompts.list",
+        "(prompts)",
+        {"__prompts_list__": True},
+        "ok",
+        validator=_v_prompts_list,
+        note="R-A: kebab-case wizard prompts discoverable on the wire",
+    ),
+    Scenario(
+        "A.prompts.trace_wizard_renders",
+        "(prompt)",
+        {"__prompt_get__": "memory-trace-wizard", "__prompt_args__": {"address": GAME_MODE}},
+        "ok",
+        validator=_v_prompt_render,
+        note="R-A: prompt content must route to the H1 trace tool",
+    ),
+    Scenario(
+        "A.prompts.unknown",
+        "(prompt)",
+        {"__prompt_get__": "no_such_wizard", "__prompt_args__": None},
+        "error",
+        note="unknown prompt → deterministic rejection",
+    ),
+    Scenario(
+        "A.resources.list",
+        "(resources)",
+        {"__resources_list__": True},
+        "ok",
+        validator=_v_resources_list,
+    ),
+    Scenario(
+        "A.resources.guard_no_session",
+        "(resource)",
+        {"__resource_read__": "ppsspp://game-state"},
+        "error",
+        note="single-session guard: zero sessions → deterministic "
+        "rejection (deterministic because run() pre-cleans "
+        "stale sessions before phase A — F-06)",
+    ),
 ]
 # No-session guard sweep for every session-dependent tool.
 PHASE_A += [
-    Scenario(f"A.guard.{tool}", tool, args,
-             "ok" if tool == "ppsspp_state_observer" else "error",
-             note="no-session guard" + (" (list action is session-independent by design)"
-                                        if tool == "ppsspp_state_observer" else ""))
+    Scenario(
+        f"A.guard.{tool}",
+        tool,
+        args,
+        "ok" if tool == "ppsspp_state_observer" else "error",
+        note="no-session guard"
+        + (
+            " (list action is session-independent by design)"
+            if tool == "ppsspp_state_observer"
+            else ""
+        ),
+    )
     for tool, args in SESSION_TOOLS
 ]
-PHASE_A.append(Scenario("A.burst.list_addresses", "ppsspp_list_addresses",
-                        {"__burst__": 70}, "ok", note="rate-limit burst probe"))
+PHASE_A.append(
+    Scenario(
+        "A.burst.list_addresses",
+        "ppsspp_list_addresses",
+        {"__burst__": 70},
+        "ok",
+        note="rate-limit burst probe",
+    )
+)
 
 
 # ── Phase B: live session matrix ────────────────────────────────────────────
 
 PHASE_B: list[Scenario] = [
-    Scenario("B.session.start", "ppsspp_session",
-             {"action": "start", "iso_path": ISO_PATH, "resilient": True},
-             note="H2: resilient start exercised on the real wire each run "
-                  "(recovered>=0; wedge heal is server-side now)"),
-    Scenario("B.wait_breakpoint.timeout", "ppsspp_wait_breakpoint",
-             {"timeout_s": 1.5}, "ok", validator=_v_wait_bp_timeout,
-             note="H1: no bp armed → hit=false result (not an error)"),
-    Scenario("B.wait_breakpoint.no_lock_race", "ppsspp_wait_breakpoint",
-             {"timeout_s": 4.0,
-              "__race__": {
-                  "holder": {"tool": "ppsspp_wait_breakpoint",
-                             "args": {"session_id": "__SESSION_ID__",
-                                      "timeout_s": 4.0}},
-                  "victim": {"tool": "ppsspp_read_memory",
-                             "args": {"session_id": "__SESSION_ID__",
-                                      "action": "read_u32",
-                                      "address": "0x08804000"}},
-                  "delay_s": 0.5,
-                  "victim_expect_error": False}},
-             "ok", validator=_v_wait_bp_no_lock_race,
-             note="H1 A-H1-2: quick read during a 4s breakpoint wait "
-                  "succeeds (lock-free wait, no SESSION_BUSY)"),
-
+    Scenario(
+        "B.session.start",
+        "ppsspp_session",
+        {"action": "start", "iso_path": ISO_PATH, "resilient": True},
+        note="H2: resilient start exercised on the real wire each run "
+        "(recovered>=0; wedge heal is server-side now)",
+    ),
+    Scenario(
+        "B.wait_breakpoint.timeout",
+        "ppsspp_wait_breakpoint",
+        {"timeout_s": 1.5},
+        "ok",
+        validator=_v_wait_bp_timeout,
+        note="H1: no bp armed → hit=false result (not an error)",
+    ),
+    Scenario(
+        "B.wait_breakpoint.no_lock_race",
+        "ppsspp_wait_breakpoint",
+        {
+            "timeout_s": 4.0,
+            "__race__": {
+                "holder": {
+                    "tool": "ppsspp_wait_breakpoint",
+                    "args": {"session_id": "__SESSION_ID__", "timeout_s": 4.0},
+                },
+                "victim": {
+                    "tool": "ppsspp_read_memory",
+                    "args": {
+                        "session_id": "__SESSION_ID__",
+                        "action": "read_u32",
+                        "address": "0x08804000",
+                    },
+                },
+                "delay_s": 0.5,
+                "victim_expect_error": False,
+            },
+        },
+        "ok",
+        validator=_v_wait_bp_no_lock_race,
+        note="H1 A-H1-2: quick read during a 4s breakpoint wait "
+        "succeeds (lock-free wait, no SESSION_BUSY)",
+    ),
     # ── R-A: wait_breakpoint / trace_memory_access contracts collected
     # by probe_boundary_matrix.py (v4 report G-1) ──
-    Scenario("B.wb.clamp_floor", "ppsspp_wait_breakpoint",
-             {"timeout_s": 0.1}, "ok", validator=_v_wb_clamp_floor,
-             note="timeout_s=0.1 clamps to the 0.5s floor — latency must "
-                  "reflect the clamped budget"),
-    Scenario("B.wb.pause_for", "ppsspp_step", {"action": "pause"}, "ok",
-             note="R-A setup: pause for the already-paused short-circuit"),
-    Scenario("B.wb.paused_short_circuit", "ppsspp_wait_breakpoint",
-             {"timeout_s": 2.0}, "ok", validator=_v_wb_paused,
-             note="wait on a paused CPU short-circuits hit=true/already_paused=true"),
-    Scenario("B.wb.resume_after", "ppsspp_step", {"action": "resume"}, "ok",
-             note="R-A teardown: restore running state"),
-    Scenario("B.trace.hit", "ppsspp_trace_memory_access",
-             {"address": GAME_MODE, "access": "read", "size": 4,
-              "timeout_s": 20.0}, "ok", validator=_v_trace_hit,
-             note="read-hot trap: hit + S3 mem_hits + bp cleanup + resume"),
-    Scenario("B.trace.hit_full", "ppsspp_trace_memory_access",
-             {"address": GAME_MODE, "access": "read", "size": 4,
-              "timeout_s": 20.0, "want_registers": True,
-              "want_backtrace": True}, "ok", validator=_v_trace_hit_full,
-             note="capture options: registers + backtrace present in hit"),
-    Scenario("B.trace.timeout_clean", "ppsspp_trace_memory_access",
-             {"address": "0x09FF8000", "access": "read", "size": 4,
-              "timeout_s": 0.5}, "ok", validator=_v_trace_timeout,
-             note="never-hit address: hit=false + bp_removed=true"),
-    Scenario("B.trace.pause_for", "ppsspp_step", {"action": "pause"}, "ok",
-             note="R-A setup: pause for the trace short-circuit"),
-    Scenario("B.trace.paused_short_circuit", "ppsspp_trace_memory_access",
-             {"address": GAME_MODE, "access": "read", "size": 4,
-              "timeout_s": 2.0}, "ok", validator=_v_trace_paused,
-             note="paused CPU: no arm, hit=false, already_paused=true"),
-    Scenario("B.trace.resume_after", "ppsspp_step", {"action": "resume"},
-             "ok", note="R-A teardown: restore running state"),
-
-    Scenario("B.read.u32.game_mode", "ppsspp_read_memory",
-             {"action": "read_u32", "address": "0x08A0D000"}),
-    Scenario("B.read.bytes.code", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x08804000", "size": 16}),
-    Scenario("B.write.string_seed", "ppsspp_write_memory",
-             {"address": "0x09FE0020", "data": "41424300", "format": "bytes"}),
-    Scenario("B.read.string", "ppsspp_read_memory",
-             {"action": "read_string", "address": "0x09FE0020"},
-             note="read known seeded string (ABC\\0)"),
-    Scenario("B.read.scan_prologue", "ppsspp_read_memory",
-             {"action": "scan", "pattern": "E0FFBD27",
-              "start_addr": "0x08804000", "end_addr": "0x08850000",
-              "max_results": 3}),
-    Scenario("B.read.huge_size", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x08804000", "size": 1048576},
-             "error",
-             note="R12 定版: 1MiB > 64KiB 单读上限（F-6/W1 常量），确定性拒绝"),
-    Scenario("B.read.cap_exact_65536", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x08804000", "size": 65536},
-             "ok", validator=_v_read_cap_exact,
-             note="R-A: 65536 is the ACCEPT boundary of the W1 cap "
-                  "(harness previously only probed 1MiB)"),
-    Scenario("B.read.over_cap_65537", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x08804000", "size": 65537},
-             "error",
-             note="R-A: 65537 is the first rejected size"),
+    Scenario(
+        "B.wb.clamp_floor",
+        "ppsspp_wait_breakpoint",
+        {"timeout_s": 0.1},
+        "ok",
+        validator=_v_wb_clamp_floor,
+        note="timeout_s=0.1 clamps to the 0.5s floor — latency must reflect the clamped budget",
+    ),
+    Scenario(
+        "B.wb.pause_for",
+        "ppsspp_step",
+        {"action": "pause"},
+        "ok",
+        note="R-A setup: pause for the already-paused short-circuit",
+    ),
+    Scenario(
+        "B.wb.paused_short_circuit",
+        "ppsspp_wait_breakpoint",
+        {"timeout_s": 2.0},
+        "ok",
+        validator=_v_wb_paused,
+        note="wait on a paused CPU short-circuits hit=true/already_paused=true",
+    ),
+    Scenario(
+        "B.wb.resume_after",
+        "ppsspp_step",
+        {"action": "resume"},
+        "ok",
+        note="R-A teardown: restore running state",
+    ),
+    Scenario(
+        "B.trace.hit",
+        "ppsspp_trace_memory_access",
+        {"address": GAME_MODE, "access": "read", "size": 4, "timeout_s": 20.0},
+        "ok",
+        validator=_v_trace_hit,
+        note="read-hot trap: hit + S3 mem_hits + bp cleanup + resume",
+    ),
+    Scenario(
+        "B.trace.hit_full",
+        "ppsspp_trace_memory_access",
+        {
+            "address": GAME_MODE,
+            "access": "read",
+            "size": 4,
+            "timeout_s": 20.0,
+            "want_registers": True,
+            "want_backtrace": True,
+        },
+        "ok",
+        validator=_v_trace_hit_full,
+        note="capture options: registers + backtrace present in hit",
+    ),
+    Scenario(
+        "B.trace.timeout_clean",
+        "ppsspp_trace_memory_access",
+        {"address": "0x09FF8000", "access": "read", "size": 4, "timeout_s": 0.5},
+        "ok",
+        validator=_v_trace_timeout,
+        note="never-hit address: hit=false + bp_removed=true",
+    ),
+    Scenario(
+        "B.trace.pause_for",
+        "ppsspp_step",
+        {"action": "pause"},
+        "ok",
+        note="R-A setup: pause for the trace short-circuit",
+    ),
+    Scenario(
+        "B.trace.paused_short_circuit",
+        "ppsspp_trace_memory_access",
+        {"address": GAME_MODE, "access": "read", "size": 4, "timeout_s": 2.0},
+        "ok",
+        validator=_v_trace_paused,
+        note="paused CPU: no arm, hit=false, already_paused=true",
+    ),
+    Scenario(
+        "B.trace.resume_after",
+        "ppsspp_step",
+        {"action": "resume"},
+        "ok",
+        note="R-A teardown: restore running state",
+    ),
+    Scenario(
+        "B.read.u32.game_mode",
+        "ppsspp_read_memory",
+        {"action": "read_u32", "address": "0x08A0D000"},
+    ),
+    Scenario(
+        "B.read.bytes.code",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x08804000", "size": 16},
+    ),
+    Scenario(
+        "B.write.string_seed",
+        "ppsspp_write_memory",
+        {"address": "0x09FE0020", "data": "41424300", "format": "bytes"},
+    ),
+    Scenario(
+        "B.read.string",
+        "ppsspp_read_memory",
+        {"action": "read_string", "address": "0x09FE0020"},
+        note="read known seeded string (ABC\\0)",
+    ),
+    Scenario(
+        "B.read.scan_prologue",
+        "ppsspp_read_memory",
+        {
+            "action": "scan",
+            "pattern": "E0FFBD27",
+            "start_addr": "0x08804000",
+            "end_addr": "0x08850000",
+            "max_results": 3,
+        },
+    ),
+    Scenario(
+        "B.read.huge_size",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x08804000", "size": 1048576},
+        "error",
+        note="R12 定版: 1MiB > 64KiB 单读上限（F-6/W1 常量），确定性拒绝",
+    ),
+    Scenario(
+        "B.read.cap_exact_65536",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x08804000", "size": 65536},
+        "ok",
+        validator=_v_read_cap_exact,
+        note="R-A: 65536 is the ACCEPT boundary of the W1 cap "
+        "(harness previously only probed 1MiB)",
+    ),
+    Scenario(
+        "B.read.over_cap_65537",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x08804000", "size": 65537},
+        "error",
+        note="R-A: 65537 is the first rejected size",
+    ),
     Scenario("B.memory_map", "ppsspp_memory_map", {}, validator=_v_memory_map),
-    Scenario("B.write.u8", "ppsspp_write_memory",
-             {"address": SCRATCH, "data": "0xAA", "format": "u8"}),
-    Scenario("B.scratch.read_u8", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": SCRATCH, "size": 1}),
-    Scenario("B.write.u16", "ppsspp_write_memory",
-             {"address": "0x09FE0002", "data": "0xBEEF", "format": "u16"}),
-    Scenario("B.scratch.read_u16", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x09FE0002", "size": 2}),
-    Scenario("B.write.u32", "ppsspp_write_memory",
-             {"address": "0x09FE0004", "data": "0xDEADBEEF", "format": "u32"}),
-    Scenario("B.scratch.read_u32", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x09FE0004", "size": 4}),
-    Scenario("B.write.bytes", "ppsspp_write_memory",
-             {"address": "0x09FE0010", "data": "01020304", "format": "bytes"}),
-    Scenario("B.scratch.read_bytes4", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x09FE0010", "size": 4}),
-    Scenario("B.write.u8.overflow", "ppsspp_write_memory",
-             {"address": SCRATCH, "data": "0x100", "format": "u8"}, "error"),
-    Scenario("B.write.bytes.bad_hex", "ppsspp_write_memory",
-             {"address": SCRATCH, "data": "GG", "format": "bytes"}, "error"),
-    Scenario("B.write.force_protected", "ppsspp_write_memory",
-             {"address": "0x08804000", "data": "0x00", "format": "u32"}, "error",
-             note="protected code segment without force=True"),
+    Scenario(
+        "B.write.u8", "ppsspp_write_memory", {"address": SCRATCH, "data": "0xAA", "format": "u8"}
+    ),
+    Scenario(
+        "B.scratch.read_u8",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": SCRATCH, "size": 1},
+    ),
+    Scenario(
+        "B.write.u16",
+        "ppsspp_write_memory",
+        {"address": "0x09FE0002", "data": "0xBEEF", "format": "u16"},
+    ),
+    Scenario(
+        "B.scratch.read_u16",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x09FE0002", "size": 2},
+    ),
+    Scenario(
+        "B.write.u32",
+        "ppsspp_write_memory",
+        {"address": "0x09FE0004", "data": "0xDEADBEEF", "format": "u32"},
+    ),
+    Scenario(
+        "B.scratch.read_u32",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x09FE0004", "size": 4},
+    ),
+    Scenario(
+        "B.write.bytes",
+        "ppsspp_write_memory",
+        {"address": "0x09FE0010", "data": "01020304", "format": "bytes"},
+    ),
+    Scenario(
+        "B.scratch.read_bytes4",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x09FE0010", "size": 4},
+    ),
+    Scenario(
+        "B.write.u8.overflow",
+        "ppsspp_write_memory",
+        {"address": SCRATCH, "data": "0x100", "format": "u8"},
+        "error",
+    ),
+    Scenario(
+        "B.write.bytes.bad_hex",
+        "ppsspp_write_memory",
+        {"address": SCRATCH, "data": "GG", "format": "bytes"},
+        "error",
+    ),
+    Scenario(
+        "B.write.force_protected",
+        "ppsspp_write_memory",
+        {"address": "0x08804000", "data": "0x00", "format": "u32"},
+        "error",
+        note="protected code segment without force=True",
+    ),
     Scenario("B.query.game_state", "ppsspp_query", {"action": "game_state"}),
-    Scenario("B.query.registers", "ppsspp_query", {"action": "registers"},
-             note="capture r3 original"),
-    Scenario("B.query.register.pc", "ppsspp_query",
-             {"action": "register", "name": "pc"}, note="capture pc"),
-    Scenario("B.query.register.a0", "ppsspp_query",
-             {"action": "register", "name": "a0"}),
-    Scenario("B.query.register.bad_name", "ppsspp_query",
-             {"action": "register", "name": "zz9"}, "error"),
+    Scenario(
+        "B.query.registers", "ppsspp_query", {"action": "registers"}, note="capture r3 original"
+    ),
+    Scenario(
+        "B.query.register.pc",
+        "ppsspp_query",
+        {"action": "register", "name": "pc"},
+        note="capture pc",
+    ),
+    Scenario("B.query.register.a0", "ppsspp_query", {"action": "register", "name": "a0"}),
+    Scenario(
+        "B.query.register.bad_name", "ppsspp_query", {"action": "register", "name": "zz9"}, "error"
+    ),
     Scenario("B.query.threads", "ppsspp_query", {"action": "threads"}),
     Scenario("B.query.modules", "ppsspp_query", {"action": "modules"}),
-    Scenario("B.query.funcs", "ppsspp_query",
-             {"action": "funcs", "top_n": 5}),
-    Scenario("B.query.func_scan", "ppsspp_query",
-             {"action": "func_scan", "address": "__PC__"}),
-    Scenario("B.query.unknown_action", "ppsspp_query",
-             {"action": "teleport"}, "error"),
+    Scenario("B.query.funcs", "ppsspp_query", {"action": "funcs", "top_n": 5}),
+    Scenario("B.query.func_scan", "ppsspp_query", {"action": "func_scan", "address": "__PC__"}),
+    Scenario("B.query.unknown_action", "ppsspp_query", {"action": "teleport"}, "error"),
     Scenario("B.get_pc", "ppsspp_get_pc", {}, note="capture pc (running)"),
     Scenario("B.step.pause", "ppsspp_step", {"action": "pause"}),
-    Scenario("B.disassemble.at_pc", "ppsspp_disassemble",
-             {"address": "__PC__", "count": 8}),
-    Scenario("B.disassemble.zero_count", "ppsspp_disassemble",
-             {"address": "__PC__", "count": 0}, "ok",
-             note="count=0 accepted or error — record semantics"),
-    Scenario("B.disassemble.bad_addr", "ppsspp_disassemble",
-             {"address": "not_an_address", "count": 4}, "error"),
-    Scenario("B.step.into", "ppsspp_step", {"action": "into"}, expect="either",  # noqa: E501
-             note="F-4: PPSSPP stepping no-op at idle loop — fast decisive "
-             "failure is the ratified behavior"),
-    Scenario("B.step.pc_after_into", "ppsspp_get_pc", {}, expect="either",  # noqa: E501
-             note="pc advance not guaranteed (F-4 stepping no-op at idle loop)"),
+    Scenario("B.disassemble.at_pc", "ppsspp_disassemble", {"address": "__PC__", "count": 8}),
+    Scenario(
+        "B.disassemble.zero_count",
+        "ppsspp_disassemble",
+        {"address": "__PC__", "count": 0},
+        "ok",
+        note="count=0 accepted or error — record semantics",
+    ),
+    Scenario(
+        "B.disassemble.bad_addr",
+        "ppsspp_disassemble",
+        {"address": "not_an_address", "count": 4},
+        "error",
+    ),
+    Scenario(
+        "B.step.into",
+        "ppsspp_step",
+        {"action": "into"},
+        expect="either",  # noqa: E501
+        note="F-4: PPSSPP stepping no-op at idle loop — fast decisive "
+        "failure is the ratified behavior",
+    ),
+    Scenario(
+        "B.step.pc_after_into",
+        "ppsspp_get_pc",
+        {},
+        expect="either",  # noqa: E501
+        note="pc advance not guaranteed (F-4 stepping no-op at idle loop)",
+    ),
     Scenario("B.evaluate.pc", "ppsspp_evaluate", {"expression": "pc"}),
-    Scenario("B.evaluate.bad_expr", "ppsspp_evaluate",
-             {"expression": "1 +"}, "error"),
-    Scenario("B.reg.a1_orig", "ppsspp_query",
-             {"action": "register", "name": "a1"},
-             note="capture a1 original value for restore"),
-    Scenario("B.reg.a1_write", "ppsspp_write_register",
-             {"name": "a1", "value": "0x1234"}),
-    Scenario("B.reg.a1_readback", "ppsspp_query",
-             {"action": "register", "name": "a1"},
-             note="value may be rewritten by the game between the two "
-             "pause windows (tool calls are independent pause/resume cycles)"),
-    Scenario("B.reg.a1_restore", "ppsspp_write_register",
-             {"name": "a1", "value": "__R3_ORIG__"}, "ok",
-             note="dependent on a1_orig capture (blocked by F-2 enum bug)"),
-    Scenario("B.reg.write_bad_name", "ppsspp_write_register",
-             {"name": "zz9", "value": "0x0"}, "error"),
-    Scenario("B.reg.write_numeric_name", "ppsspp_write_register",
-             {"name": "r3", "value": "0x0"},
-             note="F-5: numeric name r3 is translated to ABI name v1"),
-    Scenario("B.search_disasm.jr_ra", "ppsspp_search_disasm",
-             {"address": "0x08804000", "match": "jr ra", "max_results": 5}),
-    Scenario("B.search_disasm.nomatch", "ppsspp_search_disasm",
-             {"address": "0x08804000", "match": "zzzzz_no_such_insn"}),
-    Scenario("B.assemble.nop", "ppsspp_assemble",
-             {"address": SCRATCH, "code": "nop"}),
-    Scenario("B.assemble.readback", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": SCRATCH, "size": 4}),
-    Scenario("B.assemble.bad_code", "ppsspp_assemble",
-             {"address": SCRATCH, "code": "frobnicate r9"}, "error"),
-    Scenario("B.bp.cpu_set", "ppsspp_breakpoint",
-             {"action": "set", "address": SCRATCH}),
-    Scenario("B.bp.cpu_list", "ppsspp_breakpoint",
-             {"action": "list"}, validator=_v_bp_in_list),
-    Scenario("B.bp.cpu_update", "ppsspp_breakpoint",
-             {"action": "update", "address": SCRATCH, "enabled": False}),
-    Scenario("B.bp.cpu_remove", "ppsspp_breakpoint",
-             {"action": "remove", "address": SCRATCH}),
-    Scenario("B.bp.cpu_remove_again", "ppsspp_breakpoint",
-             {"action": "remove", "address": SCRATCH}, "error",
-             note="R12 定版: 同一断点的第二次 remove 被 F-9 确定性拒绝"
-                  "（no CPU breakpoint — 不再视为幂等）"),
-    Scenario("B.bp.mem_set", "ppsspp_breakpoint",
-             {"action": "mem_set", "address": SCRATCH, "size": 4,
-              "read": True, "write": True}),
-    Scenario("B.bp.mem_list", "ppsspp_breakpoint",
-             {"action": "mem_list"}, validator=_v_bp_in_list),
-    Scenario("B.bp.mem_remove", "ppsspp_breakpoint",
-             {"action": "mem_remove", "address": SCRATCH}),
+    Scenario("B.evaluate.bad_expr", "ppsspp_evaluate", {"expression": "1 +"}, "error"),
+    Scenario(
+        "B.reg.a1_orig",
+        "ppsspp_query",
+        {"action": "register", "name": "a1"},
+        note="capture a1 original value for restore",
+    ),
+    Scenario("B.reg.a1_write", "ppsspp_write_register", {"name": "a1", "value": "0x1234"}),
+    Scenario(
+        "B.reg.a1_readback",
+        "ppsspp_query",
+        {"action": "register", "name": "a1"},
+        note="value may be rewritten by the game between the two "
+        "pause windows (tool calls are independent pause/resume cycles)",
+    ),
+    Scenario(
+        "B.reg.a1_restore",
+        "ppsspp_write_register",
+        {"name": "a1", "value": "__R3_ORIG__"},
+        "ok",
+        note="dependent on a1_orig capture (blocked by F-2 enum bug)",
+    ),
+    Scenario(
+        "B.reg.write_bad_name", "ppsspp_write_register", {"name": "zz9", "value": "0x0"}, "error"
+    ),
+    Scenario(
+        "B.reg.write_numeric_name",
+        "ppsspp_write_register",
+        {"name": "r3", "value": "0x0"},
+        note="F-5: numeric name r3 is translated to ABI name v1",
+    ),
+    Scenario(
+        "B.search_disasm.jr_ra",
+        "ppsspp_search_disasm",
+        {"address": "0x08804000", "match": "jr ra", "max_results": 5},
+    ),
+    Scenario(
+        "B.search_disasm.nomatch",
+        "ppsspp_search_disasm",
+        {"address": "0x08804000", "match": "zzzzz_no_such_insn"},
+    ),
+    Scenario("B.assemble.nop", "ppsspp_assemble", {"address": SCRATCH, "code": "nop"}),
+    Scenario(
+        "B.assemble.readback",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": SCRATCH, "size": 4},
+    ),
+    Scenario(
+        "B.assemble.bad_code",
+        "ppsspp_assemble",
+        {"address": SCRATCH, "code": "frobnicate r9"},
+        "error",
+    ),
+    Scenario("B.bp.cpu_set", "ppsspp_breakpoint", {"action": "set", "address": SCRATCH}),
+    Scenario("B.bp.cpu_list", "ppsspp_breakpoint", {"action": "list"}, validator=_v_bp_in_list),
+    Scenario(
+        "B.bp.cpu_update",
+        "ppsspp_breakpoint",
+        {"action": "update", "address": SCRATCH, "enabled": False},
+    ),
+    Scenario("B.bp.cpu_remove", "ppsspp_breakpoint", {"action": "remove", "address": SCRATCH}),
+    Scenario(
+        "B.bp.cpu_remove_again",
+        "ppsspp_breakpoint",
+        {"action": "remove", "address": SCRATCH},
+        "error",
+        note="R12 定版: 同一断点的第二次 remove 被 F-9 确定性拒绝"
+        "（no CPU breakpoint — 不再视为幂等）",
+    ),
+    Scenario(
+        "B.bp.mem_set",
+        "ppsspp_breakpoint",
+        {"action": "mem_set", "address": SCRATCH, "size": 4, "read": True, "write": True},
+    ),
+    Scenario("B.bp.mem_list", "ppsspp_breakpoint", {"action": "mem_list"}, validator=_v_bp_in_list),
+    Scenario("B.bp.mem_remove", "ppsspp_breakpoint", {"action": "mem_remove", "address": SCRATCH}),
     # ── F-01 fix contracts on the real wire (2026-09-08) ──
-    Scenario("B.bp.mem_set_zero_size", "ppsspp_breakpoint",
-             {"action": "mem_set", "address": SCRATCH, "size": 0}, "error",
-             validator=_v_bp_size_guard,
-             note="F-01 fixed: zero-width memcheck rejected BEFORE PPSSPP"),
-    Scenario("B.bp.mem_set_size_64", "ppsspp_breakpoint",
-             {"action": "mem_set", "address": SCRATCH, "size": 64}, "ok",
-             validator=_v_has_keys("action", "breakpoints"),
-             note="positive sizes beyond {1,2,4} stay legal (range watch)"),
-    Scenario("B.bp.mem_list_64", "ppsspp_breakpoint",
-             {"action": "mem_list"}, "ok", validator=_v_mem_list_size(64),
-             note="the size=64 watch is listed with its real size"),
-    Scenario("B.bp.mem_remove_size_64", "ppsspp_breakpoint",
-             {"action": "mem_remove", "address": SCRATCH, "size": 64}, "ok",
-             validator=_v_has_keys("action", "breakpoints"),
-             note="removal by the exact address+size pair"),
-    Scenario("B.bp.unknown_action", "ppsspp_breakpoint",
-             {"action": "explode"}, "error"),
+    Scenario(
+        "B.bp.mem_set_zero_size",
+        "ppsspp_breakpoint",
+        {"action": "mem_set", "address": SCRATCH, "size": 0},
+        "error",
+        validator=_v_bp_size_guard,
+        note="F-01 fixed: zero-width memcheck rejected BEFORE PPSSPP",
+    ),
+    Scenario(
+        "B.bp.mem_set_size_64",
+        "ppsspp_breakpoint",
+        {"action": "mem_set", "address": SCRATCH, "size": 64},
+        "ok",
+        validator=_v_has_keys("action", "breakpoints"),
+        note="positive sizes beyond {1,2,4} stay legal (range watch)",
+    ),
+    Scenario(
+        "B.bp.mem_list_64",
+        "ppsspp_breakpoint",
+        {"action": "mem_list"},
+        "ok",
+        validator=_v_mem_list_size(64),
+        note="the size=64 watch is listed with its real size",
+    ),
+    Scenario(
+        "B.bp.mem_remove_size_64",
+        "ppsspp_breakpoint",
+        {"action": "mem_remove", "address": SCRATCH, "size": 64},
+        "ok",
+        validator=_v_has_keys("action", "breakpoints"),
+        note="removal by the exact address+size pair",
+    ),
+    Scenario("B.bp.unknown_action", "ppsspp_breakpoint", {"action": "explode"}, "error"),
     Scenario("B.step.resume", "ppsspp_step", {"action": "resume"}),
-    Scenario("B.step.pause_twice", "ppsspp_step", {"action": "pause"},
-             "ok", note="R12 定版: 二次 pause 幂等（stepping=True 再确认）"),
-    Scenario("B.step.resume_twice", "ppsspp_step", {"action": "resume"},
-             "ok", note="R12 定版: 运行态 resume 立即确认 stepping=False"),
+    Scenario(
+        "B.step.pause_twice",
+        "ppsspp_step",
+        {"action": "pause"},
+        "ok",
+        note="R12 定版: 二次 pause 幂等（stepping=True 再确认）",
+    ),
+    Scenario(
+        "B.step.resume_twice",
+        "ppsspp_step",
+        {"action": "resume"},
+        "ok",
+        note="R12 定版: 运行态 resume 立即确认 stepping=False",
+    ),
     Scenario("B.step.bad_action", "ppsspp_step", {"action": "warp"}, "error"),
-    Scenario("B.input.press_cross", "ppsspp_press_button",
-             {"button": "cross", "duration": 2}, frame_budget=True,
-             note="R19: ticket echoes after duration GAME frames"),
-    Scenario("B.input.press_bad_button", "ppsspp_press_button",
-             {"button": "x", "duration": 1}, "error"),
+    Scenario(
+        "B.input.press_cross",
+        "ppsspp_press_button",
+        {"button": "cross", "duration": 2},
+        frame_budget=True,
+        note="R19: ticket echoes after duration GAME frames",
+    ),
+    Scenario(
+        "B.input.press_bad_button", "ppsspp_press_button", {"button": "x", "duration": 1}, "error"
+    ),
     Scenario("B.input.hold", "ppsspp_hold_buttons", {"buttons": "cross"}),
-    Scenario("B.input.hold_release_all", "ppsspp_hold_buttons", {"buttons": ""},
-             note="empty combo = release-all contract"),
-    Scenario("B.input.hold_bad_token", "ppsspp_hold_buttons",
-             {"buttons": "cross|joystick"}, "error"),
-    Scenario("B.input.analog_center_ok", "ppsspp_send_analog",
-             {"x": 200, "y": 100}),
-    Scenario("B.input.analog_out_of_range", "ppsspp_send_analog",
-             {"x": 256, "y": 0}, "error"),
-    Scenario("B.input.analog_negative", "ppsspp_send_analog",
-             {"x": -1, "y": 0}, "error"),
-    Scenario("B.wait_frames.5", "ppsspp_wait_frames", {"frames": 5},
-             frame_budget=True),
-    Scenario("B.wait_frames.zero", "ppsspp_wait_frames", {"frames": 0},
-             "ok", note="R12 定版: frames=0 合法（W3 校验 0..cap）"),
-    Scenario("B.wait_frames.negative", "ppsspp_wait_frames",
-             {"frames": -3}, "error"),
-    Scenario("B.batch_step.mixed", "ppsspp_batch_step",
-             {"steps": [{"type": "press", "button": "cross", "duration": 1},
-                        {"type": "wait", "frames": 2},
-                        {"type": "state_probe", "name": "game_mode"}],
-              "on_failure": "abort"},
-             frame_budget=True,
-             note="R19: press ticket + wait advance with GAME frames"),
+    Scenario(
+        "B.input.hold_release_all",
+        "ppsspp_hold_buttons",
+        {"buttons": ""},
+        note="empty combo = release-all contract",
+    ),
+    Scenario(
+        "B.input.hold_bad_token", "ppsspp_hold_buttons", {"buttons": "cross|joystick"}, "error"
+    ),
+    Scenario("B.input.analog_center_ok", "ppsspp_send_analog", {"x": 200, "y": 100}),
+    Scenario("B.input.analog_out_of_range", "ppsspp_send_analog", {"x": 256, "y": 0}, "error"),
+    Scenario("B.input.analog_negative", "ppsspp_send_analog", {"x": -1, "y": 0}, "error"),
+    Scenario("B.wait_frames.5", "ppsspp_wait_frames", {"frames": 5}, frame_budget=True),
+    Scenario(
+        "B.wait_frames.zero",
+        "ppsspp_wait_frames",
+        {"frames": 0},
+        "ok",
+        note="R12 定版: frames=0 合法（W3 校验 0..cap）",
+    ),
+    Scenario("B.wait_frames.negative", "ppsspp_wait_frames", {"frames": -3}, "error"),
+    Scenario(
+        "B.batch_step.mixed",
+        "ppsspp_batch_step",
+        {
+            "steps": [
+                {"type": "press", "button": "cross", "duration": 1},
+                {"type": "wait", "frames": 2},
+                {"type": "state_probe", "name": "game_mode"},
+            ],
+            "on_failure": "abort",
+        },
+        frame_budget=True,
+        note="R19: press ticket + wait advance with GAME frames",
+    ),
     Scenario("B.batch_step.empty", "ppsspp_batch_step", {"steps": []}, "error"),
-    Scenario("B.batch_step.bad_type", "ppsspp_batch_step",
-             {"steps": [{"type": "teleport"}]}, "error"),
+    Scenario(
+        "B.batch_step.bad_type", "ppsspp_batch_step", {"steps": [{"type": "teleport"}]}, "error"
+    ),
     Scenario("B.observer.list", "ppsspp_state_observer", {"action": "list"}),
-    Scenario("B.observer.observe_game_mode", "ppsspp_state_observer",
-             {"action": "observe", "name": "game_mode", "samples": 2}),
-    Scenario("B.observer.register_scratch", "ppsspp_state_observer",
-             {"action": "register", "name": "harness_scratch",
-              "address": SCRATCH, "size": 4, "description": "harness probe"}),
-    Scenario("B.observer.observe_scratch", "ppsspp_state_observer",
-             {"action": "observe", "name": "harness_scratch", "samples": 1}),
+    Scenario(
+        "B.observer.observe_game_mode",
+        "ppsspp_state_observer",
+        {"action": "observe", "name": "game_mode", "samples": 2},
+    ),
+    Scenario(
+        "B.observer.register_scratch",
+        "ppsspp_state_observer",
+        {
+            "action": "register",
+            "name": "harness_scratch",
+            "address": SCRATCH,
+            "size": 4,
+            "description": "harness probe",
+        },
+    ),
+    Scenario(
+        "B.observer.observe_scratch",
+        "ppsspp_state_observer",
+        {"action": "observe", "name": "harness_scratch", "samples": 1},
+    ),
     # ── R-A: frame_snapshot contracts (v4 report G-1). Placed here so
     # B.fs.probes_known can reuse the registered harness_scratch probe.
-    Scenario("B.fs.snapshot", "ppsspp_frame_snapshot", {}, "ok",
-             validator=_v_fs_running,
-             note="running CPU: pause→capture→resume (resumed=true)"),
-    Scenario("B.fs.stays_paused.pause_for", "ppsspp_step",
-             {"action": "pause"}, "ok", note="R-A setup"),
-    Scenario("B.fs.stays_paused", "ppsspp_frame_snapshot", {}, "ok",
-             validator=_v_fs_stays_paused,
-             note="already-paused CPU must STAY paused (resumed=false)"),
-    Scenario("B.fs.stays_paused.resume_after", "ppsspp_step",
-             {"action": "resume"}, "ok", note="R-A teardown"),
-    Scenario("B.fs.no_regs", "ppsspp_frame_snapshot",
-             {"want_registers": False}, "ok", validator=_v_fs_no_regs,
-             note="F-08 contract: registers key carries null when opted out"),
-    Scenario("B.fs.probes_known", "ppsspp_frame_snapshot",
-             {"probes": "harness_scratch"}, "ok", validator=_v_fs_probes,
-             note="observer-registered probe captured alongside CPU state"),
-    Scenario("B.observer.clear_scratch", "ppsspp_state_observer",
-             {"action": "clear", "name": "harness_scratch"}),
-    Scenario("B.observer.observe_unknown", "ppsspp_state_observer",
-             {"action": "observe", "name": "nope"}, "error"),
-    Scenario("B.image.screenshot", "ppsspp_screenshot", {},
-             validator=_v_image_present),
-    Scenario("B.image.dump_texture", "ppsspp_dump_texture", {},
-             "either",
-             note="R12 保留 either: GPU 纹理绑定状态环境相关——运行画面有"
-                  "绑定则 ok，无绑定则 F-10 CAPTURE_EMPTY（两条路径均已批准）"),
-    Scenario("B.smoke_test.full", "ppsspp_smoke_test", {},
-             note="full battery: ISO loaded / CPU running / WS healthy"),
-    Scenario("B.run_script.hello", "ppsspp_run_script",
-             {"name": "hello_diagnostic"},
-             note="manifest-exposed offline script happy path"),
+    Scenario(
+        "B.fs.snapshot",
+        "ppsspp_frame_snapshot",
+        {},
+        "ok",
+        validator=_v_fs_running,
+        note="running CPU: pause→capture→resume (resumed=true)",
+    ),
+    Scenario(
+        "B.fs.stays_paused.pause_for", "ppsspp_step", {"action": "pause"}, "ok", note="R-A setup"
+    ),
+    Scenario(
+        "B.fs.stays_paused",
+        "ppsspp_frame_snapshot",
+        {},
+        "ok",
+        validator=_v_fs_stays_paused,
+        note="already-paused CPU must STAY paused (resumed=false)",
+    ),
+    Scenario(
+        "B.fs.stays_paused.resume_after",
+        "ppsspp_step",
+        {"action": "resume"},
+        "ok",
+        note="R-A teardown",
+    ),
+    Scenario(
+        "B.fs.no_regs",
+        "ppsspp_frame_snapshot",
+        {"want_registers": False},
+        "ok",
+        validator=_v_fs_no_regs,
+        note="F-08 contract: registers key carries null when opted out",
+    ),
+    Scenario(
+        "B.fs.probes_known",
+        "ppsspp_frame_snapshot",
+        {"probes": "harness_scratch"},
+        "ok",
+        validator=_v_fs_probes,
+        note="observer-registered probe captured alongside CPU state",
+    ),
+    Scenario(
+        "B.observer.clear_scratch",
+        "ppsspp_state_observer",
+        {"action": "clear", "name": "harness_scratch"},
+    ),
+    Scenario(
+        "B.observer.observe_unknown",
+        "ppsspp_state_observer",
+        {"action": "observe", "name": "nope"},
+        "error",
+    ),
+    Scenario("B.image.screenshot", "ppsspp_screenshot", {}, validator=_v_image_present),
+    Scenario(
+        "B.image.dump_texture",
+        "ppsspp_dump_texture",
+        {},
+        "either",
+        note="R12 保留 either: GPU 纹理绑定状态环境相关——运行画面有"
+        "绑定则 ok，无绑定则 F-10 CAPTURE_EMPTY（两条路径均已批准）",
+    ),
+    Scenario(
+        "B.smoke_test.full",
+        "ppsspp_smoke_test",
+        {},
+        note="full battery: ISO loaded / CPU running / WS healthy",
+    ),
+    Scenario(
+        "B.run_script.hello",
+        "ppsspp_run_script",
+        {"name": "hello_diagnostic"},
+        note="manifest-exposed offline script happy path",
+    ),
     # ── R-F: dynamic ppsspp_script_* tools on the real wire (G-3) ──
-    Scenario("B.script.tool.check_cpu_state", "ppsspp_script_check_cpu_state",
-             {}, "ok", validator=_v_script_output,
-             note="R-F: dynamic exposed tool (requires_ppsspp) — session_id "
-                  "auto-injected"),
-    Scenario("B.script.tool.find_0e_source", "ppsspp_script_find_0e_source",
-             {}, "either", validator=_v_script_output,
-             note="R-F + F-11: dynamic exposed tool; its default data-file "
-                  "path is workspace-dependent (extract dir absent here → "
-                  "[FILE_NOT_FOUND]) — the registration/error channel is "
-                  "what this scenario locks"),
-    Scenario("B.image.dump_clut", "ppsspp_dump_clut", {},
-             "either",
-             note="R12 保留 either: GPU CLUT 绑定状态环境相关（同 "
-                  "dump_texture），ok 与 F-10 CAPTURE_EMPTY 两路径均批准"),
+    Scenario(
+        "B.script.tool.check_cpu_state",
+        "ppsspp_script_check_cpu_state",
+        {},
+        "ok",
+        validator=_v_script_output,
+        note="R-F: dynamic exposed tool (requires_ppsspp) — session_id auto-injected",
+    ),
+    Scenario(
+        "B.script.tool.find_0e_source",
+        "ppsspp_script_find_0e_source",
+        {},
+        "either",
+        validator=_v_script_output,
+        note="R-F + F-11: dynamic exposed tool; its default data-file "
+        "path is workspace-dependent (extract dir absent here → "
+        "[FILE_NOT_FOUND]) — the registration/error channel is "
+        "what this scenario locks",
+    ),
+    Scenario(
+        "B.image.dump_clut",
+        "ppsspp_dump_clut",
+        {},
+        "either",
+        note="R12 保留 either: GPU CLUT 绑定状态环境相关（同 "
+        "dump_texture），ok 与 F-10 CAPTURE_EMPTY 两路径均批准",
+    ),
     Scenario("B.gpu_stats", "ppsspp_gpu_stats", {}),
-    Scenario("B.gpu_record", "ppsspp_gpu_record", {},
-             note="ticket async — one frame GE dump"),
-    Scenario("B.mem_info_search.Game", "ppsspp_memory_info_search",
-             {"match": "Game"}),
-    Scenario("B.mem_info_search.empty", "ppsspp_memory_info_search",
-             {"match": ""}, "error",
-             note="O2 定版: F-11b 空/空白 match 确定性抛 ToolError（空串会"
-                  "匹配一切）——不再记录语义，直接断言拒绝"),
+    Scenario("B.gpu_record", "ppsspp_gpu_record", {}, note="ticket async — one frame GE dump"),
+    Scenario("B.mem_info_search.Game", "ppsspp_memory_info_search", {"match": "Game"}),
+    Scenario(
+        "B.mem_info_search.empty",
+        "ppsspp_memory_info_search",
+        {"match": ""},
+        "error",
+        note="O2 定版: F-11b 空/空白 match 确定性抛 ToolError（空串会"
+        "匹配一切）——不再记录语义，直接断言拒绝",
+    ),
     Scenario("B.replay.status", "ppsspp_replay", {"action": "status"}),
-    Scenario("B.replay.time_get", "ppsspp_replay", {"action": "time_get"},
-             "ok", note="R12 定版: 游戏运行中 PSP 已初始化"),
-    Scenario("B.replay.begin_abort", "ppsspp_replay",
-             {"action": "begin"}, "ok",
-             note="R12 定版: 运行中 begin 必成功（随后 abort 清理）"),
-    Scenario("B.replay.abort", "ppsspp_replay", {"action": "abort"},
-             "ok", note="R12 定版: abort 幂等"),
-    Scenario("B.replay.execute_no_data", "ppsspp_replay",
-             {"action": "execute"}, "error"),
+    Scenario(
+        "B.replay.time_get",
+        "ppsspp_replay",
+        {"action": "time_get"},
+        "ok",
+        note="R12 定版: 游戏运行中 PSP 已初始化",
+    ),
+    Scenario(
+        "B.replay.begin_abort",
+        "ppsspp_replay",
+        {"action": "begin"},
+        "ok",
+        note="R12 定版: 运行中 begin 必成功（随后 abort 清理）",
+    ),
+    Scenario(
+        "B.replay.abort", "ppsspp_replay", {"action": "abort"}, "ok", note="R12 定版: abort 幂等"
+    ),
+    Scenario("B.replay.execute_no_data", "ppsspp_replay", {"action": "execute"}, "error"),
     # ── F-02 fix contracts on the real wire (2026-09-08) ──
-    Scenario("B.replay.begin_for_save", "ppsspp_replay",
-             {"action": "begin"}, "ok", validator=_v_has_keys("action"),
-             note="F-02 wire: fresh recorder (no frames elapsed yet)"),
-    Scenario("B.replay.save_empty_rejected", "ppsspp_replay",
-             {"action": "save", "file_path": "harness_empty_capture.ppr"},
-             "error", validator=_v_replay_empty_rejected,
-             note="F-02 fixed: empty capture → [REPLAY_EMPTY], no .ppr "
-                  "written (begin→save back-to-back = 0 frames)"),
-    Scenario("B.replay.abort_after_save", "ppsspp_replay",
-             {"action": "abort"}, "ok", validator=_v_has_keys("action")),
-    Scenario("B.analyze_log.real", "ppsspp_analyze_log",
-             {"log_path": str(ANALYZE_FIXTURE_LOG), "filter": "ERROR"}),
-    Scenario("B.convert.auto", "ppsspp_convert_address",
-             {"address": "0x08A0D000", "mode": "auto"}),
-    Scenario("B.read.string_code_unsafe", "ppsspp_read_memory",
-             {"action": "read_string", "address": "0x08804000"},
-             "ok", note="O1 定版: F-3 后 read_string 走有界读+本地 NUL 截断，"
-                  "永不调用 strnlen 事件——代码段读取确定性成功"),
-    Scenario("B.session.get", "ppsspp_session",
-             {"action": "get", "session_id": "__SESSION_ID__"}),
+    Scenario(
+        "B.replay.begin_for_save",
+        "ppsspp_replay",
+        {"action": "begin"},
+        "ok",
+        validator=_v_has_keys("action"),
+        note="F-02 wire: fresh recorder (no frames elapsed yet)",
+    ),
+    Scenario(
+        "B.replay.save_empty_rejected",
+        "ppsspp_replay",
+        {"action": "save", "file_path": "harness_empty_capture.ppr"},
+        "error",
+        validator=_v_replay_empty_rejected,
+        note="F-02 fixed: empty capture → [REPLAY_EMPTY], no .ppr "
+        "written (begin→save back-to-back = 0 frames)",
+    ),
+    Scenario(
+        "B.replay.abort_after_save",
+        "ppsspp_replay",
+        {"action": "abort"},
+        "ok",
+        validator=_v_has_keys("action"),
+    ),
+    Scenario(
+        "B.analyze_log.real",
+        "ppsspp_analyze_log",
+        {"log_path": str(ANALYZE_FIXTURE_LOG), "filter": "ERROR"},
+    ),
+    Scenario("B.convert.auto", "ppsspp_convert_address", {"address": "0x08A0D000", "mode": "auto"}),
+    Scenario(
+        "B.read.string_code_unsafe",
+        "ppsspp_read_memory",
+        {"action": "read_string", "address": "0x08804000"},
+        "ok",
+        note="O1 定版: F-3 后 read_string 走有界读+本地 NUL 截断，"
+        "永不调用 strnlen 事件——代码段读取确定性成功",
+    ),
+    Scenario("B.session.get", "ppsspp_session", {"action": "get", "session_id": "__SESSION_ID__"}),
     Scenario("B.session_list.one", "ppsspp_session_list", {}),
-
     # ── V2 additions (post-review-fix contracts, 2026-09-06 round 2) ──
-    Scenario("B.v2.write_long_string", "ppsspp_write_memory",
-             {"address": SCRATCH, "format": "bytes", "data": _LONG_STR_HEX},
-             note="seed 8000 'A' + NUL at scratch — proves >4096 strings"),
-    Scenario("B.v2.read_string_64k", "ppsspp_read_memory",
-             {"action": "read_string", "address": SCRATCH, "max_len": 65536},
-             note="W1: max_len=65536 must NOT be re-clamped to 4096"),
-    Scenario("B.v2.write_protected_boundary", "ppsspp_write_memory",
-             {"address": "0x08803FFD", "data": "0x11223344", "format": "u32"},
-             "error",
-             note="W2: u32 crossing into 0x08804000 must hit the guard"),
-    Scenario("B.v2.write_empty_bytes", "ppsspp_write_memory",
-             {"address": SCRATCH, "data": "", "format": "bytes"},
-             "error", note="建议6: zero-byte write must be rejected"),
-    Scenario("B.v2.wait_frames_zero_interval", "ppsspp_wait_frames",
-             {"frames": 60, "interval": 0}, "error",
-             note="W3: interval<=0 must be rejected (hot-loop guard)"),
-    Scenario("B.v2.wait_frames_over_cap", "ppsspp_wait_frames",
-             {"frames": 1000000000}, "error",
-             note="W3: frames beyond the cap must be rejected"),
-    Scenario("B.v2.scan_big_chunk", "ppsspp_read_memory",
-             {"action": "scan", "pattern": "DEADBEEF",
-              "start_addr": "0x08800000", "end_addr": "0x08900000",
-              "chunk_size": 536870912},
-             note="W4: 512MB chunk_size is clamped to 64KiB, scan succeeds"),
-    Scenario("B.v2.scan_range_over_cap", "ppsspp_read_memory",
-             {"action": "scan", "pattern": "DEADBEEF",
-              "start_addr": "0x08800000", "end_addr": "0x88800000"},
-             "error", note="W4: 2GiB scan range rejected (256MiB cap)"),
-    Scenario("B.v2.replay_save_traversal", "ppsspp_replay",
-             {"action": "save", "file_path": "../evil.ppr"}, "error",
-             note="S2: path traversal must be rejected before session I/O"),
-    Scenario("B.v2.analyze_outside_whitelist", "ppsspp_analyze_log",
-             {"log_path": "C:/Windows/win.ini", "filter": "ERROR"}, "error",
-             note="S3: arbitrary file read must be refused"),
-    Scenario("B.v2.write_reg_dollar", "ppsspp_write_register",
-             {"name": "$a0", "value": "0x2A"},
-             note="W11: '$a0' must be normalized, not rejected by PPSSPP"),
-    Scenario("B.v2.query_reg_dollar", "ppsspp_query",
-             {"action": "register", "name": "$a0"},
-             note="W11: read-back of the normalized '$a0' write"),
-    Scenario("B.v2.convert_oversized", "ppsspp_convert_address",
-             {"address": "0x123456789"}, "error",
-             note="W13: >32-bit address rejected"),
-    Scenario("B.v2.convert_negative", "ppsspp_convert_address",
-             {"address": "-5"}, "error",
-             note="W13: negative address rejected"),
-
+    Scenario(
+        "B.v2.write_long_string",
+        "ppsspp_write_memory",
+        {"address": SCRATCH, "format": "bytes", "data": _LONG_STR_HEX},
+        note="seed 8000 'A' + NUL at scratch — proves >4096 strings",
+    ),
+    Scenario(
+        "B.v2.read_string_64k",
+        "ppsspp_read_memory",
+        {"action": "read_string", "address": SCRATCH, "max_len": 65536},
+        note="W1: max_len=65536 must NOT be re-clamped to 4096",
+    ),
+    Scenario(
+        "B.v2.write_protected_boundary",
+        "ppsspp_write_memory",
+        {"address": "0x08803FFD", "data": "0x11223344", "format": "u32"},
+        "error",
+        note="W2: u32 crossing into 0x08804000 must hit the guard",
+    ),
+    Scenario(
+        "B.v2.write_empty_bytes",
+        "ppsspp_write_memory",
+        {"address": SCRATCH, "data": "", "format": "bytes"},
+        "error",
+        note="建议6: zero-byte write must be rejected",
+    ),
+    Scenario(
+        "B.v2.wait_frames_zero_interval",
+        "ppsspp_wait_frames",
+        {"frames": 60, "interval": 0},
+        "error",
+        note="W3: interval<=0 must be rejected (hot-loop guard)",
+    ),
+    Scenario(
+        "B.v2.wait_frames_over_cap",
+        "ppsspp_wait_frames",
+        {"frames": 1000000000},
+        "error",
+        note="W3: frames beyond the cap must be rejected",
+    ),
+    Scenario(
+        "B.v2.scan_big_chunk",
+        "ppsspp_read_memory",
+        {
+            "action": "scan",
+            "pattern": "DEADBEEF",
+            "start_addr": "0x08800000",
+            "end_addr": "0x08900000",
+            "chunk_size": 536870912,
+        },
+        note="W4: 512MB chunk_size is clamped to 64KiB, scan succeeds",
+    ),
+    Scenario(
+        "B.v2.scan_range_over_cap",
+        "ppsspp_read_memory",
+        {
+            "action": "scan",
+            "pattern": "DEADBEEF",
+            "start_addr": "0x08800000",
+            "end_addr": "0x88800000",
+        },
+        "error",
+        note="W4: 2GiB scan range rejected (256MiB cap)",
+    ),
+    Scenario(
+        "B.v2.replay_save_traversal",
+        "ppsspp_replay",
+        {"action": "save", "file_path": "../evil.ppr"},
+        "error",
+        note="S2: path traversal must be rejected before session I/O",
+    ),
+    Scenario(
+        "B.v2.analyze_outside_whitelist",
+        "ppsspp_analyze_log",
+        {"log_path": "C:/Windows/win.ini", "filter": "ERROR"},
+        "error",
+        note="S3: arbitrary file read must be refused",
+    ),
+    Scenario(
+        "B.v2.write_reg_dollar",
+        "ppsspp_write_register",
+        {"name": "$a0", "value": "0x2A"},
+        note="W11: '$a0' must be normalized, not rejected by PPSSPP",
+    ),
+    Scenario(
+        "B.v2.query_reg_dollar",
+        "ppsspp_query",
+        {"action": "register", "name": "$a0"},
+        note="W11: read-back of the normalized '$a0' write",
+    ),
+    Scenario(
+        "B.v2.convert_oversized",
+        "ppsspp_convert_address",
+        {"address": "0x123456789"},
+        "error",
+        note="W13: >32-bit address rejected",
+    ),
+    Scenario(
+        "B.v2.convert_negative",
+        "ppsspp_convert_address",
+        {"address": "-5"},
+        "error",
+        note="W13: negative address rejected",
+    ),
     # ── V3 additions (review-r2 behavioral contracts, round 3) ──
-    Scenario("B.v3.scan_pattern_over_cap", "ppsspp_read_memory",
-             {"action": "scan",
-              "pattern": "41" * 4098,  # 4098 bytes > 4096 cap
-              "start_addr": "0x08800000", "end_addr": "0x08810000"},
-             "error",
-             note="S1: oversized pattern fails fast naming the scan cap, "
-                  "not a silent empty scan"),
-    Scenario("B.v3.mem_remove_explicit_size_missing", "ppsspp_breakpoint",
-             {"action": "mem_remove", "address": "0x09FE0040", "size": 16},
-             "error",
-             note="S3: explicit non-default size + no memcheck = loud "
-                  "error (the old silent-remove carve-out is gone)"),
-    Scenario("B.v3.analyze_default_mirror", "ppsspp_analyze_log",
-             {"filter": "ERROR"},
-             note="W4: log_path omitted reads the mirrored ppsspp.log "
-                  "(pre-seeded ERROR line must be found)"),
-    Scenario("B.v3.screenshot_empty_flag", "ppsspp_screenshot", {},
-             note="S2: metadata JSON carries the explicit 'empty' flag"),
-    Scenario("B.v3.batch_step_failure_summary", "ppsspp_batch_step",
-             {"steps": [{"type": "state_probe", "names": "no_such_probe"}],
-              "on_failure": "continue"},
-             "error",
-             note="S6: BATCH_STEP_FAILED message carries a compact "
-                  "step[0] summary, not the old details= JSON envelope"),
-    Scenario("B.v3.session_busy_race", "ppsspp_wait_frames",
-             {"__race__": {
-                 "holder": {"tool": "ppsspp_batch_step",
-                            "args": {"session_id": "__SESSION_ID__",
-                                     "steps": [{"type": "wait",
-                                                "frames": 480}]}},  # 8s lock hold
-                 "victim": {"tool": "ppsspp_read_memory",
-                            "args": {"session_id": "__SESSION_ID__",
-                                     "action": "read_u32",
-                                     "address": "0x08804000"}},
-                 "delay_s": 0.5}},
-             "ok",
-             note="W1: concurrent quick read behind an 8s holder gets "
-                  "SESSION_BUSY after the 5s timeout; holder still ok"),
-
+    Scenario(
+        "B.v3.scan_pattern_over_cap",
+        "ppsspp_read_memory",
+        {
+            "action": "scan",
+            "pattern": "41" * 4098,  # 4098 bytes > 4096 cap
+            "start_addr": "0x08800000",
+            "end_addr": "0x08810000",
+        },
+        "error",
+        note="S1: oversized pattern fails fast naming the scan cap, not a silent empty scan",
+    ),
+    Scenario(
+        "B.v3.mem_remove_explicit_size_missing",
+        "ppsspp_breakpoint",
+        {"action": "mem_remove", "address": "0x09FE0040", "size": 16},
+        "error",
+        note="S3: explicit non-default size + no memcheck = loud "
+        "error (the old silent-remove carve-out is gone)",
+    ),
+    Scenario(
+        "B.v3.analyze_default_mirror",
+        "ppsspp_analyze_log",
+        {"filter": "ERROR"},
+        note="W4: log_path omitted reads the mirrored ppsspp.log "
+        "(pre-seeded ERROR line must be found)",
+    ),
+    Scenario(
+        "B.v3.screenshot_empty_flag",
+        "ppsspp_screenshot",
+        {},
+        note="S2: metadata JSON carries the explicit 'empty' flag",
+    ),
+    Scenario(
+        "B.v3.batch_step_failure_summary",
+        "ppsspp_batch_step",
+        {"steps": [{"type": "state_probe", "names": "no_such_probe"}], "on_failure": "continue"},
+        "error",
+        note="S6: BATCH_STEP_FAILED message carries a compact "
+        "step[0] summary, not the old details= JSON envelope",
+    ),
+    Scenario(
+        "B.v3.session_busy_race",
+        "ppsspp_wait_frames",
+        {
+            "__race__": {
+                "holder": {
+                    "tool": "ppsspp_batch_step",
+                    "args": {
+                        "session_id": "__SESSION_ID__",
+                        "steps": [{"type": "wait", "frames": 480}],
+                    },
+                },  # 8s lock hold
+                "victim": {
+                    "tool": "ppsspp_read_memory",
+                    "args": {
+                        "session_id": "__SESSION_ID__",
+                        "action": "read_u32",
+                        "address": "0x08804000",
+                    },
+                },
+                "delay_s": 0.5,
+            }
+        },
+        "ok",
+        note="W1: concurrent quick read behind an 8s holder gets "
+        "SESSION_BUSY after the 5s timeout; holder still ok",
+    ),
     # ── R-A/R-C: hygiene gate before teardown (probe P1.hygiene.final) ──
-    Scenario("B.hygiene.mem_bp_empty", "ppsspp_breakpoint",
-             {"action": "mem_list"}, "ok", validator=_v_bp_mem_list_empty,
-             note="no memory breakpoint may survive full phase B"),
-    Scenario("B.hygiene.observer_clean", "ppsspp_state_observer",
-             {"action": "list"}, "ok", validator=_v_observer_no_scratch,
-             note="harness-registered probes must be cleared"),
-    Scenario("B.hygiene.smoke_liveness", "ppsspp_smoke_test", {}, "ok",
-             validator=_v_smoke_liveness,
-             note="R-C three-check liveness (iso/cpu/ws) — game_mode_valid "
-                  "excluded as game-phase dependent (F-07)"),
-
-    Scenario("B.session.stop", "ppsspp_session",
-             {"action": "stop", "session_id": "__SESSION_ID__"}),
-    Scenario("B.post_stop.read", "ppsspp_read_memory",
-             {"action": "read_bytes", "address": "0x08804000", "size": 4},
-             "error", note="guard after stop"),
+    Scenario(
+        "B.hygiene.mem_bp_empty",
+        "ppsspp_breakpoint",
+        {"action": "mem_list"},
+        "ok",
+        validator=_v_bp_mem_list_empty,
+        note="no memory breakpoint may survive full phase B",
+    ),
+    Scenario(
+        "B.hygiene.observer_clean",
+        "ppsspp_state_observer",
+        {"action": "list"},
+        "ok",
+        validator=_v_observer_no_scratch,
+        note="harness-registered probes must be cleared",
+    ),
+    Scenario(
+        "B.hygiene.smoke_liveness",
+        "ppsspp_smoke_test",
+        {},
+        "ok",
+        validator=_v_smoke_liveness,
+        note="R-C three-check liveness (iso/cpu/ws) — game_mode_valid "
+        "excluded as game-phase dependent (F-07)",
+    ),
+    Scenario(
+        "B.session.stop", "ppsspp_session", {"action": "stop", "session_id": "__SESSION_ID__"}
+    ),
+    Scenario(
+        "B.post_stop.read",
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x08804000", "size": 4},
+        "error",
+        note="guard after stop",
+    ),
     Scenario("B.post_stop.session_list", "ppsspp_session_list", {}),
 ]
 
@@ -1473,6 +1976,7 @@ for _sc in (*PHASE_A, *PHASE_B):
 
 # ── Runner ──────────────────────────────────────────────────────────────────
 
+
 async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
     rec = Record(id=sc.id, tool=sc.tool, phase=phase, expect=sc.expect, note=sc.note)
     args = subst(sc.args)
@@ -1480,8 +1984,7 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
     # Auto-inject session_id: the client must pass it per call. Live
     # session id when known; a sentinel during the no-session phase so
     # guards exercise the business SessionNotFound path.
-    if (sc.tool in SESSION_ID_TOOLS and sc.tool != "ppsspp_session"
-            and "session_id" not in args):
+    if sc.tool in SESSION_ID_TOOLS and sc.tool != "ppsspp_session" and "session_id" not in args:
         args["session_id"] = STATE.get("SESSION_ID") or "sess_unknown_guard"
 
     # Special scenario kinds.
@@ -1507,8 +2010,7 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
         name = args.pop("__prompt_get__")
         pargs = args.pop("__prompt_args__", None)
         try:
-            res = await asyncio.wait_for(
-                session.get_prompt(name, pargs), timeout=30.0)
+            res = await asyncio.wait_for(session.get_prompt(name, pargs), timeout=30.0)
             rec.latency_ms = (time.perf_counter() - t0) * 1000
             texts = [str(m.content) for m in res.messages]
             rec.text_head = "\n".join(texts)[:1200]
@@ -1520,8 +2022,9 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
             rec.latency_ms = (time.perf_counter() - t0) * 1000
             rec.status = "rpc_error" if _is_mcp_error(e) else "exception"
             rec.error = f"{type(e).__name__}: {e}"[:400]
-        if sc.validator and (rec.status == "ok" or sc.expect == "error"
-                             and rec.status == "rpc_error"):
+        if sc.validator and (
+            rec.status == "ok" or sc.expect == "error" and rec.status == "rpc_error"
+        ):
             rec.problems = sc.validator(rec, STATE)
         return rec
     if "__resources_list__" in args:
@@ -1541,8 +2044,7 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
     if "__resource_read__" in args:
         uri = args.pop("__resource_read__")
         try:
-            res = await asyncio.wait_for(session.read_resource(uri),
-                                         timeout=30.0)
+            res = await asyncio.wait_for(session.read_resource(uri), timeout=30.0)
             rec.latency_ms = (time.perf_counter() - t0) * 1000
             rec.status = "ok"
             rec.structured = {"n_contents": len(res.contents)}
@@ -1550,8 +2052,9 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
             rec.latency_ms = (time.perf_counter() - t0) * 1000
             rec.status = "rpc_error" if _is_mcp_error(e) else "exception"
             rec.error = f"{type(e).__name__}: {e}"[:400]
-        if sc.validator and (rec.status == "ok" or sc.expect == "error"
-                             and rec.status == "rpc_error"):
+        if sc.validator and (
+            rec.status == "ok" or sc.expect == "error" and rec.status == "rpc_error"
+        ):
             rec.problems = sc.validator(rec, STATE)
         return rec
 
@@ -1562,7 +2065,8 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
         for _ in range(n):
             try:
                 r = await asyncio.wait_for(
-                    session.call_tool(sc.tool, {"section": None}), timeout=30.0)
+                    session.call_tool(sc.tool, {"section": None}), timeout=30.0
+                )
                 if getattr(r, "is_error", False) or "RATE_LIMIT" in str(getattr(r, "content", "")):
                     limited += 1
                 else:
@@ -1584,13 +2088,14 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
         # queueing — and the holder must still complete successfully.
         race = args.pop("__race__")
         holder_task = asyncio.create_task(
-            session.call_tool(race["holder"]["tool"], race["holder"]["args"]))
+            session.call_tool(race["holder"]["tool"], race["holder"]["args"])
+        )
         await asyncio.sleep(race.get("delay_s", 0.5))
         t0 = time.perf_counter()
         try:
             vres = await asyncio.wait_for(
-                session.call_tool(race["victim"]["tool"], race["victim"]["args"]),
-                timeout=30.0)
+                session.call_tool(race["victim"]["tool"], race["victim"]["args"]), timeout=30.0
+            )
             victim_err = getattr(vres, "is_error", False)
             vtext = str(getattr(vres, "content", ""))[:300]
             rec.latency_ms = (time.perf_counter() - t0) * 1000
@@ -1606,8 +2111,7 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
         # SESSION_BUSY behind a lock holder.
         victim_expect_error = bool(race.get("victim_expect_error", True))
         victim_wanted = "tool_error" if victim_expect_error else "ok"
-        rec.status = "ok" if (victim_status == victim_wanted
-                              and not holder_err) else "tool_error"
+        rec.status = "ok" if (victim_status == victim_wanted and not holder_err) else "tool_error"
         rec.structured = {
             "victim_status": victim_status,
             "victim_latency_ms": round(rec.latency_ms, 1),
@@ -1621,8 +2125,7 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
 
     t0 = time.perf_counter()
     try:
-        result = await asyncio.wait_for(session.call_tool(sc.tool, args),
-                                        timeout=CALL_TIMEOUT_S)
+        result = await asyncio.wait_for(session.call_tool(sc.tool, args), timeout=CALL_TIMEOUT_S)
         rec.latency_ms = (time.perf_counter() - t0) * 1000
         summarize_content(result, rec)
         err = getattr(result, "is_error", None)
@@ -1631,7 +2134,7 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
         rec.status = "tool_error" if err else "ok"
         if rec.status == "tool_error":
             rec.error = rec.text_head
-    except asyncio.TimeoutError:
+    except TimeoutError:
         rec.latency_ms = (time.perf_counter() - t0) * 1000
         rec.status = "timeout"
         rec.error = f"call exceeded {CALL_TIMEOUT_S}s"
@@ -1640,8 +2143,7 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
         rec.status = "exception" if not _is_mcp_error(e) else "rpc_error"
         rec.error = f"{type(e).__name__}: {e}"[:500]
 
-    _validate_rejection = (rec.status == "tool_error"
-                           and sc.expect == "error")
+    _validate_rejection = rec.status == "tool_error" and sc.expect == "error"
     if sc.validator and (rec.status == "ok" or _validate_rejection):
         # v3: rejection records ALSO run validators — several v3
         # contracts assert on the SHAPE of the rejection message
@@ -1649,19 +2151,27 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
         # expect=="error" scenarios: an "either" scenario's sanctioned
         # tool_error path (e.g. dump_texture CAPTURE_EMPTY) must not be
         # content-validated (R12 ratified both paths).
-        if (rec.status == "ok" and rec.structured is not None
-                and not isinstance(rec.structured, dict)):
-            rec.problems = [f"validator skipped: structured is "
-                            f"{type(rec.structured).__name__}, not dict"]
+        if (
+            rec.status == "ok"
+            and rec.structured is not None
+            and not isinstance(rec.structured, dict)
+        ):
+            rec.problems = [
+                f"validator skipped: structured is {type(rec.structured).__name__}, not dict"
+            ]
         else:
             rec.problems = sc.validator(rec, STATE)
     # O3/R11: latency budget gate — a slow-but-successful call is a
     # regression, not a pass. Only phase-B ok calls are gated (phase A
     # guards are dominated by server-side arg validation, no emulator).
-    if (phase == "B" and rec.status == "ok"):
+    if phase == "B" and rec.status == "ok":
         if sc.frame_budget:
             p50 = _FRAME_P50_BASELINE.get(sc.tool)
-            budget = (p50 * 3 + 2000.0) if p50 is not None                 else LATENCY_BUDGET_MS.get(sc.tool, LATENCY_BUDGET_DEFAULT_MS)
+            budget = (
+                (p50 * 3 + 2000.0)
+                if p50 is not None
+                else LATENCY_BUDGET_MS.get(sc.tool, LATENCY_BUDGET_DEFAULT_MS)
+            )
         else:
             budget = LATENCY_BUDGET_MS.get(sc.tool, LATENCY_BUDGET_DEFAULT_MS)
         if rec.latency_ms > budget:
@@ -1707,8 +2217,7 @@ async def _boot_wait(session: ClientSession, rec: Record) -> None:
     s = getattr(r, "structured_content", None) or {}
     if err:
         rec.status = "tool_error"
-        rec.error = (str(getattr(r, "content", "")) or
-                     "wait_ready failed")[:300]
+        rec.error = (str(getattr(r, "content", "")) or "wait_ready failed")[:300]
         return
     if s.get("ready"):
         rec.status = "ok"
@@ -1725,8 +2234,7 @@ async def _capture_state(session: ClientSession) -> None:
     scenarios will fail individually instead.
     """
     try:
-        r = await session.call_tool(
-            "ppsspp_get_pc", {"session_id": STATE.get("SESSION_ID")})
+        r = await session.call_tool("ppsspp_get_pc", {"session_id": STATE.get("SESSION_ID")})
         s = getattr(r, "structured_content", None) or {}
         STATE.setdefault("PC", _hex_of(s.get("pc", s.get("value", ""))))
     except Exception as e:
@@ -1746,142 +2254,176 @@ async def run(phase: str) -> dict[str, Any]:
     errlog_path = REPORT_PATH.parent / "server_stderr.log"
     errlog_path.parent.mkdir(parents=True, exist_ok=True)
     errlog_file = errlog_path.open("w", encoding="utf-8", errors="replace")
-    async with stdio_client(env_params, errlog=errlog_file) as (read, write):
-        async with ClientSession(read, write) as session:
-            t0 = time.perf_counter()
-            init = await asyncio.wait_for(session.initialize(), timeout=60.0)
-            meta["handshake_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-            meta["protocol_version"] = (getattr(init, "protocol_version", None)
-                                        or getattr(init, "protocolVersion", None))
-            sinfo = (getattr(init, "server_info", None)
-                     or getattr(init, "serverInfo", None))
-            meta["server_info"] = {"name": getattr(sinfo, "name", None),
-                                   "version": getattr(sinfo, "version", None)}
-            t0 = time.perf_counter()
-            tools = await asyncio.wait_for(session.list_tools(), timeout=30.0)
-            meta["list_tools_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-            meta["tool_count"] = len(tools.tools)
-            meta["tool_names"] = sorted(t.name for t in tools.tools)
-            SESSION_ID_TOOLS.update(
-                t.name for t in tools.tools
-                if "session_id" in ((getattr(t, "input_schema", None)
-                                     or getattr(t, "inputSchema", None) or {})
-                                    .get("properties", {}))
-                and t.name != "ppsspp_session"
+    async with (
+        stdio_client(env_params, errlog=errlog_file) as (read, write),
+        ClientSession(read, write) as session,
+    ):
+        t0 = time.perf_counter()
+        init = await asyncio.wait_for(session.initialize(), timeout=60.0)
+        meta["handshake_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        meta["protocol_version"] = getattr(init, "protocol_version", None) or getattr(
+            init, "protocolVersion", None
+        )
+        sinfo = getattr(init, "server_info", None) or getattr(init, "serverInfo", None)
+        meta["server_info"] = {
+            "name": getattr(sinfo, "name", None),
+            "version": getattr(sinfo, "version", None),
+        }
+        t0 = time.perf_counter()
+        tools = await asyncio.wait_for(session.list_tools(), timeout=30.0)
+        meta["list_tools_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        meta["tool_count"] = len(tools.tools)
+        meta["tool_names"] = sorted(t.name for t in tools.tools)
+        SESSION_ID_TOOLS.update(
+            t.name
+            for t in tools.tools
+            if "session_id"
+            in (
+                (getattr(t, "input_schema", None) or getattr(t, "inputSchema", None) or {}).get(
+                    "properties", {}
+                )
             )
-            meta["python"] = platform.python_version()
-            meta["iso"] = ISO_PATH
+            and t.name != "ppsspp_session"
+        )
+        meta["python"] = platform.python_version()
+        meta["iso"] = ISO_PATH
 
-            # F-06 / R-A: pre-clean stale sessions BEFORE phase A too —
-            # a leftover session (or a disk-restored one) makes the
-            # no-session guards and the resource single-session guard
-            # non-deterministic.
-            stale_pre = await _stop_all_sessions(session)
-            if stale_pre:
-                print(f"  [pre-clean] stopped {stale_pre} stale "
-                      f"session(s) before phase A")
-                sys.stdout.flush()
+        # F-06 / R-A: pre-clean stale sessions BEFORE phase A too —
+        # a leftover session (or a disk-restored one) makes the
+        # no-session guards and the resource single-session guard
+        # non-deterministic.
+        stale_pre = await _stop_all_sessions(session)
+        if stale_pre:
+            print(f"  [pre-clean] stopped {stale_pre} stale session(s) before phase A")
+            sys.stdout.flush()
 
-            phases = {"a": [PHASE_A], "b": [PHASE_B]}.get(phase, [PHASE_A, PHASE_B])
-            _START_SCENARIO = next(
-                s for s in PHASE_B if s.id == "B.session.start")
-            recovers_since_start = 0
-            for phase_list in phases:
-                pname = "A" if phase_list is PHASE_A else "B"
-                for sc in phase_list:
-                    if sc.id == "B.session.start":
-                        STATE.clear()
-                        stale = await _stop_all_sessions(session)
-                        if stale:
-                            print(f"  [pre-clean] stopped {stale} stale "
-                                  f"session(s) from a previous run")
-                            sys.stdout.flush()
-                    rec = await _call(session, sc, pname)
-                    if sc.id == "B.session.start" and rec.status == "ok":
-                        # R17 (2026-09-06): wedge detection + recovery.
-                        # PPSSPP intermittently wedges at launch (TCP
-                        # listens but the main thread is stuck in GPU
-                        # device creation, so ws_connected never comes).
-                        # Previously one dead boot poisoned all ~170
-                        # subsequent scenarios. Now: on boot_wait
-                        # timeout, force-stop the wedged PPSSPP and
-                        # re-launch (up to 2 recoveries).
-                        recoveries = 0
-                        while True:
-                            rec2 = Record(id="B.session.boot_wait", tool="(poll)",
-                                          phase="B", expect="ok", note="ws_connected poll")
-                            await _boot_wait(session, rec2)
-                            records.append(rec2)
-                            if rec2.status == "ok" or recoveries >= 2:
-                                break
-                            recoveries += 1
-                            print(f"  [boot-recovery {recoveries}] boot_wait "
-                                  f"timed out — restarting wedged PPSSPP session")
-                            sys.stdout.flush()
-                            meta.setdefault("boot_recovery", []).append({
+        phases = {"a": [PHASE_A], "b": [PHASE_B]}.get(phase, [PHASE_A, PHASE_B])
+        _START_SCENARIO = next(s for s in PHASE_B if s.id == "B.session.start")
+        recovers_since_start = 0
+        for phase_list in phases:
+            pname = "A" if phase_list is PHASE_A else "B"
+            for sc in phase_list:
+                if sc.id == "B.session.start":
+                    STATE.clear()
+                    stale = await _stop_all_sessions(session)
+                    if stale:
+                        print(f"  [pre-clean] stopped {stale} stale session(s) from a previous run")
+                        sys.stdout.flush()
+                rec = await _call(session, sc, pname)
+                if sc.id == "B.session.start" and rec.status == "ok":
+                    # R17 (2026-09-06): wedge detection + recovery.
+                    # PPSSPP intermittently wedges at launch (TCP
+                    # listens but the main thread is stuck in GPU
+                    # device creation, so ws_connected never comes).
+                    # Previously one dead boot poisoned all ~170
+                    # subsequent scenarios. Now: on boot_wait
+                    # timeout, force-stop the wedged PPSSPP and
+                    # re-launch (up to 2 recoveries).
+                    recoveries = 0
+                    while True:
+                        rec2 = Record(
+                            id="B.session.boot_wait",
+                            tool="(poll)",
+                            phase="B",
+                            expect="ok",
+                            note="ws_connected poll",
+                        )
+                        await _boot_wait(session, rec2)
+                        records.append(rec2)
+                        if rec2.status == "ok" or recoveries >= 2:
+                            break
+                        recoveries += 1
+                        print(
+                            f"  [boot-recovery {recoveries}] boot_wait "
+                            f"timed out — restarting wedged PPSSPP session"
+                        )
+                        sys.stdout.flush()
+                        meta.setdefault("boot_recovery", []).append(
+                            {
                                 "attempt": recoveries,
                                 "boot_wait_error": rec2.error,
-                            })
-                            await session.call_tool(
-                                "ppsspp_session",
-                                {"action": "stop",
-                                 "session_id": STATE.get("SESSION_ID")})
-                            await asyncio.sleep(3.0)
-                            rec = await _call(session, sc, pname)
-                            records.append(rec)
-                            mark = "PASS" if rec.passed else "FAIL"
-                            print(f"[{mark}] {rec.id} (restart x{recoveries}, "
-                                  f"{rec.status}, {rec.latency_ms:.0f}ms)")
-                            if rec.status != "ok":
-                                break
-                        meta["boot_recovery_attempts"] = recoveries
-                        if rec2.status == "ok":
-                            rec3 = Record(id="B.session.boot_settle", tool="(sleep)",
-                                          phase="B", expect="ok", note="title screen settle")
-                            await asyncio.sleep(12.0)
-                            rec3.status = "ok"
-                            rec3.latency_ms = 12000.0
-                            records.append(rec3)
-                            await _capture_state(session)
-                    records.append(rec)
-                    mark = "PASS" if rec.passed else "FAIL"
-                    print(f"[{mark}] {rec.id} ({rec.status}, {rec.latency_ms:.0f}ms)"
-                          + (f" — {rec.error[:120]}" if rec.error and not rec.passed else ""))
-                    sys.stdout.flush()
-                    # R17 supplement: PPSSPP occasionally DIES mid-run
-                    # (dying-gasps latency spike, then process exit; idle
-                    # GC then removes the session → SESSION_NOT_FOUND on
-                    # every later scenario). Without recovery one death
-                    # fails the remaining ~30 scenarios. The post-stop
-                    # guards are EXPECTED to see SESSION_NOT_FOUND — skip.
-                    if (pname == "B" and not rec.passed
-                            and "SESSION_NOT_FOUND" in rec.error
-                            and not sc.id.startswith("B.post_stop")
-                            and sc.id != "B.session.stop"
-                            and recovers_since_start < 3):
-                        recovers_since_start += 1
-                        print(f"  [session-recovery {recovers_since_start}] "
-                              f"session lost mid-run — restarting PPSSPP")
-                        sys.stdout.flush()
-                        meta.setdefault("session_recovery", []).append({
-                            "after_scenario": sc.id,
-                        })
+                            }
+                        )
                         await session.call_tool(
                             "ppsspp_session",
-                            {"action": "stop",
-                             "session_id": STATE.get("SESSION_ID")})
+                            {"action": "stop", "session_id": STATE.get("SESSION_ID")},
+                        )
                         await asyncio.sleep(3.0)
-                        rec_s = await _call(session, _START_SCENARIO, "B")
-                        records.append(rec_s)
-                        if rec_s.status == "ok":
-                            rec2 = Record(id="B.session.boot_wait",
-                                          tool="(poll)", phase="B",
-                                          expect="ok", note="ws_connected poll")
-                            await _boot_wait(session, rec2)
-                            records.append(rec2)
-                            if rec2.status == "ok":
-                                await asyncio.sleep(12.0)
-                                await _capture_state(session)
+                        rec = await _call(session, sc, pname)
+                        records.append(rec)
+                        mark = "PASS" if rec.passed else "FAIL"
+                        print(
+                            f"[{mark}] {rec.id} (restart x{recoveries}, "
+                            f"{rec.status}, {rec.latency_ms:.0f}ms)"
+                        )
+                        if rec.status != "ok":
+                            break
+                    meta["boot_recovery_attempts"] = recoveries
+                    if rec2.status == "ok":
+                        rec3 = Record(
+                            id="B.session.boot_settle",
+                            tool="(sleep)",
+                            phase="B",
+                            expect="ok",
+                            note="title screen settle",
+                        )
+                        await asyncio.sleep(12.0)
+                        rec3.status = "ok"
+                        rec3.latency_ms = 12000.0
+                        records.append(rec3)
+                        await _capture_state(session)
+                records.append(rec)
+                mark = "PASS" if rec.passed else "FAIL"
+                print(
+                    f"[{mark}] {rec.id} ({rec.status}, {rec.latency_ms:.0f}ms)"
+                    + (f" — {rec.error[:120]}" if rec.error and not rec.passed else "")
+                )
+                sys.stdout.flush()
+                # R17 supplement: PPSSPP occasionally DIES mid-run
+                # (dying-gasps latency spike, then process exit; idle
+                # GC then removes the session → SESSION_NOT_FOUND on
+                # every later scenario). Without recovery one death
+                # fails the remaining ~30 scenarios. The post-stop
+                # guards are EXPECTED to see SESSION_NOT_FOUND — skip.
+                if (
+                    pname == "B"
+                    and not rec.passed
+                    and "SESSION_NOT_FOUND" in rec.error
+                    and not sc.id.startswith("B.post_stop")
+                    and sc.id != "B.session.stop"
+                    and recovers_since_start < 3
+                ):
+                    recovers_since_start += 1
+                    print(
+                        f"  [session-recovery {recovers_since_start}] "
+                        f"session lost mid-run — restarting PPSSPP"
+                    )
+                    sys.stdout.flush()
+                    meta.setdefault("session_recovery", []).append(
+                        {
+                            "after_scenario": sc.id,
+                        }
+                    )
+                    await session.call_tool(
+                        "ppsspp_session",
+                        {"action": "stop", "session_id": STATE.get("SESSION_ID")},
+                    )
+                    await asyncio.sleep(3.0)
+                    rec_s = await _call(session, _START_SCENARIO, "B")
+                    records.append(rec_s)
+                    if rec_s.status == "ok":
+                        rec2 = Record(
+                            id="B.session.boot_wait",
+                            tool="(poll)",
+                            phase="B",
+                            expect="ok",
+                            note="ws_connected poll",
+                        )
+                        await _boot_wait(session, rec2)
+                        records.append(rec2)
+                        if rec2.status == "ok":
+                            await asyncio.sleep(12.0)
+                            await _capture_state(session)
 
     errlog_file.close()
 
@@ -1898,21 +2440,31 @@ def summarize(records: list[Record]) -> dict[str, Any]:
             passed += 1
         else:
             failed += 1
-    lat = {t: {"n": len(v), "min": round(min(v), 1), "avg": round(sum(v) / len(v), 1),
-               "max": round(max(v), 1)} for t, v in sorted(by_tool.items())}
-    fails = [{"id": r.id, "status": r.status, "error": r.error[:200],
-              "problems": r.problems} for r in records if not r.passed]
-    return {"passed": passed, "failed": failed, "latency_by_tool": lat,
-            "failures": fails}
+    lat = {
+        t: {
+            "n": len(v),
+            "min": round(min(v), 1),
+            "avg": round(sum(v) / len(v), 1),
+            "max": round(max(v), 1),
+        }
+        for t, v in sorted(by_tool.items())
+    }
+    fails = [
+        {"id": r.id, "status": r.status, "error": r.error[:200], "problems": r.problems}
+        for r in records
+        if not r.passed
+    ]
+    return {"passed": passed, "failed": failed, "latency_by_tool": lat, "failures": fails}
 
 
 BASELINE_PATH = Path(__file__).resolve().parent / "harness_latency_baseline.json"
 
 # R19: per-tool committed p50 (ms) for frame-time budget computation.
 try:
-    _FRAME_P50_BASELINE: dict[str, float] = json.loads(
-        BASELINE_PATH.read_text(encoding="utf-8"))["p50_ms"]
-except (OSError, json.JSONDecodeError, KeyError):
+    _FRAME_P50_BASELINE: dict[str, float] = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))[
+        "p50_ms"
+    ]
+except OSError, json.JSONDecodeError, KeyError:
     _FRAME_P50_BASELINE = {}  # gate falls back to the fixed dict budget
 
 
@@ -1933,9 +2485,13 @@ def _ok_p50_by_tool(records: list[dict]) -> dict[str, float]:
 # tickets echo after N frames; waits sleep N frames). Server overhead is
 # a small constant on top, so the committed-baseline threshold for these
 # is p50×3 + 2s frame-jitter allowance instead of the tight 3×/+50ms.
-_FRAME_TIME_TOOLS: frozenset[str] = frozenset({
-    "ppsspp_batch_step", "ppsspp_wait_frames", "ppsspp_press_button",
-})
+_FRAME_TIME_TOOLS: frozenset[str] = frozenset(
+    {
+        "ppsspp_batch_step",
+        "ppsspp_wait_frames",
+        "ppsspp_press_button",
+    }
+)
 
 
 def _compare_latency_baseline(stats: dict[str, float]) -> list[str]:
@@ -1965,9 +2521,11 @@ def _compare_latency_baseline(stats: dict[str, float]) -> list[str]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", choices=["all", "a", "b"], default="all")
-    ap.add_argument("--update-baseline", action="store_true",
-                    help="R11: rewrite the committed latency baseline from "
-                         "this run's phase-B p50 stats")
+    ap.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="R11: rewrite the committed latency baseline from this run's phase-B p50 stats",
+    )
     args = ap.parse_args()
     _seed_analyze_fixture()
     _seed_ppsspp_mirror()
@@ -1976,19 +2534,20 @@ def main() -> None:
     report["latency_p50_by_tool"] = stats
     if args.update_baseline:
         BASELINE_PATH.write_text(
-            json.dumps({"p50_ms": stats}, ensure_ascii=False, indent=1),
-            encoding="utf-8")
+            json.dumps({"p50_ms": stats}, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
         print(f"latency baseline updated: {BASELINE_PATH}")
     violations = _compare_latency_baseline(stats)
     report["latency_baseline_violations"] = violations
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=1),
-                           encoding="utf-8")
+    REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     s = report["summary"]
     print("")
-    print(f"=== {s['passed']} passed / {s['failed']} failed "
-          f"(tools={report['meta'].get('tool_count')}, "
-          f"handshake={report['meta'].get('handshake_ms')}ms) ===")
+    print(
+        f"=== {s['passed']} passed / {s['failed']} failed "
+        f"(tools={report['meta'].get('tool_count')}, "
+        f"handshake={report['meta'].get('handshake_ms')}ms) ==="
+    )
     for f in s["failures"]:
         print(f"  FAIL {f['id']}: {f['status']} {f['error'][:150]} {f['problems']}")
     for v in violations:

@@ -41,8 +41,7 @@ class TestV006MemBpUpdateSize:
         )
         # size should NOT have a default (required by contract).
         assert sig.parameters["size"].default is inspect.Parameter.empty, (
-            "mem_bp_update `size` should be required (no default) — PPSSPP "
-            "contract requires it."
+            "mem_bp_update `size` should be required (no default) — PPSSPP contract requires it."
         )
 
     @pytest.mark.asyncio
@@ -74,8 +73,7 @@ class TestV007MemBpRemoveSize:
             "was reverted. See BreakpointSubscriber.cpp:L35, L406-420."
         )
         assert sig.parameters["size"].default is inspect.Parameter.empty, (
-            "mem_bp_remove `size` should be required (no default) — PPSSPP "
-            "contract requires it."
+            "mem_bp_remove `size` should be required (no default) — PPSSPP contract requires it."
         )
 
     @pytest.mark.asyncio

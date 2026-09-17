@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fake_transport import FakeTransport
 
 from contract_recorder.fixture_loader import (
     check_ppsspp_version,
     load_all,
     load_with_params,
 )
-from fake_transport import FakeTransport
 
 
 def _write_fixture(
@@ -53,10 +53,14 @@ class TestLoadAll:
     @pytest.mark.asyncio
     async def test_load_all_injects_first_response(self, tmp_path: Path):
         fixture_dir = tmp_path / "fixtures"
-        _write_fixture(fixture_dir, "memory.read_u32", [
-            {"params": {"address": 0x08804000}, "response": {"value": 0xAA}},
-            {"params": {"address": 0x08804004}, "response": {"value": 0xBB}},
-        ])
+        _write_fixture(
+            fixture_dir,
+            "memory.read_u32",
+            [
+                {"params": {"address": 0x08804000}, "response": {"value": 0xAA}},
+                {"params": {"address": 0x08804004}, "response": {"value": 0xBB}},
+            ],
+        )
         fake = FakeTransport()
 
         counts = load_all(fixture_dir, fake)
@@ -69,12 +73,20 @@ class TestLoadAll:
     @pytest.mark.asyncio
     async def test_load_all_multiple_events(self, tmp_path: Path):
         fixture_dir = tmp_path / "fixtures"
-        _write_fixture(fixture_dir, "cpu.status", [
-            {"params": {}, "response": {"stepping": False}},
-        ])
-        _write_fixture(fixture_dir, "memory.read_u32", [
-            {"params": {"address": 0x08804000}, "response": {"value": 0xDEADBEEF}},
-        ])
+        _write_fixture(
+            fixture_dir,
+            "cpu.status",
+            [
+                {"params": {}, "response": {"stepping": False}},
+            ],
+        )
+        _write_fixture(
+            fixture_dir,
+            "memory.read_u32",
+            [
+                {"params": {"address": 0x08804000}, "response": {"value": 0xDEADBEEF}},
+            ],
+        )
         fake = FakeTransport()
 
         counts = load_all(fixture_dir, fake)
@@ -88,7 +100,8 @@ class TestLoadAll:
         """fire_and_forget fixtures have no response — not injected via set_response."""
         fixture_dir = tmp_path / "fixtures"
         _write_fixture(
-            fixture_dir, "cpu.stepping",
+            fixture_dir,
+            "cpu.stepping",
             [{"params": {"step": "into"}}],
             record_type="fire_and_forget",
         )
@@ -118,10 +131,14 @@ class TestLoadWithParams:
     @pytest.mark.asyncio
     async def test_load_with_params_exact_match(self, tmp_path: Path):
         fixture_dir = tmp_path / "fixtures"
-        _write_fixture(fixture_dir, "memory.read_u32", [
-            {"params": {"address": 0x08804000}, "response": {"value": 1}},
-            {"params": {"address": 0x08804004}, "response": {"value": 2}},
-        ])
+        _write_fixture(
+            fixture_dir,
+            "memory.read_u32",
+            [
+                {"params": {"address": 0x08804000}, "response": {"value": 1}},
+                {"params": {"address": 0x08804004}, "response": {"value": 2}},
+            ],
+        )
         fake = FakeTransport()
 
         load_with_params(fixture_dir, fake)
@@ -136,10 +153,14 @@ class TestLoadWithParams:
     async def test_load_with_params_fallback_to_first(self, tmp_path: Path):
         """When no exact param match, falls back to first record."""
         fixture_dir = tmp_path / "fixtures"
-        _write_fixture(fixture_dir, "memory.read_u32", [
-            {"params": {"address": 0x08804000}, "response": {"value": 1}},
-            {"params": {"address": 0x08804004}, "response": {"value": 2}},
-        ])
+        _write_fixture(
+            fixture_dir,
+            "memory.read_u32",
+            [
+                {"params": {"address": 0x08804000}, "response": {"value": 1}},
+                {"params": {"address": 0x08804004}, "response": {"value": 2}},
+            ],
+        )
         fake = FakeTransport()
 
         load_with_params(fixture_dir, fake)

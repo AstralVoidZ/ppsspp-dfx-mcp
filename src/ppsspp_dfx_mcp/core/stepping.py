@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ppsspp_dfx_mcp.core.registers import extract_pc
 from ppsspp_dfx_mcp.core.transport import WsTransport
@@ -153,7 +154,7 @@ class SteppingManager:
         default_timeout_ms: int = 3000,
         default_interval_ms: int = 50,
         pid: int | None = None,
-        game_state_observer: "GameStateObserver | None" = None,
+        game_state_observer: GameStateObserver | None = None,
     ) -> None:
         self._transport = transport
         self._default_timeout_ms = default_timeout_ms
@@ -202,7 +203,8 @@ class SteppingManager:
             self._last_status = await self._transport.call("cpu.status")
         except Exception as e:
             logger.debug(
-                "pause: cpu.status probe failed (best-effort): %s", e,
+                "pause: cpu.status probe failed (best-effort): %s",
+                e,
                 exc_info=True,
             )
             self._last_status = None
@@ -220,34 +222,25 @@ class SteppingManager:
             # self._pid is set; otherwise raise without pid_alive.
             if self._pid is not None:
                 from ppsspp_dfx_mcp.core import proc
+
                 pid_alive = proc.is_pid_alive(self._pid)
                 last_ticks = (
-                    self._last_status.get("ticks")
-                    if self._last_status is not None
-                    else None
+                    self._last_status.get("ticks") if self._last_status is not None else None
                 )
-                ticks_str = (
-                    str(last_ticks) if last_ticks is not None else "unknown"
-                )
+                ticks_str = str(last_ticks) if last_ticks is not None else "unknown"
                 if pid_alive:
                     msg = (
                         f"pause failed: PID alive but CPU not entering "
                         f"STEPPING; last ticks={ticks_str}"
                     )
                 else:
-                    msg = (
-                        f"pause failed: PID dead; PPSSPP process no "
-                        f"longer running"
-                    )
-                raise SteppingFailedError(
-                    msg, pid_alive=pid_alive
-                ) from timeout_error
+                    msg = "pause failed: PID dead; PPSSPP process no longer running"
+                raise SteppingFailedError(msg, pid_alive=pid_alive) from timeout_error
             # No PID context: raise without pid_alive attribute. The
             # default is pid_alive=None, so SteppingFailedError() will
             # fall back to __cause__-based translation in to_tool_error.
             raise SteppingFailedError(
-                f"pause failed; CPU state unknown, cannot enter "
-                f"stepping context: {timeout_error}"
+                f"pause failed; CPU state unknown, cannot enter stepping context: {timeout_error}"
             ) from timeout_error
 
     async def resume(self) -> dict[str, Any]:
@@ -277,9 +270,7 @@ class SteppingManager:
             self._game_state_observer.drain_resume()
         await self._transport.fire_and_forget("cpu.resume")
         if self._game_state_observer is not None:
-            ok = await self._game_state_observer.wait_for_resume(
-                timeout_ms=3000
-            )
+            ok = await self._game_state_observer.wait_for_resume(timeout_ms=3000)
             if ok:
                 return {}
             # Broadcast timed out — fall back to polling.
@@ -364,8 +355,7 @@ class SteppingManager:
                 # are not caught by pause(); wrap them here so callers
                 # only see SteppingFailedError from with_stepping.
                 raise SteppingFailedError(
-                    f"pause failed; CPU state unknown, cannot enter "
-                    f"stepping context: {e}"
+                    f"pause failed; CPU state unknown, cannot enter stepping context: {e}"
                 ) from e
 
         body_succeeded = False

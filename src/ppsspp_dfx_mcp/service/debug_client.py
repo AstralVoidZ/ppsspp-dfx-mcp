@@ -36,18 +36,18 @@ import asyncio
 import base64
 import logging
 import time
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
-from ppsspp_dfx_mcp.core.registers import extract_pc, normalize_reg_name
-from ppsspp_dfx_mcp.core.stepping import SteppingManager, ThreadSnapshot, TrustLevel
+from ppsspp_dfx_mcp.core.registers import normalize_reg_name
+from ppsspp_dfx_mcp.core.stepping import SteppingManager, ThreadSnapshot
 from ppsspp_dfx_mcp.core.transport import WsTransport
 from ppsspp_dfx_mcp.core.ws_contract import get_contract
 from ppsspp_dfx_mcp.errors import (
     CpuStateError,
     StepNoAdvanceError,
     StepOutError,
-    SteppingFailedError,
 )
 
 if TYPE_CHECKING:
@@ -98,7 +98,7 @@ class PpssppDebugClient:
         self,
         transport: WsTransport,
         pid: int | None = None,
-        game_state_observer: "GameStateObserver | None" = None,
+        game_state_observer: GameStateObserver | None = None,
     ) -> None:
         self._transport = transport
         # Keep the observer reference on the client so
@@ -166,9 +166,7 @@ class PpssppDebugClient:
         PPSSPP `memory.read` response field is `base64` (not `data`).
         Falls back to `data` field for compatibility.
         """
-        resp = await self._transport.call(
-            "memory.read", address=address, size=size
-        )
+        resp = await self._transport.call("memory.read", address=address, size=size)
         b64 = resp.get("base64", "")
         return base64.b64decode(b64) if b64 else b""
 
@@ -205,9 +203,7 @@ class PpssppDebugClient:
         # literal drifting from the tool layer's copy.
         from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
 
-        data = await self.read_bytes(
-            address, max(1, min(max_length, MAX_SINGLE_READ_BYTES))
-        )
+        data = await self.read_bytes(address, max(1, min(max_length, MAX_SINGLE_READ_BYTES)))
         nul = data.find(b"\x00")
         raw = data if nul < 0 else data[:nul]
         if encoding == "base64":
@@ -218,36 +214,26 @@ class PpssppDebugClient:
 
     async def write_u8(self, address: int, value: int) -> None:
         """Write unsigned 8-bit value to address."""
-        await self._transport.call(
-            "memory.write_u8", address=address, value=value
-        )
+        await self._transport.call("memory.write_u8", address=address, value=value)
 
     async def write_u16(self, address: int, value: int) -> None:
         """Write unsigned 16-bit value to address."""
-        await self._transport.call(
-            "memory.write_u16", address=address, value=value
-        )
+        await self._transport.call("memory.write_u16", address=address, value=value)
 
     async def write_u32(self, address: int, value: int) -> None:
         """Write unsigned 32-bit value to address."""
-        await self._transport.call(
-            "memory.write_u32", address=address, value=value
-        )
+        await self._transport.call("memory.write_u32", address=address, value=value)
 
     async def write_bytes(self, address: int, data: bytes) -> None:
         """Write arbitrary-length bytes to address (base64-encoded)."""
         b64 = base64.b64encode(data).decode("ascii")
-        await self._transport.call(
-            "memory.write", address=address, base64=b64
-        )
+        await self._transport.call("memory.write", address=address, base64=b64)
 
     # ======================================================================
     # CPU methods (task 3.3) — 4 methods
     # ======================================================================
 
-    async def get_reg(
-        self, name: str, thread: Optional[int] = None
-    ) -> dict[str, Any]:
+    async def get_reg(self, name: str, thread: int | None = None) -> dict[str, Any]:
         """Read a single CPU register by name.
 
         Event: `cpu.getReg` (CPUCoreSubscriber.cpp:269-323) — `name` mode
@@ -262,13 +248,9 @@ class PpssppDebugClient:
         params: dict[str, Any] = {"name": normalize_reg_name(name)}
         if thread is not None:
             params["thread"] = thread
-        return await self._transport.call(
-            "cpu.getReg", timeout=5.0, **params
-        )
+        return await self._transport.call("cpu.getReg", timeout=5.0, **params)
 
-    async def get_all_regs(
-        self, thread: Optional[int] = None
-    ) -> dict[str, Any]:
+    async def get_all_regs(self, thread: int | None = None) -> dict[str, Any]:
         """Get all CPU registers (GPR + FPU + VFPU).
 
         Args:
@@ -279,15 +261,13 @@ class PpssppDebugClient:
         params: dict[str, Any] = {}
         if thread is not None:
             params["thread"] = thread
-        return await self._transport.call(
-            "cpu.getAllRegs", timeout=5.0, **params
-        )
+        return await self._transport.call("cpu.getAllRegs", timeout=5.0, **params)
 
     async def set_reg(
         self,
         name: str,
         value: int,
-        thread: Optional[int] = None,
+        thread: int | None = None,
     ) -> dict[str, Any]:
         """Set a CPU register value. Requires stepping state.
 
@@ -303,9 +283,7 @@ class PpssppDebugClient:
                 register for that thread instead of the current thread
                 (see CPUCoreSubscriber.cpp:L34-37).
         """
-        params: dict[str, Any] = {
-            "name": normalize_reg_name(name), "value": value
-        }
+        params: dict[str, Any] = {"name": normalize_reg_name(name), "value": value}
         if thread is not None:
             params["thread"] = thread
         async with self.with_stepping():
@@ -314,7 +292,7 @@ class PpssppDebugClient:
     async def evaluate(
         self,
         expression: str,
-        thread: Optional[int] = None,
+        thread: int | None = None,
     ) -> dict[str, Any]:
         """Evaluate a debugger expression (e.g., `r5 + 0x10`).
 
@@ -359,7 +337,7 @@ class PpssppDebugClient:
     async def _wait_step_broadcast(
         self,
         timeout_ms: int,
-        filter: Optional[Callable[[dict[str, Any]], bool]] = None,
+        filter: Callable[[dict[str, Any]], bool] | None = None,
     ) -> dict[str, Any]:
         """Consume one cpu.stepping broadcast via the
         routing-aware path.
@@ -381,9 +359,7 @@ class PpssppDebugClient:
         """
         observer = self._game_state_observer
         if observer is not None and observer.is_running():
-            msg = await observer.wait_for_step_broadcast(
-                timeout_ms=timeout_ms, filter=filter
-            )
+            msg = await observer.wait_for_step_broadcast(timeout_ms=timeout_ms, filter=filter)
             if msg is None:
                 raise TimeoutError(
                     "wait_for_step_broadcast timeout "
@@ -455,9 +431,7 @@ class PpssppDebugClient:
         if use_broadcast:
             step_filter = self._build_step_filter(pre_pc, pre_ticks)
             try:
-                return await self._wait_step_broadcast(
-                    timeout_ms=timeout_ms, filter=step_filter
-                )
+                return await self._wait_step_broadcast(timeout_ms=timeout_ms, filter=step_filter)
             except TimeoutError:
                 # If the filter is active, do NOT fall back to legacy
                 # poll — the legacy path has no pc/ticks filter and
@@ -480,7 +454,7 @@ class PpssppDebugClient:
     def _build_step_filter(
         pre_pc: int | None,
         pre_ticks: float | None,
-    ) -> Optional[Callable[[dict[str, Any]], bool]]:
+    ) -> Callable[[dict[str, Any]], bool] | None:
         """A1: build a stale-broadcast filter for step confirmation.
 
         Returns None when neither pre_pc nor pre_ticks is available
@@ -758,7 +732,7 @@ class PpssppDebugClient:
             return
         try:
             pc_int = int(pc)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return
         if not (_PSP_CODE_RANGE_LOW <= pc_int <= _PSP_CODE_RANGE_HIGH):
             raise StepOutError(
@@ -830,9 +804,9 @@ class PpssppDebugClient:
         self,
         address: int,
         enabled: bool = True,
-        condition: Optional[str] = None,
-        log: Optional[bool] = None,
-        log_format: Optional[str] = None,
+        condition: str | None = None,
+        log: bool | None = None,
+        log_format: str | None = None,
     ) -> dict[str, Any]:
         """Add a CPU execution breakpoint.
 
@@ -859,9 +833,7 @@ class PpssppDebugClient:
 
     async def cpu_bp_remove(self, address: int) -> dict[str, Any]:
         """Remove a CPU execution breakpoint."""
-        return await self._transport.call(
-            "cpu.breakpoint.remove", address=address
-        )
+        return await self._transport.call("cpu.breakpoint.remove", address=address)
 
     async def cpu_bp_list(self) -> dict[str, Any]:
         """List all CPU breakpoints."""
@@ -870,10 +842,10 @@ class PpssppDebugClient:
     async def cpu_bp_update(
         self,
         address: int,
-        enabled: Optional[bool] = None,
-        log: Optional[bool] = None,
-        condition: Optional[str] = None,
-        log_format: Optional[str] = None,
+        enabled: bool | None = None,
+        log: bool | None = None,
+        condition: str | None = None,
+        log_format: str | None = None,
     ) -> dict[str, Any]:
         """Update CPU breakpoint attributes."""
         params: dict[str, Any] = {"address": address}
@@ -896,8 +868,8 @@ class PpssppDebugClient:
         change: bool = False,
         enabled: bool = True,
         log: bool = False,
-        condition: Optional[str] = None,
-        log_format: Optional[str] = None,
+        condition: str | None = None,
+        log_format: str | None = None,
     ) -> dict[str, Any]:
         """Add a memory access breakpoint.
 
@@ -943,9 +915,7 @@ class PpssppDebugClient:
             size: Breakpoint watch size in bytes (required by PPSSPP contract;
                 memory breakpoints are matched by address+size pair).
         """
-        return await self._transport.call(
-            "memory.breakpoint.remove", address=address, size=size
-        )
+        return await self._transport.call("memory.breakpoint.remove", address=address, size=size)
 
     async def mem_bp_list(self) -> dict[str, Any]:
         """List all memory breakpoints."""
@@ -955,13 +925,13 @@ class PpssppDebugClient:
         self,
         address: int,
         size: int,
-        enabled: Optional[bool] = None,
-        log: Optional[bool] = None,
-        condition: Optional[str] = None,
-        log_format: Optional[str] = None,
-        read: Optional[bool] = None,
-        write: Optional[bool] = None,
-        change: Optional[bool] = None,
+        enabled: bool | None = None,
+        log: bool | None = None,
+        condition: str | None = None,
+        log_format: str | None = None,
+        read: bool | None = None,
+        write: bool | None = None,
+        change: bool | None = None,
     ) -> dict[str, Any]:
         """Update memory breakpoint attributes.
 
@@ -999,7 +969,7 @@ class PpssppDebugClient:
             params["change"] = change
         return await self._transport.call("memory.breakpoint.update", **params)
 
-    async def backtrace(self, thread: Optional[int] = None) -> dict[str, Any]:
+    async def backtrace(self, thread: int | None = None) -> dict[str, Any]:
         """Get call stack backtrace. If `thread` is None, uses current.
 
         REQUIRED_STEPPING: PPSSPP rejects hle.backtrace when CPU is running
@@ -1024,7 +994,7 @@ class PpssppDebugClient:
         self,
         address: int,
         size: int,
-        remove: Optional[bool] = None,
+        remove: bool | None = None,
     ) -> dict[str, Any]:
         """Scan a memory range for trackable HLE functions.
 
@@ -1043,15 +1013,13 @@ class PpssppDebugClient:
         if remove is not None:
             params["remove"] = remove
         async with self.with_stepping():
-            return await self._transport.call(
-                "hle.func.scan", timeout=10.0, **params
-            )
+            return await self._transport.call("hle.func.scan", timeout=10.0, **params)
 
     async def func_add(
         self,
-        name: Optional[str] = None,
-        address: Optional[int] = None,
-        size: Optional[int] = None,
+        name: str | None = None,
+        address: int | None = None,
+        size: int | None = None,
     ) -> dict[str, Any]:
         """Add HLE function tracking. Specify `name` and/or `address`.
 
@@ -1087,9 +1055,7 @@ class PpssppDebugClient:
         registered; the contract has no `name` parameter.
         """
         async with self.with_stepping():
-            return await self._transport.call(
-                "hle.func.remove", address=address
-            )
+            return await self._transport.call("hle.func.remove", address=address)
 
     # ======================================================================
     # Disasm methods (task 3.8) — 3 methods
@@ -1099,7 +1065,7 @@ class PpssppDebugClient:
         self,
         address: int,
         count: int = 10,
-        thread: Optional[int] = None,
+        thread: int | None = None,
     ) -> list[dict]:
         """Disassemble `count` instructions at `address`.
 
@@ -1122,9 +1088,7 @@ class PpssppDebugClient:
             if "text" not in line:
                 name = line.get("name", "")
                 line_params = line.get("params", "")
-                line["text"] = (
-                    f"{name} {line_params}".strip() if line_params else name
-                )
+                line["text"] = f"{name} {line_params}".strip() if line_params else name
         return lines
 
     async def assemble(self, address: int, code: str) -> dict[str, Any]:
@@ -1133,9 +1097,7 @@ class PpssppDebugClient:
         DESTRUCTIVE: writes assembled bytes to memory. Caller should
         ensure this is intended.
         """
-        return await self._transport.call(
-            "memory.assemble", address=address, code=code
-        )
+        return await self._transport.call("memory.assemble", address=address, code=code)
 
     async def search_disasm(
         self,
@@ -1143,7 +1105,7 @@ class PpssppDebugClient:
         match: str,
         end: int = 0,
         display_symbols: bool = True,
-        thread: Optional[int] = None,
+        thread: int | None = None,
     ) -> dict[str, Any]:
         """Search disassembly for instructions matching `match`. READ-ONLY.
 
@@ -1167,17 +1129,13 @@ class PpssppDebugClient:
             params["end"] = end
         if thread is not None:
             params["thread"] = thread
-        return await self._transport.call(
-            "memory.searchDisasm", **params
-        )
+        return await self._transport.call("memory.searchDisasm", **params)
 
     # ======================================================================
     # Input methods (task 3.9) — 3 methods
     # ======================================================================
 
-    async def press_button(
-        self, button: str, duration: int = 1
-    ) -> dict[str, Any]:
+    async def press_button(self, button: str, duration: int = 1) -> dict[str, Any]:
         """Simulate button press for `duration` frames.
 
         Buttons: cross/circle/triangle/square/up/down/left/right/
@@ -1204,9 +1162,7 @@ class PpssppDebugClient:
 
         STATE-CHANGE: changes the persistent button state.
         """
-        return await self._transport.call(
-            "input.buttons.send", buttons=buttons
-        )
+        return await self._transport.call("input.buttons.send", buttons=buttons)
 
     async def send_analog(
         self,
@@ -1222,9 +1178,7 @@ class PpssppDebugClient:
             stick: which analog stick to set — "left" or "right"
                 (default "left"; see InputSubscriber.cpp:L94, L242-256).
         """
-        return await self._transport.call(
-            "input.analog.send", x=x, y=y, stick=stick
-        )
+        return await self._transport.call("input.analog.send", x=x, y=y, stick=stick)
 
     # ======================================================================
     # System methods (task 3.10) — 4 methods
@@ -1245,7 +1199,7 @@ class PpssppDebugClient:
         """
         return await self._transport.call("memory.mapping")
 
-    async def reset(self, break_: Optional[bool] = None) -> dict[str, Any]:
+    async def reset(self, break_: bool | None = None) -> dict[str, Any]:
         """Reset the game (reboot).
 
         DESTRUCTIVE: causes game state loss.
@@ -1433,7 +1387,7 @@ class PpssppDebugClient:
         # First probe — record ticks0 + stepping0.
         try:
             status0 = await self._transport.call("cpu.status")
-        except (ConnectionRefusedError, OSError):
+        except ConnectionRefusedError, OSError:
             # Transport-level failure (WS disconnected / port unreachable):
             # re-raise so to_tool_error can classify it as WsDisconnected
             # immediately, rather than letting the ticketed call time out.
@@ -1453,7 +1407,7 @@ class PpssppDebugClient:
         # Second probe — record ticks1 + stepping1.
         try:
             status1 = await self._transport.call("cpu.status")
-        except (ConnectionRefusedError, OSError):
+        except ConnectionRefusedError, OSError:
             raise
         except Exception:
             return
@@ -1554,9 +1508,9 @@ class PpssppDebugClient:
     async def memory_info_search(
         self,
         match: str,
-        address: Optional[int] = None,
-        end: Optional[int] = None,
-        type: Optional[str] = None,  # noqa: A002 — matches PPSSPP WS API
+        address: int | None = None,
+        end: int | None = None,
+        type: str | None = None,  # noqa: A002 — matches PPSSPP WS API
     ) -> dict[str, Any]:
         """Search memory allocation/write/texture metadata tags.
 
@@ -1638,19 +1592,14 @@ class PpssppDebugClient:
         # the overlap tail).
         from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
 
-        effective_chunk = max(
-            1, min(chunk_size, MAX_SINGLE_READ_BYTES - overlap)
-        )
+        effective_chunk = max(1, min(chunk_size, MAX_SINGLE_READ_BYTES - overlap))
         cursor = start
 
         while cursor < end and len(matches) < max_results:
             # Read effective_chunk bytes; reserve overlap for boundary-
             # spanning patterns. The last chunk does not extend beyond `end`.
             chunk_end = min(cursor + effective_chunk, end)
-            if chunk_end < end:
-                read_end = min(chunk_end + overlap, end)
-            else:
-                read_end = chunk_end
+            read_end = min(chunk_end + overlap, end) if chunk_end < end else chunk_end
             read_size = read_end - cursor
             if read_size <= 0:
                 break
@@ -1675,11 +1624,13 @@ class PpssppDebugClient:
                 if match_addr >= chunk_end:
                     break  # in overlap tail; next chunk will find it
                 if match_addr < end:
-                    context = data[idx:idx + len(pattern)].hex().upper()
-                    matches.append({
-                        "address": match_addr,
-                        "context": context,
-                    })
+                    context = data[idx : idx + len(pattern)].hex().upper()
+                    matches.append(
+                        {
+                            "address": match_addr,
+                            "context": context,
+                        }
+                    )
                     if len(matches) >= max_results:
                         break
                 search_start = idx + 1
@@ -1725,9 +1676,7 @@ class PpssppDebugClient:
             version: Replay format version (from a prior replay.flush).
             base64: Base64-encoded replay data (from a prior replay.flush).
         """
-        return await self._transport.call(
-            "replay.execute", version=version, base64=base64
-        )
+        return await self._transport.call("replay.execute", version=version, base64=base64)
 
     async def replay_status(self) -> dict[str, Any]:
         """Get replay status.
@@ -1791,7 +1740,7 @@ class PpssppDebugClient:
                 return {**last, "_wait_iterations": iterations}
             elapsed = asyncio.get_running_loop().time() - start
             if elapsed >= timeout_s:
-                raise asyncio.TimeoutError(
+                raise TimeoutError(
                     f"replay.wait_complete timeout ({timeout_ms}ms) — "
                     f"executing still True after {iterations} polls"
                 )

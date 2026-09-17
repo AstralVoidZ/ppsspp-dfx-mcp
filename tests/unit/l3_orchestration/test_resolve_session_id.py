@@ -43,9 +43,7 @@ class TestResolveSessionId:
         assert await resolve_session_id("sess-explicit") == "sess-explicit"
         mock_list.assert_not_awaited()
 
-    async def test_no_sessions_raises_start_hint(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_no_sessions_raises_start_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_list(monkeypatch, [])
         with pytest.raises(ToolError) as exc:
             await resolve_session_id(None)
@@ -53,15 +51,11 @@ class TestResolveSessionId:
         assert "no active session" in str(exc.value)
         assert 'ppsspp_session(action="start"' in str(exc.value)
 
-    async def test_single_session_resolves_silently(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_single_session_resolves_silently(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_list(monkeypatch, ["only-one"])
         assert await resolve_session_id(None) == "only-one"
 
-    async def test_multiple_sessions_raise_ambiguous(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_multiple_sessions_raise_ambiguous(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_list(monkeypatch, ["sess-a", "sess-b"])
         with pytest.raises(SessionAmbiguous) as exc:
             await resolve_session_id(None)
@@ -82,16 +76,10 @@ class TestReadMemoryAutoResolve:
         ) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-        )
-        return await read_memory(
-            action="read_bytes", address="0x08804000", size=2
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
+        return await read_memory(action="read_bytes", address="0x08804000", size=2)
 
-    async def test_omitted_id_resolves_and_reads(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_omitted_id_resolves_and_reads(self, monkeypatch: pytest.MonkeyPatch) -> None:
         result = await self._run(monkeypatch, ["auto-sess"])
         assert result["value"] == [65, 66]
 

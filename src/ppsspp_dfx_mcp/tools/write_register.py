@@ -42,7 +42,9 @@ __all__ = ["write_register"]
 # ToolError: on session lookup failure, empty name, or WS failure.
 @mcp.tool(
     name="ppsspp_write_register",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def write_register(
@@ -75,11 +77,11 @@ async def write_register(
     ],
 ) -> WriteRegisterOutput:
     """PURPOSE: Set a CPU register (GPR/FPU/VFPU names, plus pc/hi/lo).
-    
+
     USAGE: session_id + name (MIPS ABI names only — 'r5' normalizes to 'v1') + value (hex).
-    
+
     BEHAVIOR: DESTRUCTIVE. Pauses and resumes the CPU automatically (REQUIRED_STEPPING handled internally) — no manual pause needed.
-    
+
     RETURNS: {name, value, response, text}."""
     require_session_id(session_id)
     if not name:

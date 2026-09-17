@@ -16,7 +16,6 @@ import pytest
 
 from ppsspp_dfx_mcp import server as server_mod
 
-
 # ============================================================================
 # Registry membership — ppsspp_replay is registered
 # ============================================================================
@@ -66,40 +65,34 @@ class TestReplayToolAnnotations:
 
     def test_replay_has_annotation_entry(self, annotations):
         """_ANNOTATIONS has an entry for ppsspp_replay."""
-        assert "ppsspp_replay" in annotations, (
-            "_ANNOTATIONS must have an entry for ppsspp_replay."
-        )
+        assert "ppsspp_replay" in annotations, "_ANNOTATIONS must have an entry for ppsspp_replay."
 
     def test_replay_read_only_hint_false(self, annotations):
         """readOnlyHint=False — replay mutates recording/playback state."""
         ann = annotations["ppsspp_replay"]
         assert ann.read_only_hint is False, (
-            f"ppsspp_replay readOnlyHint should be False, "
-            f"got {ann.read_only_hint!r}"
+            f"ppsspp_replay readOnlyHint should be False, got {ann.read_only_hint!r}"
         )
 
     def test_replay_destructive_hint_false(self, annotations):
         """destructiveHint=False — replay is not irreversible."""
         ann = annotations["ppsspp_replay"]
         assert ann.destructive_hint is False, (
-            f"ppsspp_replay destructiveHint should be False, "
-            f"got {ann.destructive_hint!r}"
+            f"ppsspp_replay destructiveHint should be False, got {ann.destructive_hint!r}"
         )
 
     def test_replay_idempotent_hint_false(self, annotations):
         """idempotentHint=False — calling begin twice starts a new recording."""
         ann = annotations["ppsspp_replay"]
         assert ann.idempotent_hint is False, (
-            f"ppsspp_replay idempotentHint should be False, "
-            f"got {ann.idempotent_hint!r}"
+            f"ppsspp_replay idempotentHint should be False, got {ann.idempotent_hint!r}"
         )
 
     def test_replay_open_world_hint_false(self, annotations):
         """openWorldHint=False — tool only talks to the connected PPSSPP session."""
         ann = annotations["ppsspp_replay"]
         assert ann.open_world_hint is False, (
-            f"ppsspp_replay openWorldHint should be False, "
-            f"got {ann.open_world_hint!r}"
+            f"ppsspp_replay openWorldHint should be False, got {ann.open_world_hint!r}"
         )
 
 
@@ -123,9 +116,7 @@ class TestReplayDescriptionTdqs:
         """ppsspp_replay description contains all 4 TDQS headers."""
         for name, desc, _ in tool_registry:
             if name == "ppsspp_replay":
-                assert header in desc, (
-                    f"ppsspp_replay: missing TDQS header {header!r}"
-                )
+                assert header in desc, f"ppsspp_replay: missing TDQS header {header!r}"
                 return
         pytest.fail("ppsspp_replay not found in registry")
 
@@ -160,9 +151,7 @@ class TestReplayDescriptionTdqs:
         for name, desc, _ in tool_registry:
             if name == "ppsspp_replay":
                 behavior_idx = desc.find("BEHAVIOR:")
-                assert behavior_idx >= 0, (
-                    "ppsspp_replay: missing BEHAVIOR: header"
-                )
+                assert behavior_idx >= 0, "ppsspp_replay: missing BEHAVIOR: header"
                 # BEHAVIOR paragraph spans from the header to the next
                 # \n\n separator (or end of string).
                 next_para = desc.find("\n\n", behavior_idx)
@@ -186,15 +175,22 @@ class TestReplayDescriptionTdqs:
         hiding an action would silently break callers that depend on it.
         """
         expected_actions = (
-            "begin", "abort", "flush", "execute", "status",
-            "time_get", "time_set", "save", "load", "wait_complete",
+            "begin",
+            "abort",
+            "flush",
+            "execute",
+            "status",
+            "time_get",
+            "time_set",
+            "save",
+            "load",
+            "wait_complete",
         )
         for name, desc, _ in tool_registry:
             if name == "ppsspp_replay":
                 for action in expected_actions:
                     assert action in desc, (
-                        f"ppsspp_replay description must mention "
-                        f"action={action!r}"
+                        f"ppsspp_replay description must mention action={action!r}"
                     )
                 return
         pytest.fail("ppsspp_replay not found in registry")

@@ -21,17 +21,29 @@ from ppsspp_dfx_mcp.views.memory import (
     MemoryReadResponse,
     MemoryWriteResponse,
 )
-from ppsspp_dfx_mcp.views.query import GetPcResponse, QueryResponse
+from ppsspp_dfx_mcp.views.query import GetPcResponse
 from ppsspp_dfx_mcp.views.session import SessionListResponse, SessionResponse
 
 pytestmark = pytest.mark.asyncio
 
 # view model → required field names (golden shape)
 GOLDEN_SHAPES: list[tuple[type[BaseModel], set[str]]] = [
-    (SessionResponse,
-     {"session_id", "iso_path", "pid", "ws_url", "created_at",
-      "last_active_at", "exec_count", "ws_connected", "recovered",
-      "restored", "ppsspp_version"}),
+    (
+        SessionResponse,
+        {
+            "session_id",
+            "iso_path",
+            "pid",
+            "ws_url",
+            "created_at",
+            "last_active_at",
+            "exec_count",
+            "ws_connected",
+            "recovered",
+            "restored",
+            "ppsspp_version",
+        },
+    ),
     (GetPcResponse, {"pc", "trust_level"}),
     # The seven subset-contract models (MemoryRead/MemoryWrite/
     # AddressConversion/Breakpoint/BatchStep/Query/SessionList responses)
@@ -44,11 +56,15 @@ GOLDEN_SHAPES: list[tuple[type[BaseModel], set[str]]] = [
 REQUIRED_FIELDS: list[tuple[type[BaseModel], set[str]]] = [
     (MemoryReadResponse, {"action", "address", "value", "size"}),
     (MemoryWriteResponse, {"address", "format", "bytes_written"}),
-    (AddressConversionResponse, {"original", "converted", "mode",
-                                 "top_base_ppsspp", "top_base_ida"}),
+    (
+        AddressConversionResponse,
+        {"original", "converted", "mode", "top_base_ppsspp", "top_base_ida"},
+    ),
     (BreakpointResponse, {"action", "address", "breakpoints"}),
-    (BatchStepResponse, {"action", "total", "executed", "succeeded",
-                         "failed", "skipped", "results"}),
+    (
+        BatchStepResponse,
+        {"action", "total", "executed", "succeeded", "failed", "skipped", "results"},
+    ),
     (SessionListResponse, {"sessions", "count"}),
 ]
 
@@ -69,9 +85,7 @@ class TestResponseShapeContract:
         ("model", "fields"),
         REQUIRED_FIELDS,
     )
-    async def test_required_fields_present(
-        self, model: type[BaseModel], fields: set[str]
-    ) -> None:
+    async def test_required_fields_present(self, model: type[BaseModel], fields: set[str]) -> None:
         missing = fields - set(model.model_fields)
         assert not missing, (
             f"{model.__name__} lost required fields {sorted(missing)} — "

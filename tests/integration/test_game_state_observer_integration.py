@@ -25,16 +25,17 @@ Test groups:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
+from datetime import UTC
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.core.game_state_observer import GameStateObserver
 from ppsspp_dfx_mcp.errors import (
     CpuFreezeSuspected,
@@ -42,7 +43,6 @@ from ppsspp_dfx_mcp.errors import (
 )
 from ppsspp_dfx_mcp.session import session_manager as sm_mod
 from ppsspp_dfx_mcp.session.client_helper import session_client_with_transport
-
 
 # ============================================================================
 # Shared fixtures
@@ -146,18 +146,12 @@ class TestGameStateMachineIllegalTransitions:
         assert observer.get_state() == "loading"
         # Warning was logged.
         assert any(
-            "invalid state transition" in rec.message
-            and "game.pause" in rec.message
+            "invalid state transition" in rec.message and "game.pause" in rec.message
             for rec in caplog.records
-        ), (
-            "Illegal transition must log a warning with the event name "
-            "and current state."
-        )
+        ), "Illegal transition must log a warning with the event name and current state."
 
     @pytest.mark.asyncio
-    async def test_illegal_transition_after_quit(
-        self, observer_with_transport, caplog
-    ):
+    async def test_illegal_transition_after_quit(self, observer_with_transport, caplog):
         """13.2 (extra): game.start while in quit state → warning logged,
         state remains quit (quit is terminal until session reset).
         """
@@ -176,10 +170,7 @@ class TestGameStateMachineIllegalTransitions:
             await asyncio.sleep(0.05)
 
         assert observer.get_state() == "quit"
-        assert any(
-            "invalid state transition" in rec.message
-            for rec in caplog.records
-        )
+        assert any("invalid state transition" in rec.message for rec in caplog.records)
 
 
 # ============================================================================
@@ -200,9 +191,7 @@ class TestSingleConsumerDispatcher:
     """
 
     @pytest.mark.asyncio
-    async def test_concurrent_subscribers_no_drain_conflict(
-        self, observer_with_transport
-    ):
+    async def test_concurrent_subscribers_no_drain_conflict(self, observer_with_transport):
         """13.3: concurrent wait_for_resume + game.pause subscriber both
         receive their events.
 
@@ -220,13 +209,9 @@ class TestSingleConsumerDispatcher:
         # Start two concurrent waiters: one for cpu.resume, one for
         # game.pause. Both wait on their dedicated per-event-name queues
         # (populated by the single-consumer dispatcher).
-        resume_task = asyncio.ensure_future(
-            observer.wait_for_resume(timeout_ms=500)
-        )
+        resume_task = asyncio.ensure_future(observer.wait_for_resume(timeout_ms=500))
         # game.pause subscriber — read directly from the game.pause queue.
-        pause_task = asyncio.ensure_future(
-            observer._queues["game.pause"].get()
-        )
+        pause_task = asyncio.ensure_future(observer._queues["game.pause"].get())
         await asyncio.sleep(0.02)  # let tasks register
 
         # Push both broadcasts in quick succession.
@@ -239,7 +224,7 @@ class TestSingleConsumerDispatcher:
                 asyncio.gather(resume_task, pause_task),
                 timeout=1.0,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.fail(
                 "Concurrent subscribers timed out — dispatcher failed to "
                 "route events to per-event-name queues (drain-and-requeue "
@@ -273,29 +258,27 @@ class TestLogBroadcastInjection:
     """
 
     @pytest.mark.asyncio
-    async def test_log_level_2_error_injected(
-        self, observer_with_transport, caplog
-    ):
+    async def test_log_level_2_error_injected(self, observer_with_transport, caplog):
         """13.4: level=2 (ERROR) broadcast → logging.ERROR."""
         observer, transport = observer_with_transport
 
-        with caplog.at_level(
-            logging.DEBUG, logger="ppsspp_dfx_mcp.ppsspp_log"
-        ):
-            transport.push_broadcast({
-                "event": "log",
-                "level": 2,
-                "message": "sceKernelWaitSema timeout",
-                "header": "HLE",
-                "channel": "Kernel",
-            })
+        with caplog.at_level(logging.DEBUG, logger="ppsspp_dfx_mcp.ppsspp_log"):
+            transport.push_broadcast(
+                {
+                    "event": "log",
+                    "level": 2,
+                    "message": "sceKernelWaitSema timeout",
+                    "header": "HLE",
+                    "channel": "Kernel",
+                }
+            )
             await asyncio.sleep(0.05)
 
         # Find the injected log record.
         error_records = [
-            rec for rec in caplog.records
-            if rec.levelno == logging.ERROR
-            and "sceKernelWaitSema timeout" in rec.message
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.ERROR and "sceKernelWaitSema timeout" in rec.message
         ]
         assert len(error_records) == 1, (
             "Level 2 (ERROR) log broadcast must be injected as "
@@ -305,54 +288,45 @@ class TestLogBroadcastInjection:
         assert "[Kernel] HLE: sceKernelWaitSema timeout" in error_records[0].message
 
     @pytest.mark.asyncio
-    async def test_log_level_4_info_injected(
-        self, observer_with_transport, caplog
-    ):
+    async def test_log_level_4_info_injected(self, observer_with_transport, caplog):
         """13.4 (extra): level=4 (INFO) broadcast → logging.INFO."""
         observer, transport = observer_with_transport
 
-        with caplog.at_level(
-            logging.DEBUG, logger="ppsspp_dfx_mcp.ppsspp_log"
-        ):
-            transport.push_broadcast({
-                "event": "log",
-                "level": 4,
-                "message": "loading module",
-                "header": "Loader",
-                "channel": "Load",
-            })
+        with caplog.at_level(logging.DEBUG, logger="ppsspp_dfx_mcp.ppsspp_log"):
+            transport.push_broadcast(
+                {
+                    "event": "log",
+                    "level": 4,
+                    "message": "loading module",
+                    "header": "Loader",
+                    "channel": "Load",
+                }
+            )
             await asyncio.sleep(0.05)
 
         info_records = [
-            rec for rec in caplog.records
-            if rec.levelno == logging.INFO
-            and "loading module" in rec.message
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.INFO and "loading module" in rec.message
         ]
         assert len(info_records) == 1, (
             "Level 4 (INFO) log broadcast must be injected as logging.INFO."
         )
 
     @pytest.mark.asyncio
-    async def test_malformed_log_broadcast_dropped_silently(
-        self, observer_with_transport, caplog
-    ):
+    async def test_malformed_log_broadcast_dropped_silently(self, observer_with_transport, caplog):
         """13.4 (extra): malformed log broadcast (missing level/message)
         is silently dropped — no exception, no log record.
         """
         observer, transport = observer_with_transport
 
-        with caplog.at_level(
-            logging.DEBUG, logger="ppsspp_dfx_mcp.ppsspp_log"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="ppsspp_dfx_mcp.ppsspp_log"):
             # Missing level and message — should be dropped silently.
             transport.push_broadcast({"event": "log"})
             await asyncio.sleep(0.05)
 
         # No log records injected (malformed broadcast dropped).
-        log_records = [
-            rec for rec in caplog.records
-            if rec.name == "ppsspp_dfx_mcp.ppsspp_log"
-        ]
+        log_records = [rec for rec in caplog.records if rec.name == "ppsspp_dfx_mcp.ppsspp_log"]
         assert len(log_records) == 0, (
             "Malformed log broadcast (missing level/message) must be "
             "silently dropped — no log record injected."
@@ -372,9 +346,7 @@ class TestGpuStatsFeedFreezeDetection:
     """
 
     @pytest.mark.asyncio
-    async def test_freeze_detected_when_running_and_no_frames(
-        self, observer_with_transport
-    ):
+    async def test_freeze_detected_when_running_and_no_frames(self, observer_with_transport):
         """13.5a: 3s+ no gpu.stats.get broadcast + game running →
         CpuFreezeSuspected raised by the freeze detector.
 
@@ -407,7 +379,7 @@ class TestGpuStatsFeedFreezeDetection:
             # Expected — freeze detected.
             assert "GPU freeze" in str(exc)
             assert "last_frame_at" in str(exc)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.fail(
                 "Freeze detector did not raise CpuFreezeSuspected after "
                 "4s of no frames while game running."
@@ -416,9 +388,7 @@ class TestGpuStatsFeedFreezeDetection:
             pytest.fail(f"Unexpected exception from freeze detector: {e!r}")
 
     @pytest.mark.asyncio
-    async def test_no_freeze_when_paused_and_no_frames(
-        self, observer_with_transport
-    ):
+    async def test_no_freeze_when_paused_and_no_frames(self, observer_with_transport):
         """13.5b: 3s+ no broadcast + game paused → no CpuFreezeSuspected
         (player paused, no frames expected).
         """
@@ -505,7 +475,7 @@ class TestGpuStatsGetBroadcastTicketFallback:
                     # (caught by the loop's except, which continues to
                     # the while check). This cleanly exits the loop.
                     self.state = WsState.CLOSED
-                    raise asyncio.TimeoutError
+                    raise TimeoutError
                 return self._messages.pop(0)
 
             async def close(self):
@@ -515,17 +485,13 @@ class TestGpuStatsGetBroadcastTicketFallback:
 
         # Run _recv_loop — it should consume the message and route it to
         # the events queue (else branch), then exit cleanly.
-        try:
+        with contextlib.suppress(Exception):
             await asyncio.wait_for(transport._recv_loop(), timeout=2.0)
-        except Exception:
-            pass
 
         # The unmatched-ticket message should now be on the events queue.
         try:
-            msg = await asyncio.wait_for(
-                transport.events.get(), timeout=0.5
-            )
-        except asyncio.TimeoutError:
+            msg = await asyncio.wait_for(transport.events.get(), timeout=0.5)
+        except TimeoutError:
             pytest.fail(
                 "Unmatched-ticket message was NOT routed to the events "
                 "queue — _recv_loop's else branch (M5) is broken."
@@ -573,9 +539,7 @@ class TestSessionLevelTransportLifecycle:
         )
 
     @pytest.mark.asyncio
-    async def test_get_transport_raises_for_unknown_session(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_get_transport_raises_for_unknown_session(self, isolated_sessions_path: Path):
         """13.7b: get_transport raises SessionNotFound for unknown session."""
         manager = sm_mod.SessionManager()
 
@@ -583,9 +547,7 @@ class TestSessionLevelTransportLifecycle:
             await manager.get_transport("unknown-sess")
 
     @pytest.mark.asyncio
-    async def test_get_observer_returns_session_level_observer(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_get_observer_returns_session_level_observer(self, isolated_sessions_path: Path):
         """13.7c: get_observer returns the session-level observer
         injected by start_session (bind phase).
         """
@@ -599,25 +561,24 @@ class TestSessionLevelTransportLifecycle:
         assert result is observer
 
     @pytest.mark.asyncio
-    async def test_stop_session_closes_transport_and_observer(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_stop_session_closes_transport_and_observer(self, isolated_sessions_path: Path):
         """13.7d: stop_session calls observer.stop() + transport.close()
         and removes both from the in-memory dicts (close phase).
         """
         manager = sm_mod.SessionManager()
 
         # Build a session and inject transport + observer.
+        from datetime import datetime
+
         from ppsspp_dfx_mcp.models.session import Session
-        from datetime import datetime, timezone
 
         sess = Session(
             session_id="test-sess-3",
             iso_path="/tmp/fake.iso",
             pid=None,  # no real process to kill
             ws_url="ws://127.0.0.1:12345/debugger",
-            created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_active_at=datetime.now(UTC),
             exec_count=0,
             ws_connected=False,
         )
@@ -640,9 +601,7 @@ class TestSessionLevelTransportLifecycle:
         assert "test-sess-3" not in manager._observers
 
     @pytest.mark.asyncio
-    async def test_multiple_calls_reuse_same_transport(
-        self, isolated_sessions_path: Path
-    ):
+    async def test_multiple_calls_reuse_same_transport(self, isolated_sessions_path: Path):
         """13.7e: multiple get_transport calls return the same instance
         (no rebuild between calls — accept phase reuses the bound socket).
         """
@@ -687,15 +646,14 @@ class TestSessionClientWithTransportReuse:
         sm_mod._default_manager = None
 
     @pytest.mark.asyncio
-    async def test_reuses_session_level_transport(
-        self, isolated_sessions_path: Path, monkeypatch
-    ):
+    async def test_reuses_session_level_transport(self, isolated_sessions_path: Path, monkeypatch):
         """13.8a: session_client_with_transport retrieves the session-level
         transport via get_transport + get_observer, constructs
         PpssppDebugClient with them, and does NOT close the transport on exit.
         """
+        from datetime import datetime
+
         from ppsspp_dfx_mcp.models.session import Session
-        from datetime import datetime, timezone
 
         # Ensure production path (not fake test mode).
         monkeypatch.setenv("PPSSPP_DFX_TEST_MODE", "")
@@ -711,8 +669,8 @@ class TestSessionClientWithTransportReuse:
             iso_path="/tmp/fake.iso",
             pid=None,
             ws_url="ws://127.0.0.1:12345/debugger",
-            created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_active_at=datetime.now(UTC),
             exec_count=0,
             ws_connected=False,
         )
@@ -760,8 +718,9 @@ class TestSessionClientWithTransportReuse:
         observer, which is forwarded to SteppingManager for resume()
         broadcast confirmation.
         """
+        from datetime import datetime
+
         from ppsspp_dfx_mcp.models.session import Session
-        from datetime import datetime, timezone
 
         monkeypatch.setenv("PPSSPP_DFX_TEST_MODE", "")
 
@@ -772,8 +731,8 @@ class TestSessionClientWithTransportReuse:
             iso_path="/tmp/fake.iso",
             pid=None,
             ws_url="ws://127.0.0.1:12345/debugger",
-            created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_active_at=datetime.now(UTC),
             exec_count=0,
             ws_connected=False,
         )

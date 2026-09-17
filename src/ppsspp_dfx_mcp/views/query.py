@@ -54,7 +54,7 @@ def _format_registers_text(data: Any) -> str:
             val = vals[i] if i < len(vals) else 0
             try:
                 val_int = int(val)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 val_int = 0
             lines.append(f"  {str(reg_name):<7} = 0x{val_int:08X}")
     return "\n".join(lines)
@@ -100,7 +100,7 @@ class QueryResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: QueryResult) -> "QueryResponse":
+    def from_result(cls, result: QueryResult) -> QueryResponse:
         return cls(
             action=result.action,
             data=result.data,
@@ -115,11 +115,10 @@ class GetPcResponse(FrozenModel):
     pc: str = Field(description="Program counter value, hex string (e.g. '0x08804000').")
     trust_level: str = Field(
         description=(
-            "Trust annotation. Lowercase enum value: "
-            "'high' (stepping-verified) / 'medium' / 'low'."
+            "Trust annotation. Lowercase enum value: 'high' (stepping-verified) / 'medium' / 'low'."
         ),
     )
 
     @classmethod
-    def from_result(cls, result: GetPcResult) -> "GetPcResponse":
+    def from_result(cls, result: GetPcResult) -> GetPcResponse:
         return cls(pc=format_address(result.pc), trust_level=result.trust_level)

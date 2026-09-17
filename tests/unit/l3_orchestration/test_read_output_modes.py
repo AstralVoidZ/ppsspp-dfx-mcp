@@ -17,9 +17,9 @@ L3 focus (tool wrapper orchestration, NOT WS forwarding):
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -39,9 +39,7 @@ def _patch_output_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools._common.output_dir", fake_output_dir
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools._common.output_dir", fake_output_dir)
 
 
 def _mock_read_bytes(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> AsyncMock:
@@ -54,9 +52,7 @@ def _mock_read_bytes(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> AsyncMo
     ) -> AsyncIterator[AsyncMock]:
         yield mock_client
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
     return mock_client
 
 
@@ -67,25 +63,31 @@ class TestReadBytesOutputModes:
         """Default output='value': byte list + hex text (unchanged contract)."""
         _mock_read_bytes(monkeypatch, _SAMPLE)
         result = await read_memory(
-            action="read_bytes", address="0x08804000", size=len(_SAMPLE),
+            action="read_bytes",
+            address="0x08804000",
+            size=len(_SAMPLE),
             session_id="sess-1",
         )
         assert result["value"] == list(_SAMPLE)
         assert "00 01 02" in result["text"]
         assert result["file"] == ""
 
-    async def test_output_hex_drops_byte_list(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_output_hex_drops_byte_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """output='hex': value=None, hex dump kept — response ~half the size."""
         _mock_read_bytes(monkeypatch, _SAMPLE)
         value_result = await read_memory(
-            action="read_bytes", address="0x08804000", size=len(_SAMPLE),
-            output="value", session_id="sess-1",
+            action="read_bytes",
+            address="0x08804000",
+            size=len(_SAMPLE),
+            output="value",
+            session_id="sess-1",
         )
         hex_result = await read_memory(
-            action="read_bytes", address="0x08804000", size=len(_SAMPLE),
-            output="hex", session_id="sess-1",
+            action="read_bytes",
+            address="0x08804000",
+            size=len(_SAMPLE),
+            output="hex",
+            session_id="sess-1",
         )
         assert hex_result["value"] is None
         assert "00 01 02" in hex_result["text"]
@@ -105,8 +107,11 @@ class TestReadBytesOutputModes:
         _patch_output_dir(monkeypatch, tmp_path)
         _mock_read_bytes(monkeypatch, _SAMPLE)
         result = await read_memory(
-            action="read_bytes", address="0x08804000", size=len(_SAMPLE),
-            output="file", session_id="sess-1",
+            action="read_bytes",
+            address="0x08804000",
+            size=len(_SAMPLE),
+            output="file",
+            session_id="sess-1",
         )
         assert result["value"] is None
         bin_path = Path(result["file"])
@@ -124,9 +129,7 @@ class TestReadBytesOutputModes:
             "G1: output='file' response must stay O(preview), not O(payload)"
         )
 
-    async def test_output_ignored_for_read_u32(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_output_ignored_for_read_u32(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """output is a read_bytes knob — read_u32 ignores it entirely."""
         mock_client = AsyncMock()
         mock_client.read_u32.return_value = 0x1234
@@ -137,16 +140,16 @@ class TestReadBytesOutputModes:
         ) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
         result = await read_memory(
-            action="read_u32", address="0x08804000", output="file",
+            action="read_u32",
+            address="0x08804000",
+            output="file",
             session_id="sess-1",
         )
         assert result["value"] == 0x1234
         assert result["file"] == ""
-        assert "0x08804000: 4660 (0x1234)" == result["text"]
+        assert result["text"] == "0x08804000: 4660 (0x1234)"
 
 
 class TestReadBytesFilePreviewBoundaries:
@@ -157,8 +160,11 @@ class TestReadBytesFilePreviewBoundaries:
         _patch_output_dir(monkeypatch, tmp_path)
         _mock_read_bytes(monkeypatch, bytes(range(64)))
         result = await read_memory(
-            action="read_bytes", address="0x08804000", size=64,
-            output="file", session_id="sess-1",
+            action="read_bytes",
+            address="0x08804000",
+            size=64,
+            output="file",
+            session_id="sess-1",
         )
         assert "..." not in result["text"]
         assert "3F" in result["text"]  # last previewed byte 0x3F

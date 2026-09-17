@@ -17,23 +17,24 @@ binary data itself is NOT embedded in the JSON (it can be large).
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Annotated, Any
+from datetime import UTC, datetime
+from typing import Annotated
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.gpu_record import GpuRecordResult
-from ppsspp_dfx_mcp.tools._common import require_session_id, save_output_bytes
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.gpu_record import GpuRecordResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import (
+    require_session_id,
+    save_output_bytes,
+    translate_tool_errors,
+)
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.gpu_record import GpuRecordResponse
 
 GpuRecordOutput = derive_output_contract("GpuRecordOutput", GpuRecordResponse)
 
@@ -48,7 +49,7 @@ async def _save_dump(data: bytes) -> str:
     Returns the absolute file path as a string.
     Uses asyncio.to_thread to avoid blocking the event loop.
     """
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
     return await save_output_bytes("gpu_dumps", f"{ts}.dump", data)
 
 
@@ -64,7 +65,9 @@ async def _save_dump(data: bytes) -> str:
 # rendered, no dump returned).
 @mcp.tool(
     name="ppsspp_gpu_record",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def gpu_record(
@@ -74,11 +77,11 @@ async def gpu_record(
     ],
 ) -> GpuRecordOutput:
     """PURPOSE: Capture the next rendered frame's GE command stream as a binary dump file.
-    
+
     USAGE: session_id. The CPU must be RUNNING — a paused GPU never flips a frame; the MCP pre-probe converts that into a clean CPU_STATE_ERROR.
-    
+
     BEHAVIOR: READ-ONLY. Captures to a binary file under output/gpu_dumps/ (not JSON).
-    
+
     RETURNS: {size_bytes, file_path, raw, text}."""
     require_session_id(session_id)
 
@@ -109,12 +112,9 @@ async def gpu_record(
             file_path = await _save_dump(result.data)
         except OSError as e:
             logger.warning(
-                "ppsspp_gpu_record: failed to save dump (%s); "
-                "returning size without file_path",
+                "ppsspp_gpu_record: failed to save dump (%s); returning size without file_path",
                 e,
                 exc_info=True,
             )
 
-    return GpuRecordResponse.from_result(result, file_path).model_dump(
-        mode="json"
-    )
+    return GpuRecordResponse.from_result(result, file_path).model_dump(mode="json")

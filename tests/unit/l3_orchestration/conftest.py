@@ -21,12 +21,11 @@ import asyncio
 from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.core.stepping import SteppingManager
 from ppsspp_dfx_mcp.service.capture import CaptureService
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-
 
 # ---------- Shared faf handlers ----------
 
@@ -53,18 +52,18 @@ def _step_then_pause(t: FakeTransport, **params: Any) -> None:
     t.set_state({"stepping": False})
 
     async def _complete_step() -> None:
-        t.push_broadcast({
-            "event": "cpu.stepping",
-            "pc": 0x08804000,
-            "ticks": 12345.0,
-            "reason": "cpu.stepInto",
-            "relatedAddress": 0,
-        })
+        t.push_broadcast(
+            {
+                "event": "cpu.stepping",
+                "pc": 0x08804000,
+                "ticks": 12345.0,
+                "reason": "cpu.stepInto",
+                "relatedAddress": 0,
+            }
+        )
         t.set_state({"stepping": True})
 
-    asyncio.get_event_loop().call_soon(
-        lambda: asyncio.ensure_future(_complete_step())
-    )
+    asyncio.get_event_loop().call_soon(lambda: asyncio.ensure_future(_complete_step()))
 
 
 # ---------- Fixtures ----------

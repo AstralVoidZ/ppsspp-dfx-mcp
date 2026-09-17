@@ -14,8 +14,8 @@ Anchors (PPSSPP source, cross-checked 2026-09-06):
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -51,18 +51,17 @@ class TestWriteMemoryGranules:
         async def _cm(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", _cm
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", _cm)
 
         await write_memory(
-            session_id="sess-1", address="0x08804000",
-            data="0xAB", format="u8", force=True,
+            session_id="sess-1",
+            address="0x08804000",
+            data="0xAB",
+            format="u8",
+            force=True,
         )
 
-        mock_client.write_u8.assert_awaited_once_with(
-            address=0x08804000, value=0xAB
-        )
+        mock_client.write_u8.assert_awaited_once_with(address=0x08804000, value=0xAB)
         mock_client.write_u32.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -73,23 +72,20 @@ class TestWriteMemoryGranules:
         async def _cm(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", _cm
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", _cm)
 
         await write_memory(
-            session_id="sess-1", address="0x08804000",
-            data="0xBEEF", format="u16", force=True,
+            session_id="sess-1",
+            address="0x08804000",
+            data="0xBEEF",
+            format="u16",
+            force=True,
         )
 
-        mock_client.write_u16.assert_awaited_once_with(
-            address=0x08804000, value=0xBEEF
-        )
+        mock_client.write_u16.assert_awaited_once_with(address=0x08804000, value=0xBEEF)
 
     @pytest.mark.asyncio
-    async def test_u8_rejects_out_of_range_value(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_u8_rejects_out_of_range_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """0x1FF does not fit a byte — fail client-side with a precise
         message instead of letting PPSSPP truncate or mis-parse."""
         mock_client = AsyncMock()
@@ -98,14 +94,15 @@ class TestWriteMemoryGranules:
         async def _cm(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", _cm
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", _cm)
 
         with pytest.raises(ToolError, match="out of range for format='u8'"):
             await write_memory(
-                session_id="sess-1", address="0x08804000",
-                data="0x1FF", format="u8", force=True,
+                session_id="sess-1",
+                address="0x08804000",
+                data="0x1FF",
+                format="u8",
+                force=True,
             )
         mock_client.write_u8.assert_not_awaited()
 
@@ -119,24 +116,25 @@ class TestQueryRegisterAction:
     """query(action='register') resolves one register by name."""
 
     @pytest.mark.asyncio
-    async def test_forwards_name_and_returns_payload(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_forwards_name_and_returns_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = AsyncMock()
         mock_client.get_reg.return_value = {
-            "category": 0, "register": 4, "uintValue": 42, "floatValue": "0.0",
+            "category": 0,
+            "register": 4,
+            "uintValue": 42,
+            "floatValue": "0.0",
         }
 
         @asynccontextmanager
         async def _cm(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.query.session_client", _cm
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.query.session_client", _cm)
 
         result = await query(
-            session_id="sess-1", action="register", name="a0",
+            session_id="sess-1",
+            action="register",
+            name="a0",
         )
 
         mock_client.get_reg.assert_awaited_once_with(name="a0", thread=None)
@@ -152,9 +150,7 @@ class TestQueryRegisterAction:
         async def _cm(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.query.session_client", _cm
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.query.session_client", _cm)
 
         with pytest.raises(ToolError, match="requires a register name"):
             await query(session_id="sess-1", action="register")

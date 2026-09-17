@@ -42,11 +42,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
-from typing import Any, Callable, Optional, Union
+from collections.abc import Callable
+from typing import Any
 
 # Type alias for response configuration: either a fixed dict or a
 # callable that takes the call's **params and returns a dict.
-ResponseConfig = Union[dict[str, Any], Callable[..., dict[str, Any]]]
+ResponseConfig = dict[str, Any] | Callable[..., dict[str, Any]]
 
 # Type alias for fire-and-forget handler: takes the transport and the
 # call's **params, can mutate the transport's state.
@@ -199,7 +200,7 @@ class FakeTransport:
         for i, byte in enumerate(data):
             self._writes[addr + i] = byte
 
-    def _overlay_read(self, addr: int, size: int) -> Optional[bytes]:
+    def _overlay_read(self, addr: int, size: int) -> bytes | None:
         """Synthesize a read over the overlay.
 
         Returns None when no written byte falls inside [addr, addr+size);
@@ -262,7 +263,7 @@ class FakeTransport:
         self,
         event: str,
         timeout_ms: int = 5000,
-        filter: Optional[Callable[[dict[str, Any]], bool]] = None,
+        filter: Callable[[dict[str, Any]], bool] | None = None,
     ) -> dict[str, Any]:
         """Wait for a ticketless broadcast event on the `events` queue.
 
@@ -285,18 +286,13 @@ class FakeTransport:
                         f"no matching '{event}' broadcast"
                     )
                 try:
-                    msg = await asyncio.wait_for(
-                        self._events_queue.get(), timeout=remaining_s
-                    )
-                except asyncio.TimeoutError:
+                    msg = await asyncio.wait_for(self._events_queue.get(), timeout=remaining_s)
+                except TimeoutError:
                     raise TimeoutError(
                         f"wait_for_broadcast timeout ({timeout_ms}ms) — "
                         f"no matching '{event}' broadcast"
-                    )
-                if (
-                    msg.get("event") == event
-                    and (filter is None or filter(msg))
-                ):
+                    ) from None
+                if msg.get("event") == event and (filter is None or filter(msg)):
                     return msg
                 backlog.append(msg)
         except TimeoutError:

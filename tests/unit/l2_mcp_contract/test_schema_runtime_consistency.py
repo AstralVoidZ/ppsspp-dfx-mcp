@@ -24,18 +24,12 @@ pytestmark = pytest.mark.asyncio
 
 # (tool name, action parameter name, module path, runtime constant name)
 AGGREGATE_TOOLS: list[tuple[str, str, str, str]] = [
-    ("ppsspp_query", "action",
-     "ppsspp_dfx_mcp.tools.query", "_QUERY_ACTIONS"),
-    ("ppsspp_read_memory", "action",
-     "ppsspp_dfx_mcp.tools.memory", "_READ_ACTIONS"),
-    ("ppsspp_step", "action",
-     "ppsspp_dfx_mcp.tools.step", "_STEP_ACTIONS"),
-    ("ppsspp_breakpoint", "action",
-     "ppsspp_dfx_mcp.tools.breakpoint", "_BP_ACTIONS"),
-    ("ppsspp_replay", "action",
-     "ppsspp_dfx_mcp.tools.replay", "_REPLAY_ACTIONS"),
-    ("ppsspp_state_observer", "action",
-     "ppsspp_dfx_mcp.tools.state_observer", "_ACTIONS"),
+    ("ppsspp_query", "action", "ppsspp_dfx_mcp.tools.query", "_QUERY_ACTIONS"),
+    ("ppsspp_read_memory", "action", "ppsspp_dfx_mcp.tools.memory", "_READ_ACTIONS"),
+    ("ppsspp_step", "action", "ppsspp_dfx_mcp.tools.step", "_STEP_ACTIONS"),
+    ("ppsspp_breakpoint", "action", "ppsspp_dfx_mcp.tools.breakpoint", "_BP_ACTIONS"),
+    ("ppsspp_replay", "action", "ppsspp_dfx_mcp.tools.replay", "_REPLAY_ACTIONS"),
+    ("ppsspp_state_observer", "action", "ppsspp_dfx_mcp.tools.state_observer", "_ACTIONS"),
 ]
 
 server_mod.register_all_tools()
@@ -60,8 +54,7 @@ def _runtime_actions(module_path: str, constant: str) -> set[str]:
 class TestSchemaRuntimeEnumConsistency:
     """inputSchema enum must equal the runtime dispatch set, both ways."""
 
-    @pytest.mark.parametrize(("tool", "param", "module_path", "constant"),
-                             AGGREGATE_TOOLS)
+    @pytest.mark.parametrize(("tool", "param", "module_path", "constant"), AGGREGATE_TOOLS)
     async def test_schema_enum_equals_runtime_actions(
         self, tool: str, param: str, module_path: str, constant: str
     ) -> None:

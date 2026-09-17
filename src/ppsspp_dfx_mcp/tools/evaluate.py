@@ -67,7 +67,9 @@ def _extract_value(response: dict[str, Any] | None) -> int | None:
 # failure.
 @mcp.tool(
     name="ppsspp_evaluate",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def evaluate(
@@ -90,11 +92,11 @@ async def evaluate(
     ],
 ) -> EvaluateOutput:
     """PURPOSE: Evaluate a debugger expression (register names, hex literals, simple arithmetic).
-    
+
     USAGE: session_id + expression. No '*addr' dereference syntax — read memory with read_u32 instead.
-    
+
     BEHAVIOR: READ-ONLY. Pauses/resumes the CPU internally.
-    
+
     RETURNS: {expression, value, response, text}."""
     require_session_id(session_id)
     if not expression:

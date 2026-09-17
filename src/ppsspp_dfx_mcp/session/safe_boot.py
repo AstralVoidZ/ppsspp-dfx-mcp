@@ -24,9 +24,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ppsspp_dfx_mcp.errors import BootTimeout
 
@@ -47,7 +48,7 @@ async def probe_cpu_ready(
     probe_addr: int = DEFAULT_PROBE_ADDR,
     budget_s: float = 75.0,
     poll_interval_s: float = 1.0,
-    alive_check: Optional[Callable[[], bool]] = None,
+    alive_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Poll a probe read until the emulated CPU is up.
 
@@ -142,7 +143,10 @@ def quarantine_gpu_backend_blacklist(exe_path: Path) -> Path | None:
     """
     blacklist = (
         Path(exe_path).resolve().parent
-        / "memstick" / "PSP" / "SYSTEM" / "FailedGraphicsBackends.txt"
+        / "memstick"
+        / "PSP"
+        / "SYSTEM"
+        / "FailedGraphicsBackends.txt"
     )
     if not blacklist.is_file():
         return None
@@ -154,13 +158,15 @@ def quarantine_gpu_backend_blacklist(exe_path: Path) -> Path | None:
             "wedge heal: quarantined GPU backend blacklist %s -> %s "
             "(root cause per review_r2_fixes §3.5: persisted backend "
             "failure records from force-killed GPU-holding processes)",
-            blacklist, target,
+            blacklist,
+            target,
         )
         return target
     except OSError as e:
         logger.warning(
-            "wedge heal: failed to quarantine %s (non-fatal, boot "
-            "continues without the heal): %s", blacklist, e,
+            "wedge heal: failed to quarantine %s (non-fatal, boot continues without the heal): %s",
+            blacklist,
+            e,
         )
         return None
 

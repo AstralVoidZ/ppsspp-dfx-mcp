@@ -38,8 +38,7 @@ class PressStep(TypedDict):
             int,
             Field(
                 description=(
-                    f"Press duration in frames (60fps, cap "
-                    f"{MAX_PRESS_DURATION_FRAMES}); default 1."
+                    f"Press duration in frames (60fps, cap {MAX_PRESS_DURATION_FRAMES}); default 1."
                 )
             ),
         ]
@@ -64,10 +63,7 @@ class StateProbeStep(TypedDict):
         Annotated[
             str,
             Field(
-                description=(
-                    "Comma-separated probe names; omit to observe all "
-                    "registered probes."
-                ),
+                description=("Comma-separated probe names; omit to observe all registered probes."),
             ),
         ]
     ]
@@ -75,10 +71,7 @@ class StateProbeStep(TypedDict):
         Annotated[
             int,
             Field(
-                description=(
-                    "Samples per probe (default 1); final value is the "
-                    "last read."
-                ),
+                description=("Samples per probe (default 1); final value is the last read."),
             ),
         ]
     ]
@@ -91,9 +84,7 @@ class ScreenshotStep(TypedDict):
     source: NotRequired[
         Annotated[
             Literal["render", "output"],
-            Field(
-                description="'render' (default) or 'output' (CRASH-RISK, do not use)."
-            ),
+            Field(description="'render' (default) or 'output' (CRASH-RISK, do not use)."),
         ]
     ]
 
@@ -108,10 +99,10 @@ BatchStepInput = Annotated[
 # the import-time assert below locks the two representations together.
 STEP_TYPES: tuple[str, ...] = ("press", "wait", "state_probe", "screenshot")
 
-assert tuple(
-    get_args(get_type_hints(t)["type"])[0]
-    for t in get_args(get_args(BatchStepInput)[0])
-) == STEP_TYPES, "step-type Literals drifted from STEP_TYPES"
+assert (
+    tuple(get_args(get_type_hints(t)["type"])[0] for t in get_args(get_args(BatchStepInput)[0]))
+    == STEP_TYPES
+), "step-type Literals drifted from STEP_TYPES"
 
 
 @dataclass(frozen=True)

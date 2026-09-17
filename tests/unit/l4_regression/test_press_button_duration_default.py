@@ -31,9 +31,7 @@ class TestV011PressButtonDurationDefault:
         """L4 anchor: DebugClient.press_button duration default == 1."""
         sig = inspect.signature(PpssppDebugClient.press_button)
         params = sig.parameters
-        assert "duration" in params, (
-            "press_button signature missing `duration` param."
-        )
+        assert "duration" in params, "press_button signature missing `duration` param."
         assert params["duration"].default == 1, (
             f"DebugClient.press_button `duration` default should be 1, "
             f"got {params['duration'].default!r}. See "
@@ -44,12 +42,9 @@ class TestV011PressButtonDurationDefault:
         """L4 anchor: tools.input.press_button duration default == 1."""
         sig = inspect.signature(tool_press_button)
         params = sig.parameters
-        assert "duration" in params, (
-            "tool press_button signature missing `duration` param."
-        )
+        assert "duration" in params, "tool press_button signature missing `duration` param."
         assert params["duration"].default == 1, (
-            f"tool press_button `duration` default should be 1, "
-            f"got {params['duration'].default!r}."
+            f"tool press_button `duration` default should be 1, got {params['duration'].default!r}."
         )
 
     @pytest.mark.asyncio

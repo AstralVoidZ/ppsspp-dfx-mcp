@@ -45,28 +45,20 @@ class TestV018MemBpAddAlwaysSendBools:
         explicitly forwarded, matching the `enabled` style. This lets
         callers override PPSSPP defaults explicitly.
         """
-        await client.mem_bp_add(
-            0x08804000, read=False, write=False, change=False
-        )
+        await client.mem_bp_add(0x08804000, read=False, write=False, change=False)
         assert transport.calls[-1][0] == "memory.breakpoint.add"
         params = transport.calls[-1][1]
         assert params["read"] is False, (
             "read=False must be forwarded as `read: False` (V018: always "
             "send, not false-omission). See BreakpointSubscriber.cpp:L286."
         )
-        assert params["write"] is False, (
-            "write=False must be forwarded as `write: False`."
-        )
-        assert params["change"] is False, (
-            "change=False must be forwarded as `change: False`."
-        )
+        assert params["write"] is False, "write=False must be forwarded as `write: False`."
+        assert params["change"] is False, "change=False must be forwarded as `change: False`."
 
     @pytest.mark.asyncio
     async def test_all_true_sends_true_booleans(self, client, transport):
         """L1 anchor: read=True, write=True, change=True → all sent as True."""
-        await client.mem_bp_add(
-            0x08804000, read=True, write=True, change=True
-        )
+        await client.mem_bp_add(0x08804000, read=True, write=True, change=True)
         assert transport.calls[-1][0] == "memory.breakpoint.add"
         params = transport.calls[-1][1]
         assert params["read"] is True
@@ -83,12 +75,8 @@ class TestV018MemBpAddAlwaysSendBools:
         await client.mem_bp_add(0x08804000)
         assert transport.calls[-1][0] == "memory.breakpoint.add"
         params = transport.calls[-1][1]
-        assert params["read"] is True, (
-            "Default read=True must be forwarded as `read: True`."
-        )
-        assert params["write"] is True, (
-            "Default write=True must be forwarded as `write: True`."
-        )
+        assert params["read"] is True, "Default read=True must be forwarded as `read: True`."
+        assert params["write"] is True, "Default write=True must be forwarded as `write: True`."
         assert params["change"] is False, (
             "Default change=False must be forwarded as `change: False` "
             "(V018: always send, not false-omission)."
@@ -116,9 +104,7 @@ class TestV018MemBpUpdateAlwaysSendBools:
             )
 
     @pytest.mark.asyncio
-    async def test_update_all_false_sends_false_booleans(
-        self, client, transport
-    ):
+    async def test_update_all_false_sends_false_booleans(self, client, transport):
         """L1 anchor: mem_bp_update(read=False, write=False, change=False) sent.
 
         When caller provides read/write/change, they are forwarded as
@@ -150,8 +136,7 @@ class TestV018MemBpUpdateAlwaysSendBools:
         await client.mem_bp_update(address=0x08804000, size=4, enabled=False)
         params = transport.calls[-1][1]
         assert "read" not in params, (
-            "Default read=None must NOT be forwarded for update "
-            "(partial-update semantics)."
+            "Default read=None must NOT be forwarded for update (partial-update semantics)."
         )
         assert "write" not in params
         assert "change" not in params

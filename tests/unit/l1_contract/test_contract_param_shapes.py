@@ -24,8 +24,8 @@ import base64 as _b64
 from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.core.ws_contract import WS_EVENT_CONTRACTS
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
@@ -62,27 +62,33 @@ def fake() -> FakeTransport:
     def _advance_and_broadcast(t: FakeTransport, **params: Any) -> None:
         _pc[0] += 4
         t.set_state({**t.state, "pc": _pc[0], "ticks": t.state.get("ticks", 0) + 10})
-        t.push_broadcast({
-            "event": "cpu.stepping",
-            "pc": _pc[0],
-            "ticks": t.state.get("ticks", 0),
-            "reason": "sweep",
-            "relatedAddress": 0,
-        })
+        t.push_broadcast(
+            {
+                "event": "cpu.stepping",
+                "pc": _pc[0],
+                "ticks": t.state.get("ticks", 0),
+                "reason": "sweep",
+                "relatedAddress": 0,
+            }
+        )
 
     t.set_faf_handler("cpu.stepping", _stepping_true)
     t.set_faf_handler("cpu.resume", _stepping_false)
-    for ev in ("cpu.stepInto", "cpu.stepOver", "cpu.stepOut",
-               "cpu.runUntil", "cpu.nextHLE"):
+    for ev in ("cpu.stepInto", "cpu.stepOver", "cpu.stepOut", "cpu.runUntil", "cpu.nextHLE"):
         t.set_faf_handler(ev, _advance_and_broadcast)
     t.set_response("memory.read", _zero_page)
-    t.set_response("cpu.getAllRegs", {
-        "categories": [{
-            "name": "GPR",
-            "registerNames": ["pc", "a0"],
-            "uintValues": [0x08804000, 0x2A],
-        }],
-    })
+    t.set_response(
+        "cpu.getAllRegs",
+        {
+            "categories": [
+                {
+                    "name": "GPR",
+                    "registerNames": ["pc", "a0"],
+                    "uintValues": [0x08804000, 0x2A],
+                }
+            ],
+        },
+    )
     return t
 
 
@@ -100,18 +106,34 @@ async def _sweep(client: PpssppDebugClient, fake: FakeTransport) -> dict[str, se
     await c.set_reg("a0", 1, thread=1)
     await c.evaluate("pc", thread=1)
     # breakpoints (CPU)
-    await c.cpu_bp_add(0x1000, enabled=True, condition="a0==1", log=True,
-                       log_format="f")
+    await c.cpu_bp_add(0x1000, enabled=True, condition="a0==1", log=True, log_format="f")
     await c.cpu_bp_list()
-    await c.cpu_bp_update(0x1000, enabled=True, log=True, condition="c",
-                          log_format="f")
+    await c.cpu_bp_update(0x1000, enabled=True, log=True, condition="c", log_format="f")
     await c.cpu_bp_remove(0x1000)
     # breakpoints (memory)
-    await c.mem_bp_add(0x1000, size=4, read=True, write=True, change=True,
-                       enabled=True, log=True, condition="c", log_format="f")
+    await c.mem_bp_add(
+        0x1000,
+        size=4,
+        read=True,
+        write=True,
+        change=True,
+        enabled=True,
+        log=True,
+        condition="c",
+        log_format="f",
+    )
     await c.mem_bp_list()
-    await c.mem_bp_update(0x1000, 4, enabled=True, log=True, condition="c",
-                          log_format="f", read=True, write=True, change=True)
+    await c.mem_bp_update(
+        0x1000,
+        4,
+        enabled=True,
+        log=True,
+        condition="c",
+        log_format="f",
+        read=True,
+        write=True,
+        change=True,
+    )
     await c.mem_bp_remove(0x1000, 4)
     # memory
     await c.read_u8(0x1000)
@@ -129,8 +151,7 @@ async def _sweep(client: PpssppDebugClient, fake: FakeTransport) -> dict[str, se
     # disasm
     await c.disasm(0x1000, 4, thread=1)
     await c.assemble(0x1000, "nop")
-    await c.search_disasm(0x1000, "jr", end=0x2000, display_symbols=True,
-                          thread=1)
+    await c.search_disasm(0x1000, "jr", end=0x2000, display_symbols=True, thread=1)
     # HLE
     await c.backtrace(thread=1)
     await c.module_list()
@@ -222,6 +243,7 @@ async def test_sweep_covers_every_event_the_client_invokes(
     from tests.unit.l2_mcp_contract.test_ws_contract_coverage import (
         TestSuggest1ContractCoverage,
     )
+
     invoked = TestSuggest1ContractCoverage._invoked_events()
     missing = sorted(set(invoked) - set(observed))
     assert not missing, f"sweep missed invoked events: {missing}"

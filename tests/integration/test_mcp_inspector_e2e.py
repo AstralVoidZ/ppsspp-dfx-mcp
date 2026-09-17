@@ -25,10 +25,8 @@ fixture's session-scoped event loop (anyio cancel_scope workaround).
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import pytest
-
 from mcp import ClientSession
 
 # All tests share the session-scoped real_mcp_inspector fixture, so they
@@ -53,8 +51,7 @@ async def test_real_server_advertises_30_plus_tools(real_mcp_inspector: ClientSe
     """
     result = await real_mcp_inspector.list_tools()
     assert len(result.tools) >= 30, (
-        f"expected >=30 tools, got {len(result.tools)}: "
-        f"{sorted(t.name for t in result.tools)}"
+        f"expected >=30 tools, got {len(result.tools)}: {sorted(t.name for t in result.tools)}"
     )
     # Phase 1 tools must always be present.
     tool_names = {t.name for t in result.tools}
@@ -88,7 +85,8 @@ async def test_real_health_returns_ok(real_mcp_inspector: ClientSession):
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_session_start_returns_pid_and_ws_url(
-    real_mcp_session: str, iso_path,
+    real_mcp_session: str,
+    iso_path,
 ):
     """ppsspp_session(start) returns session_id, pid>0, valid ws_url.
 
@@ -110,7 +108,8 @@ async def test_real_session_start_returns_pid_and_ws_url(
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_read_memory_returns_nonzero(
-    real_mcp_inspector: ClientSession, real_mcp_session: str,
+    real_mcp_inspector: ClientSession,
+    real_mcp_session: str,
 ):
     """ppsspp_read_memory(read_u32) returns a non-zero value at top.prx base.
 
@@ -133,13 +132,14 @@ async def test_real_read_memory_returns_nonzero(
     payload = json.loads(result.content[0].text)
     assert "value" in payload, f"read_memory response missing 'value': {payload!r}"
     value = payload["value"]
-    assert value != 0, f"read_u32 at 0x08804000 returned 0 (expected ELF magic)"
+    assert value != 0, "read_u32 at 0x08804000 returned 0 (expected ELF magic)"
 
 
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_smoke_test_passes(
-    real_mcp_inspector: ClientSession, real_mcp_session: str,
+    real_mcp_inspector: ClientSession,
+    real_mcp_session: str,
 ):
     """ppsspp_smoke_test core checks pass against a real PPSSPP.
 
@@ -163,9 +163,7 @@ async def test_real_smoke_test_passes(
     )
     assert not result.is_error, f"ppsspp_smoke_test errored: {result.content!r}"
     payload = json.loads(result.content[0].text)
-    assert "overall_status" in payload, (
-        f"smoke_test missing 'overall_status': {payload!r}"
-    )
+    assert "overall_status" in payload, f"smoke_test missing 'overall_status': {payload!r}"
     assert payload["overall_status"] in ("pass", "fail"), (
         f"unexpected overall_status: {payload['overall_status']!r}"
     )
@@ -179,15 +177,10 @@ async def test_real_smoke_test_passes(
     # environment is broken, not the game state.
     _MUST_PASS = ("iso_loaded", "cpu_running", "ws_connected")
     failed_core = [
-        name for name in _MUST_PASS
-        if not checks_by_name.get(name, {}).get("passed", False)
+        name for name in _MUST_PASS if not checks_by_name.get(name, {}).get("passed", False)
     ]
-    assert not failed_core, (
-        f"core smoke checks failed: {failed_core}\n"
-        + "\n  ".join(
-            f"{c['name']}: passed={c['passed']} detail={c['detail']}"
-            for c in checks_list
-        )
+    assert not failed_core, f"core smoke checks failed: {failed_core}\n" + "\n  ".join(
+        f"{c['name']}: passed={c['passed']} detail={c['detail']}" for c in checks_list
     )
 
     # game_mode_valid is best-effort: allowed to fail because game_mode
@@ -203,7 +196,8 @@ async def test_real_smoke_test_passes(
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_disassemble_returns_instructions(
-    real_mcp_inspector: ClientSession, real_mcp_session: str,
+    real_mcp_inspector: ClientSession,
+    real_mcp_session: str,
 ):
     """ppsspp_disassemble returns the requested number of instructions.
 
@@ -237,11 +231,13 @@ async def test_real_disassemble_returns_instructions(
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_session_list_reflects_active_session(
-    real_mcp_inspector: ClientSession, real_mcp_session: str,
+    real_mcp_inspector: ClientSession,
+    real_mcp_session: str,
 ):
     """ppsspp_session_list contains the active session_id."""
     result = await real_mcp_inspector.call_tool(
-        "ppsspp_session_list", {},
+        "ppsspp_session_list",
+        {},
     )
     assert not result.is_error, f"ppsspp_session_list errored: {result.content!r}"
     payload = json.loads(result.content[0].text)
@@ -255,7 +251,8 @@ async def test_real_session_list_reflects_active_session(
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_session_get_returns_active_metadata(
-    real_mcp_inspector: ClientSession, real_mcp_session: str,
+    real_mcp_inspector: ClientSession,
+    real_mcp_session: str,
 ):
     """ppsspp_session(get) returns active session metadata with pid>0."""
     result = await real_mcp_inspector.call_tool(
@@ -281,7 +278,8 @@ async def test_real_session_get_returns_active_metadata(
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_registers_snapshot_returns_registers(
-    real_mcp_inspector: ClientSession, real_mcp_session: str,
+    real_mcp_inspector: ClientSession,
+    real_mcp_session: str,
 ):
     """ppsspp://registers returns a live register snapshot.
 
@@ -292,8 +290,7 @@ async def test_real_registers_snapshot_returns_registers(
     assert result.contents, "registers snapshot returned no contents"
     payload = json.loads(result.contents[0].text)
     assert payload["session_id"] == real_mcp_session, (
-        f"snapshot bound to {payload.get('session_id')!r}, "
-        f"expected {real_mcp_session!r}"
+        f"snapshot bound to {payload.get('session_id')!r}, expected {real_mcp_session!r}"
     )
     regs = payload["registers"]
     assert regs, "register snapshot is empty"
@@ -302,7 +299,8 @@ async def test_real_registers_snapshot_returns_registers(
 @_ASYNC
 @pytest.mark.real_ppsspp
 async def test_real_game_state_snapshot_returns_status(
-    real_mcp_inspector: ClientSession, real_mcp_session: str,
+    real_mcp_inspector: ClientSession,
+    real_mcp_session: str,
 ):
     """ppsspp://game-state returns the live game.status payload."""
     result = await real_mcp_inspector.read_resource("ppsspp://game-state")

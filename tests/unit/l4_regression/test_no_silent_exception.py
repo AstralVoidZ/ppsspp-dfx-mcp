@@ -16,9 +16,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
-from typing import Iterator
-
-import pytest
+from collections.abc import Iterator
 
 from ppsspp_dfx_mcp.service import capture as capture_module
 

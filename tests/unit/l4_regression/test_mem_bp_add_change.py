@@ -69,9 +69,7 @@ class TestV005MemBpAddChange:
     @pytest.mark.asyncio
     async def test_change_true_forwarded(self, client, transport):
         """L1 anchor: change=True sends `change: True` to PPSSPP."""
-        await client.mem_bp_add(
-            0x08804000, read=True, write=True, change=True
-        )
+        await client.mem_bp_add(0x08804000, read=True, write=True, change=True)
         assert transport.calls[-1][0] == "memory.breakpoint.add"
         params = transport.calls[-1][1]
         assert params["change"] is True, (
@@ -90,9 +88,7 @@ class TestV005MemBpAddChange:
         V018 coordination: read/write are forwarded as explicit `False`
         (always-send contract), not omitted.
         """
-        await client.mem_bp_add(
-            0x08804000, read=False, write=False, change=True
-        )
+        await client.mem_bp_add(0x08804000, read=False, write=False, change=True)
         assert transport.calls[-1][0] == "memory.breakpoint.add"
         params = transport.calls[-1][1]
         # change must be present and True

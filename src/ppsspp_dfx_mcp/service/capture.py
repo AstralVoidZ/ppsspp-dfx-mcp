@@ -230,7 +230,8 @@ class CaptureService:
                     except Exception as e:
                         logger.warning(
                             "safe_screenshot strategy %s failed: %s",
-                            strategy_fn.__name__, e,
+                            strategy_fn.__name__,
+                            e,
                         )
                         continue
                     if data:
@@ -241,8 +242,7 @@ class CaptureService:
             # of CPU state. Log and fall through to strategy execution
             # without stepping.
             logger.warning(
-                "safe_screenshot with_stepping failed: %s; "
-                "attempting strategies without stepping",
+                "safe_screenshot with_stepping failed: %s; attempting strategies without stepping",
                 e,
             )
             stepping_failed = True
@@ -260,7 +260,8 @@ class CaptureService:
                 except Exception as e:
                     logger.warning(
                         "safe_screenshot strategy %s failed (no stepping): %s",
-                        strategy_fn.__name__, e,
+                        strategy_fn.__name__,
+                        e,
                     )
                     continue
                 if data:
@@ -302,9 +303,7 @@ class CaptureService:
                 ppsspp_hwnd = hwnd
                 return False
 
-            WNDENUMPROC = ctypes.WINFUNCTYPE(
-                ctypes.c_bool, wintypes.HWND, wintypes.LPARAM
-            )
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
             user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
             return ppsspp_hwnd
         except Exception as e:
@@ -337,44 +336,31 @@ class CaptureService:
             # then project.yaml, then the repo-layout fallback.
             import os
 
-            from ppsspp_dfx_mcp.config import config_dir, _load_yaml_value
+            from ppsspp_dfx_mcp.config import _load_yaml_value, config_dir
 
             memstick_str = os.environ.get("PPSSPP_DFX_MEMSTICK_DIR", "")
             if not memstick_str:
-                memstick_str = _load_yaml_value(
-                    "project.yaml", "ppsspp_memstick_dir", ""
-                )
+                memstick_str = _load_yaml_value("project.yaml", "ppsspp_memstick_dir", "")
             if memstick_str:
                 memstick_dir = Path(memstick_str).expanduser().resolve()
             else:
-                memstick_dir = (
-                    config_dir().parent.parent / "tools" / "ppsspp_dev" / "memstick"
-                )
+                memstick_dir = config_dir().parent.parent / "tools" / "ppsspp_dev" / "memstick"
 
             screenshot_dir = memstick_dir / "PSP" / "SCREENSHOT"
             if not screenshot_dir.exists():
                 return b""
 
-            existing = {
-                f.name
-                for f in screenshot_dir.iterdir()
-                if f.suffix in (".png", ".jpg")
-            }
+            existing = {f.name for f in screenshot_dir.iterdir() if f.suffix in (".png", ".jpg")}
 
             WM_COMMAND = 0x0111
             ID_DEBUG_TAKESCREENSHOT = 40066  # Windows/resource.h:192
             user32 = ctypes.windll.user32
-            user32.SendMessageW(
-                hwnd, WM_COMMAND, ID_DEBUG_TAKESCREENSHOT, 0
-            )
+            user32.SendMessageW(hwnd, WM_COMMAND, ID_DEBUG_TAKESCREENSHOT, 0)
 
             for _ in range(100):
                 await asyncio.sleep(0.05)
                 for f in screenshot_dir.iterdir():
-                    if (
-                        f.suffix in (".png", ".jpg")
-                        and f.name not in existing
-                    ):
+                    if f.suffix in (".png", ".jpg") and f.name not in existing:
                         await asyncio.sleep(0.15)
                         data = f.read_bytes()
                         if len(data) > 100:
@@ -412,6 +398,7 @@ class CaptureService:
         try:
             import ctypes
             from ctypes import wintypes
+
             from PIL import Image
 
             user32 = ctypes.windll.user32
@@ -422,9 +409,7 @@ class CaptureService:
             if not hwnd_main:
                 return b""
 
-            hwnd_display = user32.FindWindowExW(
-                hwnd_main, 0, "PPSSPPDisplay", None
-            )
+            hwnd_display = user32.FindWindowExW(hwnd_main, 0, "PPSSPPDisplay", None)
             hwnd = hwnd_display if hwnd_display else hwnd_main
 
             # 2. Get window dimensions.
@@ -453,9 +438,7 @@ class CaptureService:
 
                 # 4. PrintWindow with PW_RENDERFULLCONTENT=2 (DWM surface).
                 PW_RENDERFULLCONTENT = 2
-                result = user32.PrintWindow(
-                    hwnd, mem_dc, PW_RENDERFULLCONTENT
-                )
+                result = user32.PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT)
                 if not result:
                     return b""
 
@@ -470,16 +453,12 @@ class CaptureService:
 
                 buf_size = w * h * 4
                 pixel_buf = ctypes.create_string_buffer(buf_size)
-                scanlines = gdi32.GetDIBits(
-                    mem_dc, hbitmap, 0, h, pixel_buf, ctypes.byref(bmi), 0
-                )
+                scanlines = gdi32.GetDIBits(mem_dc, hbitmap, 0, h, pixel_buf, ctypes.byref(bmi), 0)
                 if not scanlines:
                     return b""
 
                 # 6. BGRA → RGB conversion (drop alpha channel).
-                img = Image.frombytes(
-                    "RGB", (w, h), pixel_buf.raw, "raw", "BGRX"
-                )
+                img = Image.frombytes("RGB", (w, h), pixel_buf.raw, "raw", "BGRX")
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
                 return buf.getvalue()
@@ -494,9 +473,7 @@ class CaptureService:
                 if hdc:
                     user32.ReleaseDC(hwnd, hdc)
         except Exception as e:
-            logger.warning(
-                "PrintWindow screenshot failed: %s", e, exc_info=True
-            )
+            logger.warning("PrintWindow screenshot failed: %s", e, exc_info=True)
             return b""
 
     async def _vram_screenshot(self) -> bytes:
@@ -525,9 +502,7 @@ class CaptureService:
             BYTES_PER_PIXEL = 4  # RGBA8888
             size = STRIDE * H * BYTES_PER_PIXEL
 
-            candidates = _addresses().get(
-                "vram_candidates", [0x04000000, 0x04088000]
-            )
+            candidates = _addresses().get("vram_candidates", [0x04000000, 0x04088000])
 
             for addr in candidates:
                 try:
@@ -663,7 +638,7 @@ def _extract_png_from_data_uri(uri: str) -> bytes:
     """
     if not uri or not uri.startswith(_DATA_URI_PREFIX):
         return b""
-    b64 = uri[len(_DATA_URI_PREFIX):]
+    b64 = uri[len(_DATA_URI_PREFIX) :]
     try:
         return base64.b64decode(b64)
     except Exception as e:

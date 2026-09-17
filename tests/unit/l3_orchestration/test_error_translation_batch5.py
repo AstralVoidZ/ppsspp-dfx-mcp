@@ -14,21 +14,16 @@ L3 focus: to_tool_error pattern matching + diagnostic hint attachment.
 
 from __future__ import annotations
 
-import asyncio
-
-import pytest
-
 from ppsspp_dfx_mcp.errors import (
     CpuStateError,
     PortConflict,
     PpssppProtocolError,
     SessionNotFound,
-    to_tool_error,
     ToolError,
     WsDisconnected,
     WsTimeout,
+    to_tool_error,
 )
-
 
 # ============================================================================
 # D-25: asyncio.TimeoutError → WsTimeout
@@ -40,7 +35,7 @@ class TestTimeoutTranslation:
 
     def test_asyncio_timeout_error_becomes_ws_timeout(self) -> None:
         """asyncio.TimeoutError → WsTimeout with code='WS_TIMEOUT'."""
-        exc = asyncio.TimeoutError()
+        exc = TimeoutError()
         result = to_tool_error(exc)
 
         assert isinstance(result, WsTimeout)
@@ -56,7 +51,7 @@ class TestTimeoutTranslation:
 
     def test_timeout_hint_mentions_cpu_running(self) -> None:
         """WsTimeout message contains hint about REQUIRED_RUNNING."""
-        exc = asyncio.TimeoutError()
+        exc = TimeoutError()
         result = to_tool_error(exc)
 
         msg = str(result)
@@ -66,7 +61,7 @@ class TestTimeoutTranslation:
 
     def test_timeout_hint_mentions_resume(self) -> None:
         """WsTimeout hint suggests step(action='resume')."""
-        exc = asyncio.TimeoutError()
+        exc = TimeoutError()
         result = to_tool_error(exc)
 
         assert "step(action='resume')" in str(result), (

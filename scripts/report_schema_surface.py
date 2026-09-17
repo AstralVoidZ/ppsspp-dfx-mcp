@@ -26,10 +26,12 @@ schema 全文，用于基线 diff）；本工具产出「形态**分布**」（�
 退出码：0 = 全部合规；1 = 存在不合规形态（可用于 CI/守门）。
 输出一律 UTF-8。
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import sys
 from collections import Counter, defaultdict
@@ -44,10 +46,8 @@ from ppsspp_dfx_mcp.tools._common import DYNAMIC_INPUT_PARAMETERS
 
 def _configure_stdout() -> None:
     """Windows 上 stdout 默认 cp936：`✓` / `—` 会退化成 `\\u2713` 字面量。"""
-    try:
+    with contextlib.suppress(AttributeError, OSError, ValueError):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
-    except (AttributeError, OSError, ValueError):
-        pass
 
 
 def _is_empty_schema(node: Any) -> bool:
@@ -68,9 +68,12 @@ def classify_output(schema: dict[str, Any] | None) -> str:
     if props:
         # 数组型：检查 items 是否受约束
         for value in props.values():
-            if isinstance(value, dict) and value.get("type") == "array":
-                if _is_empty_schema(value.get("items")):
-                    return "array-unconstrained"
+            if (
+                isinstance(value, dict)
+                and value.get("type") == "array"
+                and _is_empty_schema(value.get("items"))
+            ):
+                return "array-unconstrained"
         # 字段级：每个字段至少要有一个校验关键字。只看顶层会让
         # `{"properties": {"value": {"title": "Value"}}}`（字段级 Any）被判为
         # structured —— 那正是 `ppsspp_read_memory.value` / `ppsspp_query.data`
@@ -104,9 +107,14 @@ def classify_input(schema: dict[str, Any] | None) -> str:
         # 自由形态字段：显式 additionalProperties:true 且自身无 properties
         if value.get("additionalProperties") is True and not value.get("properties"):
             return "has-freeform-field"
-        if _is_empty_schema(value) or ("type" not in value and "enum" not in value
-                                       and "$ref" not in value and "anyOf" not in value
-                                       and "oneOf" not in value and "allOf" not in value):
+        if _is_empty_schema(value) or (
+            "type" not in value
+            and "enum" not in value
+            and "$ref" not in value
+            and "anyOf" not in value
+            and "oneOf" not in value
+            and "allOf" not in value
+        ):
             return "has-unconstrained-field"
     return "structured"
 
@@ -135,32 +143,30 @@ async def collect() -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any
         args=["-m", "ppsspp_dfx_mcp"],
         env={"PPSSPP_DFX_LOG_LEVEL": "ERROR"},
     )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            init = await session.initialize()
-            caps = init.capabilities.model_dump(exclude_none=True)
-            tools = (await session.list_tools()).tools
-            rows = [
-                {
-                    "name": t.name,
-                    "input": classify_input(t.input_schema),
-                    "output": classify_output(t.output_schema),
-                    "freeform_field": freeform_field(t.input_schema),
-                }
-                for t in tools
-            ]
-            meta = {
-                "protocol_version": getattr(init, "protocol_version", None),
-                "tool_count": len(tools),
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        init = await session.initialize()
+        caps = init.capabilities.model_dump(exclude_none=True)
+        tools = (await session.list_tools()).tools
+        rows = [
+            {
+                "name": t.name,
+                "input": classify_input(t.input_schema),
+                "output": classify_output(t.output_schema),
+                "freeform_field": freeform_field(t.input_schema),
             }
-            return caps, rows, meta
+            for t in tools
+        ]
+        meta = {
+            "protocol_version": getattr(init, "protocol_version", None),
+            "tool_count": len(tools),
+        }
+        return caps, rows, meta
 
 
 def main() -> int:
     _configure_stdout()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--json", type=Path, default=None,
-                        help="把完整报告写入该路径（JSON）")
+    parser.add_argument("--json", type=Path, default=None, help="把完整报告写入该路径（JSON）")
     args = parser.parse_args()
 
     caps, rows, meta = asyncio.run(collect())
@@ -189,11 +195,19 @@ def main() -> int:
     print()
     print("capabilities 声明:")
     for key in ("tools", "resources", "prompts", "completions", "logging", "tasks"):
-        print(f"  {key:14} {'✓ ' + json.dumps(caps[key], ensure_ascii=False) if key in caps else '— 未声明'}")
+        print(
+            f"  {key:14} {'✓ ' + json.dumps(caps[key], ensure_ascii=False) if key in caps else '— 未声明'}"
+        )
     print()
     print("outputSchema 形态:")
-    for shape in ("structured", "field-unconstrained", "freeform-object",
-                  "array-unconstrained", "missing", "other"):
+    for shape in (
+        "structured",
+        "field-unconstrained",
+        "freeform-object",
+        "array-unconstrained",
+        "missing",
+        "other",
+    ):
         if out_c.get(shape):
             print(f"  {shape:22} {out_c[shape]}")
     print()
@@ -217,17 +231,23 @@ def main() -> int:
         print()
         print("已登记豁免（spec 的「动态结构参数」例外条款，不算不合规）:")
         for name in sorted(exempted):
-            fields = sorted(
-                f for f in DYNAMIC_INPUT_PARAMETERS if f.startswith(f"{name}.")
-            )
+            fields = sorted(f for f in DYNAMIC_INPUT_PARAMETERS if f.startswith(f"{name}."))
             print(f"  {name}.{', '.join(f.split('.', 1)[1] for f in fields)}")
 
     if args.json:
         args.json.write_text(
-            json.dumps({"meta": meta, "capabilities": caps, "tools": rows,
-                        "distribution": {"output": dict(out_c), "input": dict(in_c)}},
-                       ensure_ascii=False, indent=2),
-            encoding="utf-8")
+            json.dumps(
+                {
+                    "meta": meta,
+                    "capabilities": caps,
+                    "tools": rows,
+                    "distribution": {"output": dict(out_c), "input": dict(in_c)},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         print(f"\nJSON 报告: {args.json}")
 
     compliant = not offenders

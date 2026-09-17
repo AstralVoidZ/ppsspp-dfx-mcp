@@ -12,6 +12,7 @@ Anchor: openspec change `ppsspp-dfx-mcp-protocol-and-schema`
    `MCPServer` 未提供握手时代的 `notification_options` 入口（证据链见 design D8）。
    若将来 SDK 开放该入口，本测试会失败——那是**需要更新设计**的信号，而非回归。
 """
+
 from __future__ import annotations
 
 
@@ -112,10 +113,6 @@ class TestBuiltinMiddlewareChain:
         """既有 RequestId / RateLimit 中间件不得因本次变更丢失。"""
         from ppsspp_dfx_mcp.server import mcp
 
-        names = [
-            getattr(m, "__name__", type(m).__name__)
-            for m in mcp._lowlevel_server.middleware
-        ]
+        names = [getattr(m, "__name__", type(m).__name__) for m in mcp._lowlevel_server.middleware]
         assert "request_id_middleware" in names, names
         assert "rate_limit_middleware" in names, names
-

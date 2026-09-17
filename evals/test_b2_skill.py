@@ -11,10 +11,10 @@ from pathlib import Path
 from evals.gates import evaluate
 from evals.runner import read_skill_file
 
-
 # ---------------------------------------------------------------------------
 # gates skip pseudo calls
 # ---------------------------------------------------------------------------
+
 
 def test_first_tool_skips_pseudo_prefix():
     sc = {"expected_first_tools": ["ppsspp_get_pc"], "gates": [{"type": "first_tool"}]}
@@ -50,14 +50,26 @@ def test_sequence_ignores_pseudo_between_steps():
 
 def test_final_call_ok_ignores_trailing_pseudo():
     sc = {"gates": [{"type": "final_call_ok"}]}
-    ok = evaluate(sc, {"tool_calls": [
-        {"name": "ppsspp_get_pc", "args": {}, "is_error": False},
-        {"name": "skill_read", "args": {}, "pseudo": True, "is_error": False},
-    ]}, None)
-    bad = evaluate(sc, {"tool_calls": [
-        {"name": "ppsspp_get_pc", "args": {}, "is_error": True, "error_code": "X"},
-        {"name": "skill_read", "args": {}, "pseudo": True},
-    ]}, None)
+    ok = evaluate(
+        sc,
+        {
+            "tool_calls": [
+                {"name": "ppsspp_get_pc", "args": {}, "is_error": False},
+                {"name": "skill_read", "args": {}, "pseudo": True, "is_error": False},
+            ]
+        },
+        None,
+    )
+    bad = evaluate(
+        sc,
+        {
+            "tool_calls": [
+                {"name": "ppsspp_get_pc", "args": {}, "is_error": True, "error_code": "X"},
+                {"name": "skill_read", "args": {}, "pseudo": True},
+            ]
+        },
+        None,
+    )
     assert ok["success"] is True
     assert bad["success"] is False
 
@@ -71,6 +83,7 @@ def test_no_tool_counts_pseudo():
 # ---------------------------------------------------------------------------
 # read_skill_file
 # ---------------------------------------------------------------------------
+
 
 def test_read_skill_file_ok(tmp_path: Path):
     (tmp_path / "SKILL.md").write_text("# skill", encoding="utf-8")

@@ -8,6 +8,7 @@ historical flow byte-for-byte.
 """
 
 from __future__ import annotations
+
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,9 +33,7 @@ def _patch_start(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
 
 def _patch_probe(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     mock_probe = AsyncMock()
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.session._wait_ready_cpu", mock_probe
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.session._wait_ready_cpu", mock_probe)
     return mock_probe
 
 
@@ -43,14 +42,14 @@ class TestStartWaitReady:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """start(wait_ready=True) runs the readiness probe after boot."""
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real"
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real")
         _patch_start(monkeypatch)
         mock_probe = _patch_probe(monkeypatch)
 
         result = await session_tool(
-            action="start", iso_path="game.iso", wait_ready=True,
+            action="start",
+            iso_path="game.iso",
+            wait_ready=True,
             timeout_s=90.0,
         )
 
@@ -61,13 +60,9 @@ class TestStartWaitReady:
         assert args[1] == 90.0  # clamped timeout forwarded
         assert args[2] == 0x08804000  # default probe parsed
 
-    async def test_wait_ready_false_skips_probe(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_wait_ready_false_skips_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Default (wait_ready=False) keeps the historical two-call flow."""
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real"
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real")
         _patch_start(monkeypatch)
         mock_probe = _patch_probe(monkeypatch)
 
@@ -79,9 +74,7 @@ class TestStartWaitReady:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """BOOT_TIMEOUT from the inlined probe propagates (no swallow)."""
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real"
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real")
         _patch_start(monkeypatch)
         monkeypatch.setattr(
             "ppsspp_dfx_mcp.tools.session._wait_ready_cpu",
@@ -89,22 +82,14 @@ class TestStartWaitReady:
         )
 
         with pytest.raises(BootTimeout):
-            await session_tool(
-                action="start", iso_path="game.iso", wait_ready=True
-            )
+            await session_tool(action="start", iso_path="game.iso", wait_ready=True)
 
-    async def test_fake_mode_skips_probe(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_fake_mode_skips_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Fake test mode has no boot concept — ready immediately."""
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.session.test_mode", lambda: "fake"
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.session.test_mode", lambda: "fake")
         _patch_start(monkeypatch)
         mock_probe = _patch_probe(monkeypatch)
 
-        await session_tool(
-            action="start", iso_path="game.iso", wait_ready=True
-        )
+        await session_tool(action="start", iso_path="game.iso", wait_ready=True)
 
         mock_probe.assert_not_awaited()

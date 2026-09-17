@@ -27,21 +27,28 @@ ISO = "Z:/fake/game.iso"
 
 def _write_sessions_json(path: Path, sid: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        sid: {
-            "session_id": sid,
-            "iso_path": ISO,
-            "pid": 4242,
-            "ws_url": "ws://127.0.0.1:12345/debugger",
-            "exec_count": 3,
-            "ws_connected": True,
-            "extra": {"ppsspp_version": {"version": "v1.20.4"}},
-        }
-    }, ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                sid: {
+                    "session_id": sid,
+                    "iso_path": ISO,
+                    "pid": 4242,
+                    "ws_url": "ws://127.0.0.1:12345/debugger",
+                    "exec_count": 3,
+                    "ws_connected": True,
+                    "extra": {"ppsspp_version": {"version": "v1.20.4"}},
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_load_sessions_stamps_restored_flag(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     sid = "sess-restored-1"
     _write_sessions_json(tmp_path / "sessions.json", sid)
@@ -56,7 +63,8 @@ def test_load_sessions_stamps_restored_flag(
 
 def test_session_response_surfaces_restored() -> None:
     sess = Session(
-        session_id="s1", iso_path=ISO,
+        session_id="s1",
+        iso_path=ISO,
         extra={"restored": True},
     )
     assert SessionResponse.from_session(sess).restored == 1
@@ -70,8 +78,7 @@ async def test_resource_payload_carries_restored(
 ) -> None:
     from ppsspp_dfx_mcp import resources as res_mod
 
-    restored = Session(session_id="s1", iso_path=ISO,
-                       extra={"restored": True})
+    restored = Session(session_id="s1", iso_path=ISO, extra={"restored": True})
 
     async def fake_require() -> str:
         return "s1"
@@ -91,8 +98,7 @@ async def test_resource_payload_carries_restored(
 
     monkeypatch.setattr(res_mod, "_require_single_session", fake_require)
     monkeypatch.setattr(res_mod, "session_client_with_transport", fake_swt)
-    monkeypatch.setattr(res_mod.session_manager, "get_session_state",
-                        fake_get_state)
+    monkeypatch.setattr(res_mod.session_manager, "get_session_state", fake_get_state)
 
     payload = await res_mod.game_state()
     assert payload["restored"] is True

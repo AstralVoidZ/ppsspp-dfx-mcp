@@ -15,6 +15,7 @@ Anchor: openspec change `ppsspp-dfx-mcp-protocol-and-schema`
 3. 集合变化时**尝试**发送 `notifications/tools/list_changed`——前瞻性措施，
    不作为 agent 的依赖路径。
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -58,9 +59,11 @@ def _report(added=(), removed=(), registered: int = 0) -> dict:
 def patched_manifest(tmp_path: Path):
     """隔离 manifest 与模块缓存，使 `reload_scripts` 可脱离真实文件系统测试。"""
     manifest = _FakeManifest(tmp_path)
-    with patch("ppsspp_dfx_mcp.tools.script.get_manifest", return_value=manifest), \
-         patch("ppsspp_dfx_mcp.tools.script._clear_module_cache"), \
-         patch("ppsspp_dfx_mcp.server.registered_exposed_names", return_value=set()):
+    with (
+        patch("ppsspp_dfx_mcp.tools.script.get_manifest", return_value=manifest),
+        patch("ppsspp_dfx_mcp.tools.script._clear_module_cache"),
+        patch("ppsspp_dfx_mcp.server.registered_exposed_names", return_value=set()),
+    ):
         yield manifest
 
 
@@ -94,8 +97,10 @@ class TestToolSetChangeReportedInReturnValue:
     async def test_added_tool_surfaces(self, patched_manifest):
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report(added=["fresh_script"], registered=1)):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            return_value=_report(added=["fresh_script"], registered=1),
+        ):
             out = await reload_scripts()
 
         assert out["exposed_added"] == ["fresh_script"]
@@ -104,8 +109,10 @@ class TestToolSetChangeReportedInReturnValue:
     async def test_removed_tool_surfaces(self, patched_manifest):
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report(removed=["stale_script"], registered=0)):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            return_value=_report(removed=["stale_script"], registered=0),
+        ):
             out = await reload_scripts()
 
         assert out["exposed_removed"] == ["stale_script"]
@@ -115,8 +122,7 @@ class TestToolSetChangeReportedInReturnValue:
         """幂等重载：集合未变时两个字段均为空数组，Agent 据此判定无需重取列表。"""
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report()):
+        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools", return_value=_report()):
             out = await reload_scripts()
 
         assert out["exposed_added"] == []
@@ -135,8 +141,10 @@ class TestToolListChangedNotification:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         ctx = _ctx_with_session()
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report(added=["a"], registered=1)):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            return_value=_report(added=["a"], registered=1),
+        ):
             await reload_scripts(ctx=ctx)
 
         ctx.request_context.session.send_tool_list_changed.assert_awaited_once()
@@ -146,8 +154,7 @@ class TestToolListChangedNotification:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         ctx = _ctx_with_session()
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report()):
+        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools", return_value=_report()):
             await reload_scripts(ctx=ctx)
 
         ctx.request_context.session.send_tool_list_changed.assert_not_awaited()
@@ -156,8 +163,9 @@ class TestToolListChangedNotification:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         ctx = _ctx_with_session()
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report(removed=["gone"])):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools", return_value=_report(removed=["gone"])
+        ):
             await reload_scripts(ctx=ctx)
 
         ctx.request_context.session.send_tool_list_changed.assert_awaited_once()
@@ -166,15 +174,15 @@ class TestToolListChangedNotification:
         """`ctx` 缺省（直调 / 测试路径）时不得抛错——工具仍须返回完整结果。"""
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report(added=["a"], registered=1)):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            return_value=_report(added=["a"], registered=1),
+        ):
             out = await reload_scripts()  # 不传 ctx
 
         assert out["exposed_added"] == ["a"]
 
-    async def test_notification_failure_does_not_fail_the_reload(
-        self, patched_manifest
-    ):
+    async def test_notification_failure_does_not_fail_the_reload(self, patched_manifest):
         """通知是**尽力而为的额外项**，任何失败都不得让重载报错。
 
         复刻真实场景：`MCPServer.call_tool()` 构造的 Context 无请求上下文，
@@ -184,24 +192,24 @@ class TestToolListChangedNotification:
         """
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report(added=["fresh"], registered=1)):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            return_value=_report(added=["fresh"], registered=1),
+        ):
             out = await reload_scripts(ctx=_NoRequestContext())
 
         assert out["exposed_added"] == ["fresh"]
 
-    async def test_transport_failure_does_not_fail_the_reload(
-        self, patched_manifest
-    ):
+    async def test_transport_failure_does_not_fail_the_reload(self, patched_manifest):
         """WS/传输层报错同样不得冒泡。"""
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         ctx = _ctx_with_session()
-        ctx.request_context.session.send_tool_list_changed.side_effect = OSError(
-            "transport gone"
-        )
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools",
-                   return_value=_report(added=["fresh"], registered=1)):
+        ctx.request_context.session.send_tool_list_changed.side_effect = OSError("transport gone")
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            return_value=_report(added=["fresh"], registered=1),
+        ):
             out = await reload_scripts(ctx=ctx)
 
         assert out["exposed_added"] == ["fresh"]

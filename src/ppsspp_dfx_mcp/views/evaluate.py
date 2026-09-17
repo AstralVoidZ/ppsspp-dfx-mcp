@@ -37,7 +37,7 @@ class EvaluateResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: EvaluateResult) -> "EvaluateResponse":
+    def from_result(cls, result: EvaluateResult) -> EvaluateResponse:
         if isinstance(result.value, int):
             text = f"{result.expression} = 0x{result.value:08X}"
         else:

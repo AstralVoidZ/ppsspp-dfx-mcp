@@ -155,15 +155,16 @@ def _resolve_capture_strategy(
     source_set = source is not None
     if source_set and mode_explicit:
         raise ArgsInvalid(
-            "ambiguous: provide either `source` (new) or `mode` (deprecated), "
-            "not both")
+            "ambiguous: provide either `source` (new) or `mode` (deprecated), not both"
+        )
     if source_set:
         assert source in ("render", "output")
         return (source, source)
     if mode_explicit:
         logger.warning(
             "ppsspp_screenshot: `mode` parameter is deprecated; use `source` "
-            "(Literal['render', 'output']) instead. Got mode=%r.", mode,
+            "(Literal['render', 'output']) instead. Got mode=%r.",
+            mode,
         )
     assert mode in ("auto", "wm_command", "printwindow", "vram")
     return (mode, mode)
@@ -176,7 +177,9 @@ def _resolve_capture_strategy(
 # efficiency. On failure, returns [TextContent(metadata_json)] only.
 @mcp.tool(
     name="ppsspp_screenshot",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def screenshot(
@@ -184,8 +187,7 @@ async def screenshot(
         str | None,
         Field(
             description=(
-                "Active session ID; omit to auto-resolve when exactly "
-                "one session is active."
+                "Active session ID; omit to auto-resolve when exactly one session is active."
             ),
         ),
     ] = None,
@@ -216,9 +218,9 @@ async def screenshot(
     ] = None,
 ) -> Annotated[CallToolResult, ScreenshotMeta]:
     """PURPOSE: Capture the framebuffer as an image (ImageContent) plus metadata.
-    
+
     USAGE: session_id optional when exactly one session is active; source='render' (default; empty frames auto-fall back to VRAM — colors unreliable there) or 'output' (CRASH-RISK, do not use); mutually exclusive with the deprecated mode param.
-    
+
     BEHAVIOR: READ-ONLY. An empty capture returns empty=true instead of an error — advance to a rendered scene and retry.
 
     RETURNS: structuredContent metadata (mode/source/size_bytes/width/height/file_path/format/empty); the image itself arrives as an ImageContent block. The auto-saved PNG/JPG path is in file_path."""
@@ -277,9 +279,7 @@ async def screenshot(
     if data:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         ext = "jpg" if img_format == "jpeg" else "png"
-        file_path = await _save_to_output(
-            data, "screenshots", f"{ts}_{label}.{ext}"
-        )
+        file_path = await _save_to_output(data, "screenshots", f"{ts}_{label}.{ext}")
 
     meta = {
         "mode": label,
@@ -315,7 +315,9 @@ async def screenshot(
 # efficiency. On failure, returns [TextContent(metadata_json)] only.
 @mcp.tool(
     name="ppsspp_dump_texture",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def dump_texture(
@@ -336,9 +338,9 @@ async def dump_texture(
     ] = 0,
 ) -> Annotated[CallToolResult, TextureDumpMeta]:
     """PURPOSE: Dump the currently-bound GPU texture as an image plus metadata.
-    
+
     USAGE: session_id. Only the CURRENTLY bound texture — no VRAM-address targeting.
-    
+
     BEHAVIOR: READ-ONLY. An empty capture raises CAPTURE_EMPTY — enter a scene that renders and retry.
 
     RETURNS: structuredContent metadata (level/file_path/size_bytes/format); the image itself arrives as an ImageContent block."""
@@ -371,9 +373,7 @@ async def dump_texture(
     file_path = ""
     if data:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        file_path = await _save_to_output(
-            data, "textures", f"tex_level{level}_{ts}.png"
-        )
+        file_path = await _save_to_output(data, "textures", f"tex_level{level}_{ts}.png")
 
     meta: TextureDumpMeta = {
         "level": level,
@@ -392,7 +392,9 @@ async def dump_texture(
 
 @mcp.tool(
     name="ppsspp_dump_clut",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def dump_clut(
@@ -402,9 +404,9 @@ async def dump_clut(
     ],
 ) -> Annotated[CallToolResult, ClutDumpMeta]:
     """PURPOSE: Dump the currently-bound CLUT palette as an image plus metadata.
-    
+
     USAGE: session_id. Only the CURRENTLY bound palette can be captured — no VRAM-address targeting.
-    
+
     BEHAVIOR: READ-ONLY. An empty capture raises CAPTURE_EMPTY — advance to a scene that uses the palette and retry.
 
     RETURNS: structuredContent metadata (file_path/size_bytes/format); the image itself arrives as an ImageContent block."""

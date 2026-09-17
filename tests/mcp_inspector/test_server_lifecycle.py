@@ -20,9 +20,8 @@ fixture's session-scoped event loop (see conftest.py for rationale).
 
 from __future__ import annotations
 
-from mcp import ClientSession
-
 import pytest
+from mcp import ClientSession
 
 # All tests share the session-scoped mcp_inspector fixture, so they
 # MUST run on the session-scoped event loop (loop_scope="session").
@@ -37,9 +36,7 @@ async def test_fixture_yields_initialized_session(mcp_inspector):
     # ServerCapabilities object. If the handshake didn't complete, this
     # returns None.
     caps = mcp_inspector.server_capabilities
-    assert caps is not None, (
-        "ClientSession not initialized — get_server_capabilities() is None"
-    )
+    assert caps is not None, "ClientSession not initialized — get_server_capabilities() is None"
     # The server must advertise tools capability (we registered 30+).
     assert caps.tools is not None, (
         "server capabilities missing 'tools' — server registered no tools?"
@@ -103,9 +100,7 @@ async def test_session_can_be_started_and_stopped(mcp_inspector):
     assert not list_r.is_error
     list_p = json.loads(list_r.content[0].text)
     session_ids = [s["session_id"] for s in list_p["sessions"]]
-    assert sid in session_ids, (
-        f"started session {sid} not in session_list: {session_ids}"
-    )
+    assert sid in session_ids, f"started session {sid} not in session_list: {session_ids}"
 
     # Stop.
     stop_r = await mcp_inspector.call_tool(
@@ -119,6 +114,4 @@ async def test_session_can_be_started_and_stopped(mcp_inspector):
     assert not list_r2.is_error
     list_p2 = json.loads(list_r2.content[0].text)
     session_ids2 = [s["session_id"] for s in list_p2["sessions"]]
-    assert sid not in session_ids2, (
-        f"stopped session {sid} still in session_list: {session_ids2}"
-    )
+    assert sid not in session_ids2, f"stopped session {sid} still in session_list: {session_ids2}"

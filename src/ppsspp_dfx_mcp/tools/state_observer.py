@@ -110,12 +110,12 @@ def _seed_from_yaml() -> None:
             continue
         try:
             addr_int = int(addr, 0) if isinstance(addr, str) else int(addr)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         size = spec.get("size", 4)
         try:
             size_int = int(size)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             size_int = 4
         if size_int not in _VALID_SIZES:
             size_int = 4
@@ -136,9 +136,7 @@ def _read_method(client: Any, size: int) -> Any:
         return client.read_u16
     if size == 4:
         return client.read_u32
-    raise ArgsInvalid(
-        f"invalid size={size}; expected one of {_VALID_SIZES}"
-    )
+    raise ArgsInvalid(f"invalid size={size}; expected one of {_VALID_SIZES}")
 
 
 def _resolve_target_probes(names: str) -> tuple[StateProbe, ...]:
@@ -164,12 +162,11 @@ def _resolve_target_probes(names: str) -> tuple[StateProbe, ...]:
     if not target_names:
         raise ArgsInvalid(
             "no probes to observe: register probes first or seed "
-            "addresses.yaml `state_probes` section")
+            "addresses.yaml `state_probes` section"
+        )
     missing = [n for n in target_names if n not in _REGISTRY]
     if missing:
-        raise ArgsInvalid(
-            f"unknown probe name(s): {missing}; "
-            f"registered: {list(_REGISTRY.keys())}")
+        raise ArgsInvalid(f"unknown probe name(s): {missing}; registered: {list(_REGISTRY.keys())}")
     return tuple(_REGISTRY[n] for n in target_names)
 
 
@@ -235,7 +232,9 @@ async def _observe_probes(
 # clear    → session_id
 @mcp.tool(
     name="ppsspp_state_observer",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def state_observer(
@@ -325,15 +324,14 @@ async def state_observer(
     ] = 1,
 ) -> StateObserverOutput:
     """PURPOSE: Named memory-probe registry plus running-state observation — register probes once, then sample them cheaply every loop.
-    
+
     USAGE: action + session_id for observe; register needs name + address (+size 1/2/4, description); observe takes comma-separated names and samples.
-    
+
     BEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PROCESS-wide (shared across sessions), seeded from addresses.yaml state_probes, and is NOT re-seeded after clear within the same process. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets (F-5 contract, 2026-09-08).
 
     RETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action."""
     if action not in _ACTIONS:
-        raise ArgsInvalid(
-            f"invalid action={action!r}; expected one of {_ACTIONS}")
+        raise ArgsInvalid(f"invalid action={action!r}; expected one of {_ACTIONS}")
     _seed_from_yaml()
     address_int = parse_address(address)
 
@@ -349,34 +347,26 @@ async def state_observer(
     try:
         if action == "register":
             if not name:
-                raise ArgsInvalid(
-                    "name is required when action=register"
-                )
+                raise ArgsInvalid("name is required when action=register")
             if address_int == 0:
                 raise ArgsInvalid(
                     "address is required when action=register "
-                    "(address=0 is NULL and not a valid probe target)")
+                    "(address=0 is NULL and not a valid probe target)"
+                )
             if size not in _VALID_SIZES:
-                raise ArgsInvalid(
-                    f"size must be one of {_VALID_SIZES}; got {size}")
-            probe = StateProbe(
-                name=name, address=address_int, size=size, description=description
-            )
+                raise ArgsInvalid(f"size must be one of {_VALID_SIZES}; got {size}")
+            probe = StateProbe(name=name, address=address_int, size=size, description=description)
             _REGISTRY[name] = probe
             result = RegisterResult(
                 action=action,
                 registered=probe,
                 count=len(_REGISTRY),
             )
-            return StateObserverResponse.from_register(result).model_dump(
-                mode="json"
-            )
+            return StateObserverResponse.from_register(result).model_dump(mode="json")
 
         if action == "list":
             probes = tuple(_REGISTRY.values())
-            result = RegisterResult(
-                action=action, probes=probes, count=len(probes)
-            )
+            result = RegisterResult(action=action, probes=probes, count=len(probes))
             return StateObserverResponse.from_list(result).model_dump(mode="json")
 
         if action == "clear":
@@ -386,9 +376,7 @@ async def state_observer(
 
         # action == "observe"
         if samples < 1:
-            raise ArgsInvalid(
-                f"samples must be >= 1; got {samples}"
-            )
+            raise ArgsInvalid(f"samples must be >= 1; got {samples}")
         target_probes = _resolve_target_probes(names)
         async with session_client(session_id) as client:
             result = await _observe_probes(client, target_probes, samples)

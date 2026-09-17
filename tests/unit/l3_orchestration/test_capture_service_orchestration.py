@@ -27,14 +27,12 @@ V023 invariants (B.2 §4.4) anchored here:
 from __future__ import annotations
 
 import base64
-from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.service.capture import CaptureService
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-
 
 # ============================================================================
 # Fixtures (real PpssppDebugClient + FakeTransport for orchestration)
@@ -58,9 +56,7 @@ def cap_client(cap_transport: FakeTransport) -> PpssppDebugClient:
 
 
 @pytest.fixture
-def cap_service(
-    cap_client: PpssppDebugClient, cap_transport: FakeTransport
-) -> CaptureService:
+def cap_service(cap_client: PpssppDebugClient, cap_transport: FakeTransport) -> CaptureService:
     """CaptureService with explicit transport injection (V023 fix)."""
     return CaptureService(cap_client, transport=cap_transport)
 
@@ -85,15 +81,11 @@ class TestScreenshotRenderOrchestration:
     L3 anchors it via runtime call inspection.
     """
 
-    async def test_render_calls_render_color_not_transport(
-        self, cap_service, cap_transport
-    ):
+    async def test_render_calls_render_color_not_transport(self, cap_service, cap_transport):
         """render path: client.render_color called, transport.call NOT called."""
         # Configure render_color to return a valid data URI
         png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
-        cap_transport.set_response(
-            "gpu.buffer.renderColor", {"uri": _make_data_uri(png_bytes)}
-        )
+        cap_transport.set_response("gpu.buffer.renderColor", {"uri": _make_data_uri(png_bytes)})
 
         result = await cap_service.screenshot(source="render")
 
@@ -112,9 +104,7 @@ class TestScreenshotRenderOrchestration:
     async def test_render_uses_with_stepping(self, cap_service, cap_transport):
         """render path: client.with_stepping pauses/resumes CPU."""
         png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
-        cap_transport.set_response(
-            "gpu.buffer.renderColor", {"uri": _make_data_uri(png_bytes)}
-        )
+        cap_transport.set_response("gpu.buffer.renderColor", {"uri": _make_data_uri(png_bytes)})
 
         await cap_service.screenshot(source="render")
 
@@ -142,9 +132,7 @@ class TestScreenshotOutputOrchestration:
     ):
         """output path: transport.call("gpu.buffer.screenshot") invoked."""
         png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
-        cap_transport.set_response(
-            "gpu.buffer.screenshot", {"uri": _make_data_uri(png_bytes)}
-        )
+        cap_transport.set_response("gpu.buffer.screenshot", {"uri": _make_data_uri(png_bytes)})
 
         result = await cap_service.screenshot(source="output")
 
@@ -158,9 +146,7 @@ class TestScreenshotOutputOrchestration:
     async def test_output_uses_with_stepping(self, cap_service, cap_transport):
         """output path: with_stepping preserves CPU state across capture."""
         png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
-        cap_transport.set_response(
-            "gpu.buffer.screenshot", {"uri": _make_data_uri(png_bytes)}
-        )
+        cap_transport.set_response("gpu.buffer.screenshot", {"uri": _make_data_uri(png_bytes)})
 
         assert cap_transport.state.get("stepping") is False  # precondition
         await cap_service.screenshot(source="output")
@@ -183,9 +169,7 @@ class TestSafeScreenshotDegradationChain:
     3. With_stepping wraps the entire chain (preserve_state)
     """
 
-    async def test_first_strategy_success_stops_chain(
-        self, cap_service, monkeypatch
-    ):
+    async def test_first_strategy_success_stops_chain(self, cap_service, monkeypatch):
         """WM strategy success: PrintWindow / VRAM NOT called.
 
         Monkey-patch _wm_command_screenshot to return bytes; verify
@@ -206,26 +190,16 @@ class TestSafeScreenshotDegradationChain:
             call_log.append("vram")
             return b""
 
-        monkeypatch.setattr(
-            CaptureService, "_wm_command_screenshot", mock_wm
-        )
-        monkeypatch.setattr(
-            CaptureService, "_print_window_screenshot", mock_printwindow
-        )
-        monkeypatch.setattr(
-            CaptureService, "_vram_screenshot", mock_vram
-        )
+        monkeypatch.setattr(CaptureService, "_wm_command_screenshot", mock_wm)
+        monkeypatch.setattr(CaptureService, "_print_window_screenshot", mock_printwindow)
+        monkeypatch.setattr(CaptureService, "_vram_screenshot", mock_vram)
 
         result = await cap_service.safe_screenshot()
 
         assert result == png_bytes
-        assert call_log == ["wm"], (
-            f"First strategy success must stop chain. Got {call_log}."
-        )
+        assert call_log == ["wm"], f"First strategy success must stop chain. Got {call_log}."
 
-    async def test_all_strategies_fail_returns_empty(
-        self, cap_service, monkeypatch
-    ):
+    async def test_all_strategies_fail_returns_empty(self, cap_service, monkeypatch):
         """All three strategies fail: returns b"" (no exception)."""
         call_log: list[str] = []
 
@@ -241,15 +215,9 @@ class TestSafeScreenshotDegradationChain:
             call_log.append("vram")
             return b""
 
-        monkeypatch.setattr(
-            CaptureService, "_wm_command_screenshot", mock_wm
-        )
-        monkeypatch.setattr(
-            CaptureService, "_print_window_screenshot", mock_printwindow
-        )
-        monkeypatch.setattr(
-            CaptureService, "_vram_screenshot", mock_vram
-        )
+        monkeypatch.setattr(CaptureService, "_wm_command_screenshot", mock_wm)
+        monkeypatch.setattr(CaptureService, "_print_window_screenshot", mock_printwindow)
+        monkeypatch.setattr(CaptureService, "_vram_screenshot", mock_vram)
 
         result = await cap_service.safe_screenshot()
 
@@ -258,9 +226,7 @@ class TestSafeScreenshotDegradationChain:
             f"All three strategies must be tried in order. Got {call_log}."
         )
 
-    async def test_strategy_exception_continues_chain(
-        self, cap_service, monkeypatch
-    ):
+    async def test_strategy_exception_continues_chain(self, cap_service, monkeypatch):
         """Strategy raises exception: chain continues to next strategy."""
         call_log: list[str] = []
 
@@ -276,15 +242,9 @@ class TestSafeScreenshotDegradationChain:
             call_log.append("vram")
             return b"\x89PNG" + b"\x00" * 20
 
-        monkeypatch.setattr(
-            CaptureService, "_wm_command_screenshot", mock_wm
-        )
-        monkeypatch.setattr(
-            CaptureService, "_print_window_screenshot", mock_printwindow
-        )
-        monkeypatch.setattr(
-            CaptureService, "_vram_screenshot", mock_vram
-        )
+        monkeypatch.setattr(CaptureService, "_wm_command_screenshot", mock_wm)
+        monkeypatch.setattr(CaptureService, "_print_window_screenshot", mock_printwindow)
+        monkeypatch.setattr(CaptureService, "_vram_screenshot", mock_vram)
 
         result = await cap_service.safe_screenshot()
 
@@ -308,14 +268,10 @@ class TestDumpTextureOrchestration:
     this via runtime call inspection.
     """
 
-    async def test_dump_texture_calls_texture_not_transport(
-        self, cap_service, cap_transport
-    ):
+    async def test_dump_texture_calls_texture_not_transport(self, cap_service, cap_transport):
         """dump_texture: client.texture called, transport.call NOT called."""
         png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
-        cap_transport.set_response(
-            "gpu.buffer.texture", {"uri": _make_data_uri(png_bytes)}
-        )
+        cap_transport.set_response("gpu.buffer.texture", {"uri": _make_data_uri(png_bytes)})
 
         result = await cap_service.dump_texture(level=0)
 
@@ -328,14 +284,10 @@ class TestDumpTextureOrchestration:
             "orchestration — only _output_screenshot may touch transport)."
         )
 
-    async def test_dump_texture_uses_with_stepping(
-        self, cap_service, cap_transport
-    ):
+    async def test_dump_texture_uses_with_stepping(self, cap_service, cap_transport):
         """dump_texture: with_stepping pauses/resumes CPU."""
         png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
-        cap_transport.set_response(
-            "gpu.buffer.texture", {"uri": _make_data_uri(png_bytes)}
-        )
+        cap_transport.set_response("gpu.buffer.texture", {"uri": _make_data_uri(png_bytes)})
 
         await cap_service.dump_texture(level=0)
 

@@ -54,7 +54,9 @@ def _fresh_manager(monkeypatch: pytest.MonkeyPatch) -> SessionManager:
 
 async def _seed_session(mgr: SessionManager, sid: str) -> None:
     sess = Session(
-        session_id=sid, iso_path="unused.iso", pid=None,
+        session_id=sid,
+        iso_path="unused.iso",
+        pid=None,
         ws_url="ws://127.0.0.1:1/debugger",
     )
     await session_manager._save_sessions_async({sid: sess})
@@ -104,9 +106,7 @@ async def test_concurrent_session_clients_serialize(
     assert len(windows) == 2
     early, late = sorted(windows)
     # Serialized: the second body can only enter after the first released.
-    assert late[0] >= early[1], (
-        f"session bodies overlapped: {windows}"
-    )
+    assert late[0] >= early[1], f"session bodies overlapped: {windows}"
 
 
 @pytest.mark.asyncio
@@ -142,14 +142,13 @@ async def test_fake_mode_not_serialized(monkeypatch: pytest.MonkeyPatch):
     def _fake_build() -> _FakeTransport:
         return _FakeTransport()
 
-    monkeypatch.setattr(
-        client_helper, "_build_fake_transport_for_session", _fake_build
-    )
+    monkeypatch.setattr(client_helper, "_build_fake_transport_for_session", _fake_build)
 
     # Simulate a held lock for this sid — fake mode must ignore it.
     lock = mgr.session_lock("s-fake")
     await lock.acquire()
     try:
+
         async def _body() -> str:
             async with client_helper.session_client_with_transport("s-fake") as (
                 _client,
@@ -158,9 +157,7 @@ async def test_fake_mode_not_serialized(monkeypatch: pytest.MonkeyPatch):
                 assert isinstance(transport, _FakeTransport)
                 return "ok"
 
-        results = await asyncio.wait_for(
-            asyncio.gather(_body(), _body()), timeout=2.0
-        )
+        results = await asyncio.wait_for(asyncio.gather(_body(), _body()), timeout=2.0)
         assert results == ["ok", "ok"]
     finally:
         lock.release()

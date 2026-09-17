@@ -22,9 +22,11 @@ Usage::
 
 诊断输出一律走 stderr。
 """
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -50,10 +52,8 @@ def _configure_stderr() -> None:
     Windows 上 stderr 默认按 locale(cp936) 编码：非 GBK 字符（`✓` / `≥`）会退化成
     `\\u2713` 字面量，中文则与 UTF-8 终端（Git Bash / VS Code / Claude Code）对不上。
     """
-    try:
+    with contextlib.suppress(AttributeError, OSError, ValueError):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
-    except (AttributeError, OSError, ValueError):
-        pass
 
 
 def _say(*parts: object) -> None:
@@ -83,14 +83,15 @@ def _run(argv: list[str], cwd: Path | None = None) -> subprocess.CompletedProces
     以 UTF-8 重新写出（见 `_configure_stderr`）。`errors="replace"` 保证畸形字节
     不会变成异常。
     """
-    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True,
-                          errors="replace", timeout=900)
+    return subprocess.run(
+        argv, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=900
+    )
 
 
 def _sdk_version(python: Path) -> str | None:
     try:
         proc = _run([str(python), "-c", _SDK_PROBE], cwd=PROJECT_DIR)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     version = proc.stdout.strip()
     return version if proc.returncode == 0 and version else None
@@ -110,8 +111,10 @@ def _version_tuple(text: str) -> tuple[int, ...]:
 
 
 def _remediation() -> str:
-    return (f"  修复：python {DOCTOR_REL} --bootstrap\n"
-            f"        （创建 {VENV_DIR_REL} 并安装 mcps/ppsspp-dfx-mcp[dev]）")
+    return (
+        f"  修复：python {DOCTOR_REL} --bootstrap\n"
+        f"        （创建 {VENV_DIR_REL} 并安装 mcps/ppsspp-dfx-mcp[dev]）"
+    )
 
 
 def _fail(headline: str, detail: str = "") -> int:
@@ -132,7 +135,7 @@ def _mcp_config_issue(vpython: Path) -> str | None:
     except (OSError, json.JSONDecodeError) as exc:
         return f".mcp.json 无法解析：{exc}"
 
-    entry = ((cfg.get("mcpServers") or {}).get("ppsspp-dfx") or {})
+    entry = (cfg.get("mcpServers") or {}).get("ppsspp-dfx") or {}
     if not entry:
         return ".mcp.json 中缺少 mcpServers.ppsspp-dfx"
 
@@ -145,8 +148,10 @@ def _mcp_config_issue(vpython: Path) -> str | None:
         return "mcpServers.ppsspp-dfx.command 为空"
     resolved = Path(command) if os.path.isabs(command) else (WORKSPACE_ROOT / command)
     if resolved.resolve() != vpython.resolve():
-        return (f"command 未指向 venv 解释器：{command!r}\n"
-                f"        应为 {VENV_DIR_REL}/{VENV_PYTHON_REL[0]}")
+        return (
+            f"command 未指向 venv 解释器：{command!r}\n"
+            f"        应为 {VENV_DIR_REL}/{VENV_PYTHON_REL[0]}"
+        )
 
     if (entry.get("args") or [])[:1] != ["-m"]:
         return f"args 应以 ['-m', 'ppsspp_dfx_mcp'] 开头：{entry.get('args')!r}"
@@ -198,9 +203,8 @@ def check() -> int:
 
     _say(f"venv        {VENV_DIR_REL}  ✓")
     try:
-        ver = _run([str(python), "-c",
-                    "import sys; print(sys.version.split()[0])"]).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
+        ver = _run([str(python), "-c", "import sys; print(sys.version.split()[0])"]).stdout.strip()
+    except OSError, subprocess.SubprocessError:
         ver = "?"
     _say(f"解释器      {_display(python)}  (Python {ver})  ✓")
 
@@ -210,8 +214,7 @@ def check() -> int:
         _say("─" * 60)
         return _fail("venv 内缺少 mcp 包")
     if _version_tuple(sdk) < MIN_SDK:
-        _say(f"mcp SDK     {sdk}  ✘ 版本过低"
-             f"（要求 ≥{'.'.join(map(str, MIN_SDK))},<3）")
+        _say(f"mcp SDK     {sdk}  ✘ 版本过低（要求 ≥{'.'.join(map(str, MIN_SDK))},<3）")
         _say("─" * 60)
         return _fail("mcp SDK 版本不满足 server 的 SDK v2 导入路径")
     _say(f"mcp SDK     {sdk}  ✓ (要求 ≥{'.'.join(map(str, MIN_SDK))},<3)")
@@ -231,8 +234,10 @@ def check() -> int:
         # 非阻断：manifest 缺失时 server 仍可启动（警告 + 空清单），但所有
         # ppsspp_script_<name> 动态工具会静默消失——必须把修复路径说清楚。
         _say(f"项目配置    {_display(manifest)}  ✘ 缺失（警告，不阻断）")
-        _say("            → 所有 ppsspp_script_* 工具将不可用；"
-             "从 examples/ 拷贝三份 yaml 模板到 .ppsspp-dfx/config/ 即可修复")
+        _say(
+            "            → 所有 ppsspp_script_* 工具将不可用；"
+            "从 examples/ 拷贝三份 yaml 模板到 .ppsspp-dfx/config/ 即可修复"
+        )
 
     issue = _mcp_config_issue(python)
     if issue:
@@ -250,10 +255,8 @@ def check() -> int:
 def main() -> int:
     _configure_stderr()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true",
-                        help="环境自检（默认行为）")
-    parser.add_argument("--bootstrap", action="store_true",
-                        help="创建/修复 venv 并安装子项目依赖")
+    parser.add_argument("--check", action="store_true", help="环境自检（默认行为）")
+    parser.add_argument("--bootstrap", action="store_true", help="创建/修复 venv 并安装子项目依赖")
     args = parser.parse_args()
 
     if args.bootstrap:

@@ -64,7 +64,7 @@ async def test_write_read_u32_roundtrip(real_transport):
     client = PpssppDebugClient(real_transport)
     await client.write_u32(SCRATCH_ADDR + 0x10, 0xDEADBEEF)
     raw = await client.read_bytes(SCRATCH_ADDR + 0x10, 4)
-    assert raw == b"\xEF\xBE\xAD\xDE"  # little-endian, matches PPSSPP
+    assert raw == b"\xef\xbe\xad\xde"  # little-endian, matches PPSSPP
 
 
 @pytest.mark.asyncio
@@ -78,20 +78,19 @@ async def test_read_bytes_over_cap_rejected_on_wire(real_transport, monkeypatch)
     async def fake_session_client(session_id: str):
         yield PpssppDebugClient(real_transport)
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
     with pytest.raises(ToolError, match="single-read cap"):
         await read_memory(
-            action="read_bytes", address=f"0x{CODE_ADDR:08X}",
-            size=1048576, session_id="s",
+            action="read_bytes",
+            address=f"0x{CODE_ADDR:08X}",
+            size=1048576,
+            session_id="s",
         )
 
 
 @pytest.mark.asyncio
 async def test_register_action_reachable_via_tool(real_transport):
     """F-2 sentinel: the register action works end-to-end on real PPSSPP."""
-    from ppsspp_dfx_mcp.tools.query import query
 
     # query() needs a session; drive the client-level path that the tool
     # dispatches to (the schema reachability itself is pinned by R2).
@@ -119,8 +118,7 @@ async def test_step_into_fails_fast_or_advances(real_transport):
         advanced = False
     elapsed = time.monotonic() - t0
     assert advanced or elapsed < 6.0, (
-        f"step_into neither advanced nor failed fast ({elapsed:.1f}s) — "
-        f"F-4 regression"
+        f"step_into neither advanced nor failed fast ({elapsed:.1f}s) — F-4 regression"
     )
     # Leave the CPU running for the next test (stepping pauses it).
     await client.resume()

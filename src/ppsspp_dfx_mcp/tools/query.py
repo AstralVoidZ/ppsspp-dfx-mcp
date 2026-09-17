@@ -92,7 +92,9 @@ _QUERY_ACTIONS: tuple[str, ...] = (
 # name is not accepted by hle.func.remove)
 @mcp.tool(
     name="ppsspp_query",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def query(
@@ -178,28 +180,27 @@ async def query(
     """PURPOSE: Aggregate game-state queries — game_state, registers (all or one), backtrace, threads, modules, and function-list management (funcs/func_scan/func_add/func_remove).
 
     USAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).
-    
+
     BEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused (pause first, or use get_pc); RUNNING-state PC/isCurrent is LOW trust.
-    
+
     RETURNS: {action, data, trust_level} — data shape depends on the action."""
     if action not in _QUERY_ACTIONS:
-        raise ArgsInvalid(
-            f"invalid action={action!r}; expected one of {_QUERY_ACTIONS}")
+        raise ArgsInvalid(f"invalid action={action!r}; expected one of {_QUERY_ACTIONS}")
     address_int = parse_address(address)
     if action == "func_add" and not name and address_int == 0:
-        raise ArgsInvalid(
-            "action='func_add' requires at least one of name or address")
+        raise ArgsInvalid("action='func_add' requires at least one of name or address")
     if action == "func_remove" and address_int == 0:
         raise ArgsInvalid(
             "action='func_remove' requires a non-zero address "
-            "(PPSSPP's hle.func.remove protocol does not accept a name)")
+            "(PPSSPP's hle.func.remove protocol does not accept a name)"
+        )
     if action == "register" and not name:
         raise ArgsInvalid(
             "action='register' requires a register name "
-            "(MIPS name like 'a0'/'v0'/'t9', or 'pc'/'hi'/'lo')")
+            "(MIPS name like 'a0'/'v0'/'t9', or 'pc'/'hi'/'lo')"
+        )
     if action == "func_scan" and address_int == 0:
-        raise ArgsInvalid(
-            "action='func_scan' requires a non-zero address")
+        raise ArgsInvalid("action='func_scan' requires a non-zero address")
 
     logger.info(
         "tool_call",
@@ -254,7 +255,7 @@ async def query(
                 data = await client.func_add(name=name, address=addr)
                 result = QueryResult(action=action, data=data, trust_level=None)
             else:  # func_remove — address is guaranteed non-zero by the
-                   # validator above; name is not accepted by the protocol.
+                # validator above; name is not accepted by the protocol.
                 data = await client.func_remove(address=address_int)
                 result = QueryResult(action=action, data=data, trust_level=None)
     except ToolError:
@@ -274,7 +275,9 @@ async def query(
 # ToolError: on session lookup failure or WS failure.
 @mcp.tool(
     name="ppsspp_get_pc",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def get_pc(
@@ -282,8 +285,7 @@ async def get_pc(
         str | None,
         Field(
             description=(
-                "Active session ID; omit to auto-resolve when exactly "
-                "one session is active."
+                "Active session ID; omit to auto-resolve when exactly one session is active."
             ),
         ),
     ] = None,

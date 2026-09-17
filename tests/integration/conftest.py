@@ -44,15 +44,15 @@ code path verbatim.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
-import sys
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 import pytest
 import pytest_asyncio
-
 
 # ── Phase 6: real-PPSSPP resource probes (skip-if-missing) ────────────────
 #
@@ -104,14 +104,10 @@ def ppsspp_exe_path() -> Path:
     real-PPSSPP tests without a PPSSPP binary is meaningless.
     """
     raw = os.environ.get("PPSSPP_DFX_TEST_EXE_PATH", "")
-    if raw:
-        p = Path(raw).expanduser().resolve()
-    else:
-        p = _DEFAULT_PPSSPP_EXE
+    p = Path(raw).expanduser().resolve() if raw else _DEFAULT_PPSSPP_EXE
     if p is None or not p.is_file():
         pytest.skip(
-            "PPSSPP executable not configured "
-            "(set PPSSPP_DFX_TEST_EXE_PATH to your PPSSPP binary)",
+            "PPSSPP executable not configured (set PPSSPP_DFX_TEST_EXE_PATH to your PPSSPP binary)",
             allow_module_level=True,
         )
     return p
@@ -125,14 +121,10 @@ def iso_path() -> Path:
     a game ISO is a user-local resource (do not commit one).
     """
     raw = os.environ.get("PPSSPP_DFX_TEST_ISO_PATH", "")
-    if raw:
-        p = Path(raw).expanduser().resolve()
-    else:
-        p = _DEFAULT_ISO_PATH
+    p = Path(raw).expanduser().resolve() if raw else _DEFAULT_ISO_PATH
     if p is None or not p.is_file():
         pytest.skip(
-            "Game ISO not configured "
-            "(set PPSSPP_DFX_TEST_ISO_PATH to your ISO path)",
+            "Game ISO not configured (set PPSSPP_DFX_TEST_ISO_PATH to your ISO path)",
             allow_module_level=True,
         )
     return p
@@ -189,12 +181,10 @@ async def _wait_for_game_loaded(launcher, timeout: float = 30.0) -> None:
 
     transport = WsTransport("127.0.0.1", port)
     await transport.connect()
-    try:
+    # send_version may race PPSSPP's handshake; the subsequent
+    # game.status poll will retry. Don't fail fixture setup here.
+    with contextlib.suppress(Exception):
         await transport.send_version()
-    except Exception:
-        # send_version may race PPSSPP's handshake; the subsequent
-        # game.status poll will retry. Don't fail fixture setup here.
-        pass
 
     deadline = time.time() + timeout
     last_resp: dict[str, Any] = {}
@@ -209,14 +199,11 @@ async def _wait_for_game_loaded(launcher, timeout: float = 30.0) -> None:
                 pass  # PPSSPP may briefly reject calls during boot
             await asyncio.sleep(0.5)
         raise TimeoutError(
-            f"PPSSPP did not load ISO within {timeout}s "
-            f"(last game.status response: {last_resp!r})"
+            f"PPSSPP did not load ISO within {timeout}s (last game.status response: {last_resp!r})"
         )
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await transport.close()
-        except Exception:
-            pass
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -288,10 +275,8 @@ async def real_transport(real_ppsspp_launcher) -> AsyncIterator[Any]:
     try:
         yield transport
     finally:
-        try:
+        with contextlib.suppress(Exception):  # Best-effort close.
             await transport.close()
-        except Exception:
-            pass  # Best-effort close.
 
 
 @pytest_asyncio.fixture
@@ -340,10 +325,9 @@ async def real_session(iso_path: Path, ppsspp_exe_path: Path, monkeypatch):
         yield sess.session_id
     finally:
         if sess is not None:
-            try:
+            # Best-effort cleanup; don't mask the original failure.
+            with contextlib.suppress(Exception):
                 await sm.stop_session(sess.session_id)
-            except Exception:
-                pass  # Best-effort cleanup; don't mask the original failure.
         sm_mod._default_manager = None
 
 
@@ -465,9 +449,7 @@ async def real_mcp_inspector(
     # in real mode, in case any code path imports them defensively).
     existing_pp = env.get("PYTHONPATH", "")
     new_pp = os.pathsep.join([str(_SRC_ROOT), str(_TESTS_ROOT)])
-    env["PYTHONPATH"] = (
-        f"{new_pp}{os.pathsep}{existing_pp}" if existing_pp else new_pp
-    )
+    env["PYTHONPATH"] = f"{new_pp}{os.pathsep}{existing_pp}" if existing_pp else new_pp
 
     server_params = StdioServerParameters(
         command=_sys.executable,
@@ -545,9 +527,7 @@ async def real_mcp_session(real_mcp_inspector, iso_path: Path):
         {"action": "start", "iso_path": str(iso_path)},
     )
     if start_result.is_error:
-        pytest.fail(
-            f"ppsspp_session(start) failed: {start_result.content!r}"
-        )
+        pytest.fail(f"ppsspp_session(start) failed: {start_result.content!r}")
     start_payload = json.loads(start_result.content[0].text)
     session_id = start_payload["session_id"]
     assert session_id, "ppsspp_session(start) returned empty session_id"
@@ -589,15 +569,15 @@ async def real_mcp_session(real_mcp_inspector, iso_path: Path):
     recoveries = 0
     while not ready and recoveries < 2:
         recoveries += 1
-        print(f"[boot-recovery {recoveries}] PPSSPP boot not ready in 60s "
-              f"— restarting session (wedged launch suspected)")
-        try:
+        print(
+            f"[boot-recovery {recoveries}] PPSSPP boot not ready in 60s "
+            f"— restarting session (wedged launch suspected)"
+        )
+        with contextlib.suppress(Exception):
             await real_mcp_inspector.call_tool(
                 "ppsspp_session",
                 {"action": "stop", "session_id": session_id},
             )
-        except Exception:
-            pass
         await asyncio.sleep(3.0)
         restart = await real_mcp_inspector.call_tool(
             "ppsspp_session",
@@ -616,10 +596,8 @@ async def real_mcp_session(real_mcp_inspector, iso_path: Path):
     try:
         yield session_id
     finally:
-        try:
+        with contextlib.suppress(Exception):  # Best-effort cleanup.
             await real_mcp_inspector.call_tool(
                 "ppsspp_session",
                 {"action": "stop", "session_id": session_id},
             )
-        except Exception:
-            pass  # Best-effort cleanup.

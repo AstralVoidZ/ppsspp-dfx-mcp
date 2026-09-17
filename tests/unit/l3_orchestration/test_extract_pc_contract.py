@@ -32,7 +32,6 @@ import pytest
 
 from ppsspp_dfx_mcp.core.registers import extract_pc
 
-
 # ============================================================================
 # Shared extract_pc produces the correct PC (V028 — replaces V027 duplication)
 # ============================================================================
@@ -148,8 +147,7 @@ class TestExtractPcReturnValue:
         """
         pc = extract_pc(regs)
         assert pc == expected_pc, (
-            f"extract_pc returned {pc:#x}, expected {expected_pc:#x} "
-            f"({description})"
+            f"extract_pc returned {pc:#x}, expected {expected_pc:#x} ({description})"
         )
 
 
@@ -184,9 +182,7 @@ class TestGprCategoryNameContract:
             ("", False),
         ],
     )
-    def test_only_exact_gpr_matches(
-        self, category_name: str, should_match: bool
-    ):
+    def test_only_exact_gpr_matches(self, category_name: str, should_match: bool):
         """Only exact category name "GPR" matches (case-sensitive).
 
         PPSSPP CPURegsSubscriber.cpp:L48: `catName = "GPR"` — the

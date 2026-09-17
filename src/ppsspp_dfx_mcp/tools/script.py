@@ -30,13 +30,12 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from mcp.server.mcpserver import Context
-from mcp.types import ToolAnnotations
 from typing import Annotated, Any
 
+from mcp.server.mcpserver import Context
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.config import addresses as _addresses
 from ppsspp_dfx_mcp.errors import (
     ManifestError,
@@ -51,6 +50,8 @@ from ppsspp_dfx_mcp.spec.script_manifest import (
     ScriptEntry,
     get_manifest,
 )
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
+from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.script import (
     ReloadScriptsOutput,
     ScriptEntryView,
@@ -58,11 +59,11 @@ from ppsspp_dfx_mcp.views.script import (
     ScriptRunOutput,
 )
 
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
-
 ScriptListOutputContract = derive_output_contract("ScriptListOutputContract", ScriptListOutput)
 ScriptRunOutputContract = derive_output_contract("ScriptRunOutputContract", ScriptRunOutput)
-ReloadScriptsOutputContract = derive_output_contract("ReloadScriptsOutputContract", ReloadScriptsOutput)
+ReloadScriptsOutputContract = derive_output_contract(
+    "ReloadScriptsOutputContract", ReloadScriptsOutput
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +130,7 @@ def _clear_module_cache() -> None:
     so long-running processes don't accumulate dead entries (P1-9).
     """
     _module_cache.clear()
-    keys_to_remove = [
-        k for k in sys.modules if k.startswith("_ppsspp_dfx_script_")
-    ]
+    keys_to_remove = [k for k in sys.modules if k.startswith("_ppsspp_dfx_script_")]
     for k in keys_to_remove:
         del sys.modules[k]
 
@@ -157,9 +156,7 @@ def _load_script_module(entry: ScriptEntry, project_root: Path) -> Any:
             return cached
 
         if not abs_path.exists():
-            raise ScriptContractError(
-                f"script file not found for {entry.name!r}: {abs_path}"
-            )
+            raise ScriptContractError(f"script file not found for {entry.name!r}: {abs_path}")
 
         # Use a unique module name to avoid collisions with sys.modules
         # entries like `state` or `misc` (which collide with stdlib /
@@ -178,9 +175,7 @@ def _load_script_module(entry: ScriptEntry, project_root: Path) -> Any:
             spec.loader.exec_module(module)
         except Exception as e:
             sys.modules.pop(module_name, None)
-            raise ScriptContractError(
-                f"script {entry.name!r} import failed: {e}"
-            ) from e
+            raise ScriptContractError(f"script {entry.name!r} import failed: {e}") from e
 
         # Verify entry function exists + is callable.
         fn = getattr(module, entry.entry, None)
@@ -207,30 +202,24 @@ def _get_input_output_models(module: Any, entry: ScriptEntry) -> tuple[type, typ
     output_cls = getattr(module, entry.output_model, None)
     if input_cls is None:
         raise ScriptContractError(
-            f"script {entry.name!r} missing input model class "
-            f"{entry.input_model!r}"
+            f"script {entry.name!r} missing input model class {entry.input_model!r}"
         )
     if output_cls is None:
         raise ScriptContractError(
-            f"script {entry.name!r} missing output model class "
-            f"{entry.output_model!r}"
+            f"script {entry.name!r} missing output model class {entry.output_model!r}"
         )
     if not (isinstance(input_cls, type) and issubclass(input_cls, BaseModel)):
         raise ScriptContractError(
-            f"script {entry.name!r} input_model {entry.input_model!r} "
-            f"is not a Pydantic BaseModel"
+            f"script {entry.name!r} input_model {entry.input_model!r} is not a Pydantic BaseModel"
         )
     if not (isinstance(output_cls, type) and issubclass(output_cls, BaseModel)):
         raise ScriptContractError(
-            f"script {entry.name!r} output_model {entry.output_model!r} "
-            f"is not a Pydantic BaseModel"
+            f"script {entry.name!r} output_model {entry.output_model!r} is not a Pydantic BaseModel"
         )
     return input_cls, output_cls
 
 
-def validate_script_contract(
-    entry: ScriptEntry, project_root: Path
-) -> tuple[Any, type, type, Any]:
+def validate_script_contract(entry: ScriptEntry, project_root: Path) -> tuple[Any, type, type, Any]:
     """Validate that a script entry's contract is well-formed.
 
     Combines `_load_script_module` + `_get_input_output_models` + entry
@@ -290,7 +279,9 @@ def _build_ctx(entry: ScriptEntry, session_id: str | None) -> ScriptContext:
 # ScriptListOutput dict: scripts + count + category.
 @mcp.tool(
     name="ppsspp_list_scripts",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 def list_scripts(
     category: Annotated[
@@ -313,9 +304,7 @@ def list_scripts(
 
     RETURNS: {scripts: [ScriptEntryView...], count, category}.
     """
-    logger.info(
-        "tool_call", extra={"tool": "ppsspp_list_scripts", "category": category}
-    )
+    logger.info("tool_call", extra={"tool": "ppsspp_list_scripts", "category": category})
     try:
         manifest = get_manifest()
         entries = manifest.list_scripts(category=category)
@@ -345,7 +334,9 @@ def list_scripts(
 # ToolError: any exception raised by the script's `run()`.
 @mcp.tool(
     name="ppsspp_run_script",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    ),
 )
 @translate_tool_errors
 async def run_script(
@@ -377,11 +368,11 @@ async def run_script(
     ] = None,
 ) -> ScriptRunOutputContract:
     """PURPOSE: Invoke a manifest-registered diagnostic script by name with validated input.
-    
+
     USAGE: name (see ppsspp_list_scripts; skeleton scripts return not_implemented); input dict validated against the script's Pydantic model; session_id required when the script declares requires_ppsspp (missing → SESSION_NOT_FOUND).
-    
+
     BEHAVIOR: STATE-CHANGE. Runs manifest-registered script code. Unknown names → SCRIPT_NOT_FOUND.
-    
+
     RETURNS: {name, output, output_model}."""
     if input is None:
         input = {}
@@ -401,9 +392,7 @@ async def run_script(
         try:
             input_model = input_cls(**input)
         except Exception as e:
-            raise ScriptContractError(
-                f"script {name!r} input validation failed: {e}"
-            ) from e
+            raise ScriptContractError(f"script {name!r} input validation failed: {e}") from e
 
         fn = getattr(module, entry.entry)
         # F3 (review-r3): resolve the effective session and enforce
@@ -411,9 +400,7 @@ async def run_script(
         # Priority: explicit tool parameter > Input-model session_id
         # field (the exposed wrapper forwards the same value via both
         # channels, so this resolution is transparent to that path).
-        effective_session_id = session_id or getattr(
-            input_model, "session_id", None
-        )
+        effective_session_id = session_id or getattr(input_model, "session_id", None)
         if entry.requires_ppsspp and not effective_session_id:
             raise SessionNotFound(
                 f"script {name!r} requires an active PPSSPP session "
@@ -430,14 +417,11 @@ async def run_script(
             # `to_tool_error` returns the same ToolError instance (P1-10).
             raise
         except Exception as e:
-            raise ScriptContractError(
-                f"Script '{name}' raised: {e}", code="CONTRACT"
-            ) from e
+            raise ScriptContractError(f"Script '{name}' raised: {e}", code="CONTRACT") from e
 
         if not isinstance(result, output_cls):
             raise ScriptContractError(
-                f"script {name!r} returned {type(result).__name__}; "
-                f"expected {entry.output_model}"
+                f"script {name!r} returned {type(result).__name__}; expected {entry.output_model}"
             )
     except ScriptNotFound as e:
         raise to_tool_error(e) from e
@@ -465,7 +449,9 @@ async def run_script(
 # manifest_path + scripts.
 @mcp.tool(
     name="ppsspp_reload_scripts",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 async def reload_scripts(ctx: Context | None = None) -> ReloadScriptsOutputContract:
     """PURPOSE: Manually reload the script manifest YAML and clear the script module cache.
@@ -515,8 +501,7 @@ async def reload_scripts(ctx: Context | None = None) -> ReloadScriptsOutputContr
             await ctx.request_context.session.send_tool_list_changed()
         except Exception as e:  # noqa: BLE001 — 通知是额外项，任何失败都不该冒泡
             logger.warning(
-                "tool_list_changed notification failed (reload itself "
-                "succeeded): %s",
+                "tool_list_changed notification failed (reload itself succeeded): %s",
                 e,
                 extra={"tool": "ppsspp_reload_scripts"},
             )

@@ -223,9 +223,7 @@ class ScriptManifest:
             raise ManifestError(f"manifest read failed: {e}") from e
 
         if not isinstance(data, dict):
-            raise ManifestError(
-                f"manifest root must be a mapping, got {type(data).__name__}"
-            )
+            raise ManifestError(f"manifest root must be a mapping, got {type(data).__name__}")
 
         raw_scripts: Any = data.get("scripts", [])
         if not isinstance(raw_scripts, list):
@@ -261,9 +259,7 @@ class ScriptManifest:
             try:
                 entry = ScriptEntry(**raw)
             except ValidationError as e:
-                raise ManifestError(
-                    f"manifest scripts[{idx}] validation failed: {e}"
-                ) from e
+                raise ManifestError(f"manifest scripts[{idx}] validation failed: {e}") from e
             if entry.category not in _VALID_CATEGORIES:
                 raise ManifestError(
                     f"manifest scripts[{idx}] name={entry.name!r} "
@@ -281,12 +277,11 @@ class ScriptManifest:
                     "manifest scripts[%d] name=%r is exposed but status=skeleton; "
                     "the exposed preflight will NOT register it as a tool "
                     "(unusable capabilities must not surface in tools/list)",
-                    idx, entry.name,
+                    idx,
+                    entry.name,
                 )
             if entry.name in by_name:
-                raise ManifestError(
-                    f"manifest duplicate script name: {entry.name!r}"
-                )
+                raise ManifestError(f"manifest duplicate script name: {entry.name!r}")
             # Soft-check model uniqueness. Sharing is permitted but
             # usually indicates copy-paste; warn so authors can confirm
             # the sharing is intentional (P2-14).
@@ -296,7 +291,10 @@ class ScriptManifest:
                     "manifest scripts[%d] name=%r reuses input_model=%r "
                     "already declared by name=%r; sharing is allowed but "
                     "ensure this is intentional",
-                    idx, entry.name, entry.input_model, prev_input,
+                    idx,
+                    entry.name,
+                    entry.input_model,
+                    prev_input,
                 )
             else:
                 by_input_model[entry.input_model] = entry.name
@@ -306,7 +304,10 @@ class ScriptManifest:
                     "manifest scripts[%d] name=%r reuses output_model=%r "
                     "already declared by name=%r; sharing is allowed but "
                     "ensure this is intentional",
-                    idx, entry.name, entry.output_model, prev_output,
+                    idx,
+                    entry.name,
+                    entry.output_model,
+                    prev_output,
                 )
             else:
                 by_output_model[entry.output_model] = entry.name

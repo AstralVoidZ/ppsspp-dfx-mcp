@@ -95,7 +95,7 @@ def _compute_base64_size(b64: str) -> int:
         return 0
     try:
         return len(base64.b64decode(b64, validate=True))
-    except (ValueError, base64.binascii.Error):
+    except ValueError, base64.binascii.Error:
         return 0
 
 
@@ -143,7 +143,9 @@ def _span_fields(b64: str) -> dict[str, Any]:
 # wait_complete → session_id (+ optional timeout_ms / interval_ms)
 @mcp.tool(
     name="ppsspp_replay",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def replay(
@@ -291,24 +293,20 @@ async def replay(
 
     RETURNS: {action, executing, saving, version, size, base64, base_rtc, data} — execute/load data carries t0_s, estimated_end_s, event_count and boot_aligned_sequence; fields depend on the action."""
     if action not in _REPLAY_ACTIONS:
-        raise ArgsInvalid(
-            f"invalid action={action!r}; expected one of {_REPLAY_ACTIONS}")
+        raise ArgsInvalid(f"invalid action={action!r}; expected one of {_REPLAY_ACTIONS}")
     if action == "execute":
         if version == 0:
             raise ArgsInvalid(
                 "version is required when action=execute "
                 "(version=0 is not a valid replay version — obtain it "
-                "from a prior replay.flush response)")
-        if not base64_input:
-            raise ArgsInvalid(
-                "base64_input is required when action=execute"
+                "from a prior replay.flush response)"
             )
+        if not base64_input:
+            raise ArgsInvalid("base64_input is required when action=execute")
     ppr_path = None
     if action in ("save", "load"):
         if not file_path:
-            raise ArgsInvalid(
-                f"file_path is required when action={action}"
-            )
+            raise ArgsInvalid(f"file_path is required when action={action}")
         # S2 fix: resolve + contain the path BEFORE any session I/O so an
         # illegal path fails fast without contacting PPSSPP.
         ppr_path = resolve_output_path("replays", file_path)
@@ -340,9 +338,7 @@ async def replay(
                 )
             elif action == "execute":
                 await _ensure_replay_idle(client)
-                resp = await client.replay_execute(
-                    version=version, base64=base64_input
-                )
+                resp = await client.replay_execute(version=version, base64=base64_input)
                 result = ReplayResult(
                     action=action,
                     version=version,
@@ -412,9 +408,7 @@ async def replay(
                 ppr_path.parent.mkdir(parents=True, exist_ok=True)
                 payload = json.dumps(ppr.to_dict(), indent=2)
                 try:
-                    await asyncio.to_thread(
-                        ppr_path.write_text, payload, encoding="utf-8"
-                    )
+                    await asyncio.to_thread(ppr_path.write_text, payload, encoding="utf-8")
                 except OSError as e:
                     # replay_flush already consumed and
                     # reset the recorder, so a failed write must not lose the
@@ -443,23 +437,15 @@ async def replay(
                 # 1. read .ppr file (S2: contained to output/replays/;
                 # already resolved + validated before the session opened).
                 if not ppr_path.is_file():
-                    raise ArgsInvalid(
-                        f".ppr file not found: {ppr_path}"
-                    )
+                    raise ArgsInvalid(f".ppr file not found: {ppr_path}")
                 try:
-                    raw = json.loads(
-                        await asyncio.to_thread(
-                            ppr_path.read_text, encoding="utf-8"
-                        )
-                    )
+                    raw = json.loads(await asyncio.to_thread(ppr_path.read_text, encoding="utf-8"))
                 except json.JSONDecodeError as e:
-                    raise ArgsInvalid(
-                        f"invalid .ppr file (JSON parse error): {e}") from e
+                    raise ArgsInvalid(f"invalid .ppr file (JSON parse error): {e}") from e
                 try:
                     ppr = PPRFile.from_dict(raw)
                 except ValueError as e:
-                    raise ArgsInvalid(
-                        f"invalid .ppr file: {e}") from e
+                    raise ArgsInvalid(f"invalid .ppr file: {e}") from e
                 # R4: a live executing/saving state must not mix with the
                 # new event table.
                 await _ensure_replay_idle(client)
@@ -468,9 +454,7 @@ async def replay(
                 if restore_rtc:
                     await client.replay_time_set(value=ppr.base_rtc)
                 # 3. execute
-                exec_resp = await client.replay_execute(
-                    version=ppr.version, base64=ppr.base64
-                )
+                exec_resp = await client.replay_execute(version=ppr.version, base64=ppr.base64)
                 result = ReplayResult(
                     action=action,
                     version=ppr.version,
@@ -494,9 +478,7 @@ async def replay(
                 # Build a clean data dict without the internal _wait_iterations
                 # key (already surfaced via the dedicated wait_iterations
                 # field above). Avoids mutating the transport's response dict.
-                clean_data = {
-                    k: v for k, v in resp.items() if k != "_wait_iterations"
-                }
+                clean_data = {k: v for k, v in resp.items() if k != "_wait_iterations"}
                 result = ReplayResult(
                     action=action,
                     executing=bool(resp.get("executing", False)),

@@ -32,11 +32,21 @@ import pytest
 
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
-
 # Params that contract says do NOT exist for gpu.buffer.texture.
 _INVALID_TEXTURE_PARAMS = frozenset(
-    {"address", "texfmt", "width", "height", "clutaddr", "clutfmt",
-     "addr", "w", "h", "clut_addr", "clut_fmt"}
+    {
+        "address",
+        "texfmt",
+        "width",
+        "height",
+        "clutaddr",
+        "clutfmt",
+        "addr",
+        "w",
+        "h",
+        "clut_addr",
+        "clut_fmt",
+    }
 )
 
 # Params that contract says SHOULD exist for gpu.buffer.texture.
@@ -79,9 +89,7 @@ class TestV008TextureParamsCleaned:
         # Must NOT contain any of the 6 invalid params.
         sent_keys = set(transport.calls[-1][1].keys())
         invalid_sent = sent_keys & _INVALID_TEXTURE_PARAMS
-        assert not invalid_sent, (
-            f"texture forwarded invalid params to PPSSPP: {invalid_sent}"
-        )
+        assert not invalid_sent, f"texture forwarded invalid params to PPSSPP: {invalid_sent}"
         # Must contain the 4 valid params (WS-side key is `type`).
         params = transport.calls[-1][1]
         assert params["level"] == 2

@@ -40,16 +40,11 @@ class GpuRecordResponse(FrozenModel):
     )
     text: str = Field(
         default="",
-        description=(
-            "Unified text representation: "
-            "'dumped {N} bytes → {file_path}'."
-        ),
+        description=("Unified text representation: 'dumped {N} bytes → {file_path}'."),
     )
 
     @classmethod
-    def from_result(
-        cls, result: GpuRecordResult, file_path: str = ""
-    ) -> "GpuRecordResponse":
+    def from_result(cls, result: GpuRecordResult, file_path: str = "") -> GpuRecordResponse:
         """Build view from a GpuRecordResult and the saved file path.
 
         Args:
@@ -70,10 +65,7 @@ class GpuRecordResponse(FrozenModel):
         # (e.g. 'data:application/octet-stream;base64,...') which contains
         # the full base64-encoded payload — this is the primary source of
         # the 386KB bloat. Also strip legacy `base64` and `data` fields.
-        raw_meta = {
-            k: v for k, v in result.raw.items()
-            if k not in ("base64", "data", "uri")
-        }
+        raw_meta = {k: v for k, v in result.raw.items() if k not in ("base64", "data", "uri")}
         return cls(
             size_bytes=result.size,
             file_path=file_path,

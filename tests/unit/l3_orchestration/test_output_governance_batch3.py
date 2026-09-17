@@ -15,18 +15,18 @@ L3 focus (tool wrapper orchestration, NOT WS forwarding):
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
+from ppsspp_dfx_mcp.models.gpu_record import GpuRecordResult
 from ppsspp_dfx_mcp.tools.memory import disassemble
 from ppsspp_dfx_mcp.tools.query import query
 from ppsspp_dfx_mcp.tools.search_disasm import search_disasm
 from ppsspp_dfx_mcp.views.gpu_record import GpuRecordResponse
-from ppsspp_dfx_mcp.models.gpu_record import GpuRecordResult
-
 
 # ============================================================================
 # D-27: gpu_record raw strips 'uri' field
@@ -88,9 +88,7 @@ class TestDisassembleCountCap:
     """
 
     @pytest.mark.asyncio
-    async def test_count_above_100_capped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_count_above_100_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """count=1000 forwarded to client.disasm as count=100."""
         mock_client = AsyncMock()
         mock_client.disasm.return_value = [{"text": "nop", "address": 0x08804000}]
@@ -106,9 +104,7 @@ class TestDisassembleCountCap:
             fake_session_client,
         )
 
-        result = await disassemble(
-            session_id="sess-1", address=0x08804000, count=1000
-        )
+        _result = await disassemble(session_id="sess-1", address=0x08804000, count=1000)
 
         # Verify count was capped to 100.
         call_kwargs = mock_client.disasm.call_args.kwargs
@@ -118,9 +114,7 @@ class TestDisassembleCountCap:
         )
 
     @pytest.mark.asyncio
-    async def test_count_below_100_not_capped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_count_below_100_not_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """count=10 forwarded as-is (below cap)."""
         mock_client = AsyncMock()
         mock_client.disasm.return_value = [{"text": "nop", "address": 0x08804000}]
@@ -136,17 +130,13 @@ class TestDisassembleCountCap:
             fake_session_client,
         )
 
-        await disassemble(
-            session_id="sess-1", address=0x08804000, count=10
-        )
+        await disassemble(session_id="sess-1", address=0x08804000, count=10)
 
         call_kwargs = mock_client.disasm.call_args.kwargs
         assert call_kwargs["count"] == 10
 
     @pytest.mark.asyncio
-    async def test_count_exactly_100_not_capped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_count_exactly_100_not_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """count=100 forwarded as-is (exact boundary, not capped to 99)."""
         mock_client = AsyncMock()
         mock_client.disasm.return_value = [{"text": "nop", "address": 0x08804000}]
@@ -162,9 +152,7 @@ class TestDisassembleCountCap:
             fake_session_client,
         )
 
-        await disassemble(
-            session_id="sess-1", address=0x08804000, count=100
-        )
+        await disassemble(session_id="sess-1", address=0x08804000, count=100)
 
         call_kwargs = mock_client.disasm.call_args.kwargs
         assert call_kwargs["count"] == 100
@@ -179,9 +167,7 @@ class TestDisassembleFieldSimplification:
     """
 
     @pytest.mark.asyncio
-    async def test_extra_fields_stripped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_extra_fields_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """encoding/branchDelay/isBranch stripped, address/text kept."""
         mock_client = AsyncMock()
         mock_client.disasm.return_value = [
@@ -207,16 +193,13 @@ class TestDisassembleFieldSimplification:
             fake_session_client,
         )
 
-        result = await disassemble(
-            session_id="sess-1", address=0x08804000, count=1
-        )
+        result = await disassemble(session_id="sess-1", address=0x08804000, count=1)
 
         instr = result["instructions"][0]
         assert "text" in instr
         assert "address" in instr
         assert "encoding" not in instr, (
-            "D-20: 'encoding' field must be stripped — it's binary "
-            "data that bloats the response."
+            "D-20: 'encoding' field must be stripped — it's binary data that bloats the response."
         )
         assert "branchDelay" not in instr
         assert "isBranch" not in instr
@@ -246,9 +229,7 @@ class TestDisassembleFieldSimplification:
             fake_session_client,
         )
 
-        result = await disassemble(
-            session_id="sess-1", address=0x08804000, count=1
-        )
+        result = await disassemble(session_id="sess-1", address=0x08804000, count=1)
 
         instr = result["instructions"][0]
         assert instr["text"] == "addiu r5, r0, 0x10"
@@ -267,9 +248,7 @@ class TestQueryTopNTruncation:
     """
 
     @pytest.mark.asyncio
-    async def test_funcs_top_n_truncates_list(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_funcs_top_n_truncates_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """query(action='funcs', top_n=5) returns at most 5 entries."""
         mock_client = AsyncMock()
         mock_client.func_list.return_value = {
@@ -287,9 +266,7 @@ class TestQueryTopNTruncation:
             fake_session_client,
         )
 
-        result = await query(
-            session_id="sess-1", action="funcs", top_n=5
-        )
+        result = await query(session_id="sess-1", action="funcs", top_n=5)
 
         data = result["data"]
         assert isinstance(data, dict)
@@ -298,9 +275,7 @@ class TestQueryTopNTruncation:
         )
 
     @pytest.mark.asyncio
-    async def test_funcs_top_n_zero_no_limit(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_funcs_top_n_zero_no_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """top_n=0 means no limit (backward compat)."""
         mock_client = AsyncMock()
         mock_client.func_list.return_value = {
@@ -318,25 +293,17 @@ class TestQueryTopNTruncation:
             fake_session_client,
         )
 
-        result = await query(
-            session_id="sess-1", action="funcs", top_n=0
-        )
+        result = await query(session_id="sess-1", action="funcs", top_n=0)
 
         data = result["data"]
-        assert len(data["functions"]) == 50, (
-            "top_n=0 must not truncate — backward compat."
-        )
+        assert len(data["functions"]) == 50, "top_n=0 must not truncate — backward compat."
 
     @pytest.mark.asyncio
-    async def test_func_scan_top_n_truncates(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_func_scan_top_n_truncates(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """func_scan with top_n=3 returns 3 entries."""
         mock_client = AsyncMock()
         mock_client.func_scan.return_value = {}
-        mock_client.func_list.return_value = {
-            "functions": [{"name": f"f_{i}"} for i in range(100)]
-        }
+        mock_client.func_list.return_value = {"functions": [{"name": f"f_{i}"} for i in range(100)]}
 
         @asynccontextmanager
         async def fake_session_client(
@@ -349,9 +316,7 @@ class TestQueryTopNTruncation:
             fake_session_client,
         )
 
-        result = await query(
-            session_id="sess-1", action="func_scan", address="0x08804000", top_n=3
-        )
+        result = await query(session_id="sess-1", action="func_scan", address="0x08804000", top_n=3)
 
         data = result["data"]
         assert len(data["functions"]) == 3
@@ -370,9 +335,7 @@ class TestSearchDisasmLoopSearch:
     """
 
     @pytest.mark.asyncio
-    async def test_loop_collects_multiple_matches(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_loop_collects_multiple_matches(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """3 distinct matches → results has 3 entries."""
         mock_client = AsyncMock()
         # Return 3 different addresses, then null.
@@ -409,17 +372,14 @@ class TestSearchDisasmLoopSearch:
         )
 
         assert len(result["results"]) == 3, (
-            "D-10/D-30: loop search must collect all 3 matches, not just "
-            "the first one."
+            "D-10/D-30: loop search must collect all 3 matches, not just the first one."
         )
         assert result["results"][0]["address"] == 0x08804000
         assert result["results"][1]["address"] == 0x08804100
         assert result["results"][2]["address"] == 0x08804200
 
     @pytest.mark.asyncio
-    async def test_loop_detects_wraparound(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_loop_detects_wraparound(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When PPSSPP re-finds an address, loop terminates."""
         mock_client = AsyncMock()
         # Always return the same address (loop search wraps around).
@@ -451,9 +411,7 @@ class TestSearchDisasmLoopSearch:
         )
 
     @pytest.mark.asyncio
-    async def test_max_results_caps_loop(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_max_results_caps_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """max_results=2 caps the loop at 2 matches."""
         mock_client = AsyncMock()
         # Always return a new address (never wraps).
@@ -491,9 +449,7 @@ class TestSearchDisasmLoopSearch:
         )
 
     @pytest.mark.asyncio
-    async def test_no_match_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_no_match_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """PPSSPP returns address=null → empty results."""
         mock_client = AsyncMock()
         mock_client.search_disasm.return_value = {"address": None}
@@ -520,9 +476,7 @@ class TestSearchDisasmLoopSearch:
         assert mock_client.search_disasm.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_range_search_stops_at_end(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_range_search_stops_at_end(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Range search (end > address) stops when current >= end."""
         mock_client = AsyncMock()
         mock_client.search_disasm.return_value = {"address": None}

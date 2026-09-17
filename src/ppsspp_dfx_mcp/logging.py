@@ -67,9 +67,7 @@ def attach_ppsspp_log_mirror() -> Path | None:
 
     mirror_path = output_dir() / "ppsspp.log"
     handler = PPSSPPLogMirrorHandler(mirror_path)
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-    )
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     ppsspp_logger.addHandler(handler)
     return mirror_path
 
@@ -90,11 +88,29 @@ class JsonFormatter(logging.Formatter):
         }
         # Attach any extra fields (e.g. tool, session_id, request_id).
         for key, value in record.__dict__.items():
-            if key in {"args", "msg", "levelname", "levelno", "pathname",
-                       "filename", "module", "exc_info", "exc_text",
-                       "stack_info", "lineno", "funcName", "created",
-                       "msecs", "relativeCreated", "thread", "threadName",
-                       "processName", "process", "name", "taskName"}:
+            if key in {
+                "args",
+                "msg",
+                "levelname",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "lineno",
+                "funcName",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+                "name",
+                "taskName",
+            }:
                 continue
             if isinstance(value, (str, int, float, bool, type(None))):
                 payload[key] = value

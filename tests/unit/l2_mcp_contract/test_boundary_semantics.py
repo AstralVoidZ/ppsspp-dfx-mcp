@@ -15,9 +15,8 @@ use a mocked session client (validation is client-side, no PPSSPP).
 
 from __future__ import annotations
 
-import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,18 +31,24 @@ pytestmark = pytest.mark.asyncio
 # Fragment pins the message identity; verdict pins accept/reject semantics.
 BOUNDARY_TABLE: list[tuple[str, dict, str, str]] = [
     # convert_address (F-14: conversion semantics + hex validation)
-    ("ppsspp_convert_address", {"address": "0x0", "mode": "ida_to_ppsspp"},
-     "accept", ""),
-    ("ppsspp_convert_address", {"address": "0x08804000", "mode": "ppsspp_to_ida"},
-     "accept", ""),
-    ("ppsspp_convert_address", {"address": "0x08000000", "mode": "ppsspp_to_ida"},
-     "reject", "is negative"),
+    ("ppsspp_convert_address", {"address": "0x0", "mode": "ida_to_ppsspp"}, "accept", ""),
+    ("ppsspp_convert_address", {"address": "0x08804000", "mode": "ppsspp_to_ida"}, "accept", ""),
+    (
+        "ppsspp_convert_address",
+        {"address": "0x08000000", "mode": "ppsspp_to_ida"},
+        "reject",
+        "is negative",
+    ),
     # session/health read-only paths
     ("ppsspp_session_list", {}, "accept", ""),
     ("ppsspp_health", {}, "accept", ""),
     # schema-level rejections (R2 pins the enum; here pin the wire text)
-    ("ppsspp_read_memory", {"action": "read_u64", "address": "0x08804000"},
-     "reject", "Input should be"),
+    (
+        "ppsspp_read_memory",
+        {"action": "read_u64", "address": "0x08804000"},
+        "reject",
+        "Input should be",
+    ),
 ]
 
 
@@ -58,11 +63,8 @@ async def _client_view(tool: str, args: dict) -> tuple[bool, str]:
 
 
 class TestBoundarySemantics:
-    @pytest.mark.parametrize(("tool", "args", "verdict", "fragment"),
-                             BOUNDARY_TABLE)
-    async def test_boundary_row(
-        self, tool: str, args: dict, verdict: str, fragment: str
-    ) -> None:
+    @pytest.mark.parametrize(("tool", "args", "verdict", "fragment"), BOUNDARY_TABLE)
+    async def test_boundary_row(self, tool: str, args: dict, verdict: str, fragment: str) -> None:
         is_error, text = await _client_view(tool, args)
         if verdict == "accept":
             assert not is_error, f"{tool} {args}: expected accept, got {text[:120]}"
@@ -87,14 +89,12 @@ class TestOutputBudget:
         ) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
         with pytest.raises(ToolError) as exc_info:
-            await server_mod.mcp._tool_manager._tools[
-                "ppsspp_read_memory"
-            ].fn(
-                action="read_bytes", address="0x08804000", size=1048576,
+            await server_mod.mcp._tool_manager._tools["ppsspp_read_memory"].fn(
+                action="read_bytes",
+                address="0x08804000",
+                size=1048576,
                 session_id="s",
             )
         assert "single-read cap" in str(exc_info.value)
@@ -110,12 +110,12 @@ class TestOutputBudget:
         ) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
         tool_fn = server_mod.mcp._tool_manager._tools["ppsspp_read_memory"].fn
         result = await tool_fn(
-            action="read_bytes", address="0x08804000", size=65536,
+            action="read_bytes",
+            address="0x08804000",
+            size=65536,
             session_id="s",
         )
         assert result["size"] == 65536
