@@ -21,20 +21,18 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools._common import require_session_id
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.assemble import AssembleResult
+from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.service.memory_protection import check_protected_address
 from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.assemble import AssembleResponse
-from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.assemble import AssembleResponse
 
 AssembleOutput = derive_output_contract("AssembleOutput", AssembleResponse)
 
@@ -115,9 +113,9 @@ async def assemble(
     require_session_id(session_id)
     address_int = parse_address(address)
     if address_int <= 0:
-        raise ToolError("address must be > 0", code="INTERNAL")
+        raise ArgsInvalid("address must be > 0")
     if not code:
-        raise ToolError("code is required", code="INTERNAL")
+        raise ArgsInvalid("code is required")
 
     logger.info(
         "tool_call",
@@ -134,9 +132,9 @@ async def assemble(
     # Split on '\n' and ';', strip whitespace, drop empty fragments.
     instructions = _split_instructions(code)
     if not instructions:
-        raise ToolError(
+        raise ArgsInvalid(
             "code contains no valid instructions after splitting on "
-            "newline/semicolon", code="INTERNAL"
+            "newline/semicolon"
         )
 
     # N-04: Apply the same protected-address check as write_memory.
@@ -171,15 +169,13 @@ async def assemble(
                     # error text (`from e`, not `from None`) — callers
                     # need the reason to fix the instruction and retry.
                     if partial_writes:
-                        raise ToolError(
+                        raise ArgsInvalid(
                             f"assembly failed at instruction {i + 1}/{len(instructions)} "
                             f"({instr!r}) after {len(partial_writes)} instruction(s) "
                             f"were already written to memory (addresses "
                             f"0x{address_int:08X}–0x{address_int + len(partial_writes) * 4:08X}). "
                             f"Reason: {e}. "
-                            f"Use disassemble to inspect partial writes.",
-                            code="INTERNAL",
-                        ) from e
+                            f"Use disassemble to inspect partial writes.") from e
                     raise
                 if isinstance(resp, dict):
                     responses.append(resp)

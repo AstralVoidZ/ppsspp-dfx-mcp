@@ -11,10 +11,11 @@ recording timing).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal, NotRequired, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict, get_args, get_type_hints
 
 from pydantic import Field
 
+from ppsspp_dfx_mcp.core.primitives import MAX_PRESS_DURATION_FRAMES, MAX_WAIT_FRAMES
 from ppsspp_dfx_mcp.models.input import PSPButton
 
 
@@ -35,7 +36,12 @@ class PressStep(TypedDict):
     duration: NotRequired[
         Annotated[
             int,
-            Field(description="Press duration in frames (60fps, cap 18000); default 1."),
+            Field(
+                description=(
+                    f"Press duration in frames (60fps, cap "
+                    f"{MAX_PRESS_DURATION_FRAMES}); default 1."
+                )
+            ),
         ]
     ]
 
@@ -46,7 +52,7 @@ class WaitStep(TypedDict):
     type: Literal["wait"]
     frames: Annotated[
         int,
-        Field(description="Frames to wait (60fps wall-clock; cap 18000)."),
+        Field(description=f"Frames to wait (60fps wall-clock; cap {MAX_WAIT_FRAMES})."),
     ]
 
 
@@ -96,6 +102,16 @@ BatchStepInput = Annotated[
     PressStep | WaitStep | StateProbeStep | ScreenshotStep,
     Field(discriminator="type"),
 ]
+
+# Authoritative step-type list — what tools/batch_step validates against.
+# The four TypedDicts each pin their 'type' via a single-value Literal;
+# the import-time assert below locks the two representations together.
+STEP_TYPES: tuple[str, ...] = ("press", "wait", "state_probe", "screenshot")
+
+assert tuple(
+    get_args(get_type_hints(t)["type"])[0]
+    for t in get_args(get_args(BatchStepInput)[0])
+) == STEP_TYPES, "step-type Literals drifted from STEP_TYPES"
 
 
 @dataclass(frozen=True)

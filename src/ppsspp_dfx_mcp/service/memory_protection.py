@@ -6,41 +6,54 @@ issues) or corrupt game logic. Callers can override with force=True for
 intentional patching (e.g., armips-equivalent writes during development).
 
 Protected ranges:
-- Kernel memory: 0x00000000 - 0x08800000
-- top.prx code section: 0x08804000 - 0x08804000 + 0x530000 (~5.15MB)
-
-Based on project knowledge: top.prx is loaded at 0x08804000 with a size of
-~5.15MB (0x530000). Kernel memory (< 0x08800000) is also protected.
+- Kernel memory: 0x00000000 - 0x08800000 (PSP-generic: user-space
+  partitions start at 0x08800000)
+- top.prx code section: base from addresses.yaml `top_base.ppsspp`
+  (falling back to this project's default 0x08804000) + the heuristic
+  0x530000 section size
 """
 
 from __future__ import annotations
 
+from ppsspp_dfx_mcp import config
 from ppsspp_dfx_mcp.errors import ToolError
 
-# Protected code-section ranges. Writing to these addresses can
-# crash PPSSPP (JIT cache invalidation issues) or corrupt game logic.
-# Based on project knowledge: top.prx is loaded at 0x08804000 with a
-# size of ~5.15MB (0x530000). Kernel memory (< 0x08800000) is also
-# protected. Callers can override with force=True for intentional
-# patching (e.g., armips-equivalent writes during development).
 PROTECTED_RANGE_KERNEL = (0x00000000, 0x08800000)
-PROTECTED_RANGE_TOP_PRX = (0x08804000, 0x08804000 + 0x530000)
+DEFAULT_TOP_PRX_BASE = 0x08804000
+DEFAULT_TOP_PRX_SIZE = 0x530000
 
-# All protected ranges, in order of precedence for error messages.
+# Fallback policy when addresses.yaml carries no usable `top_base.ppsspp`.
 PROTECTED_RANGES: tuple[tuple[str, tuple[int, int]], ...] = (
     ("kernel memory", PROTECTED_RANGE_KERNEL),
-    ("top.prx code section", PROTECTED_RANGE_TOP_PRX),
+    ("top.prx code section", (DEFAULT_TOP_PRX_BASE, DEFAULT_TOP_PRX_BASE + DEFAULT_TOP_PRX_SIZE)),
 )
+
+
+def _effective_ranges() -> tuple[tuple[str, tuple[int, int]], ...]:
+    """PROTECTED_RANGES with the per-game top.prx base from addresses.yaml.
+
+    The kernel range is PSP-generic and stays constant; the top.prx base
+    is project knowledge and MUST come from the single address
+    source of truth (`top_base.ppsspp`), not from a compiled-in literal.
+    """
+    top = config.addresses().get("top_base")
+    base = top.get("ppsspp") if isinstance(top, dict) else None
+    if not isinstance(base, int) or isinstance(base, bool) or base <= 0:
+        return PROTECTED_RANGES
+    return (
+        ("kernel memory", PROTECTED_RANGE_KERNEL),
+        ("top.prx code section", (base, base + DEFAULT_TOP_PRX_SIZE)),
+    )
 
 
 def check_protected_address(
     address: int, *, byte_count: int = 0, force: bool = False
 ) -> None:
-    """Raise ToolError if the address range overlaps a protected code-section range.
+    """Raise ToolError if the address range overlaps a protected range.
 
-    Protected ranges:
-    - Kernel memory: 0x00000000 - 0x08800000
-    - top.prx code section: 0x08804000 - 0x08D34000 (~5.15MB)
+    The top.prx section base follows addresses.yaml `top_base.ppsspp`
+    (fallback: this project's default 0x08804000); kernel memory is
+    PSP-generic.
 
     For byte_count > 0, checks the full range [address, address + byte_count)
     for overlap with protected ranges. For byte_count == 0, only the start
@@ -61,7 +74,7 @@ def check_protected_address(
         return
 
     end = address + byte_count if byte_count > 0 else address + 1
-    for name, (lo, hi) in PROTECTED_RANGES:
+    for name, (lo, hi) in _effective_ranges():
         # Overlap check: [address, end) ∩ [lo, hi) ≠ ∅
         if address < hi and end > lo:
             raise ToolError(

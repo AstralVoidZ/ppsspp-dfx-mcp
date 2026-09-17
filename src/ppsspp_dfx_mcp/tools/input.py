@@ -14,37 +14,32 @@ does not open a WebSocket connection.
 """
 
 from __future__ import annotations
-from mcp.types import ToolAnnotations
 
-import asyncio
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools._common import (
-    MAX_PRESS_DURATION_FRAMES,
-    wait_frames_chunked,
-)
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.primitives import MAX_PRESS_DURATION_FRAMES
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.models.input import PPSSPP_ALL_BUTTONS as _PPSSPP_ALL_BUTTONS
 from ppsspp_dfx_mcp.models.input import (
     ButtonPressResult,
     HoldButtonsResult,
     SendAnalogResult,
     WaitFramesResult,
 )
-from ppsspp_dfx_mcp.models.input import PPSSPP_ALL_BUTTONS as _PPSSPP_ALL_BUTTONS
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors, wait_frames_chunked
+from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.input import (
     ButtonPressResponse,
     HoldButtonsResponse,
     SendAnalogResponse,
     WaitFramesResponse,
 )
-
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 
 ButtonPressOutput = derive_output_contract("ButtonPressOutput", ButtonPressResponse)
 HoldButtonsOutput = derive_output_contract("HoldButtonsOutput", HoldButtonsResponse)
@@ -74,18 +69,16 @@ def _validate_buttons_combo(buttons: str) -> None:
     Raises ToolError if empty or any token is not a known button name.
     """
     if not buttons or not buttons.strip():
-        raise ToolError("buttons must be a non-empty string", code="INTERNAL")
+        raise ArgsInvalid("buttons must be a non-empty string")
     tokens = [t.strip() for t in buttons.split("|") if t.strip()]
     if not tokens:
-        raise ToolError(
-            "buttons must contain at least one button name", code="INTERNAL"
+        raise ArgsInvalid(
+            "buttons must contain at least one button name"
         )
     invalid = [t for t in tokens if t not in _VALID_BUTTONS]
     if invalid:
-        raise ToolError(
-            f"invalid button(s) {invalid!r}; expected each in {_VALID_BUTTONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid button(s) {invalid!r}; expected each in {_VALID_BUTTONS}")
 
 
 # Former docstring (kept as comment; description is now the TDQS docstring):
@@ -129,22 +122,18 @@ async def press_button(
     RETURNS: {button, duration}.
     """
     if button not in _VALID_BUTTONS:
-        raise ToolError(
-            f"invalid button={button!r}; expected one of {_VALID_BUTTONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid button={button!r}; expected one of {_VALID_BUTTONS}")
     if duration < 0:
-        raise ToolError(
-            f"duration must be >= 0; got {duration}", code="INTERNAL"
+        raise ArgsInvalid(
+            f"duration must be >= 0; got {duration}"
         )
     if duration > MAX_PRESS_DURATION_FRAMES:
         # The WS ticket timeout scales with duration/60*1.5 — an
         # unbounded duration meant an unbounded tool hang.
-        raise ToolError(
+        raise ArgsInvalid(
             f"duration {duration} exceeds the cap {MAX_PRESS_DURATION_FRAMES} "
-            f"(~{MAX_PRESS_DURATION_FRAMES // 60}s of hold time)",
-            code="INTERNAL",
-        )
+            f"(~{MAX_PRESS_DURATION_FRAMES // 60}s of hold time)")
     logger.info(
         "tool_call",
         extra={
@@ -291,9 +280,9 @@ async def send_analog(
     RETURNS: {x, y}.
     """
     if not 0 <= x <= 255:
-        raise ToolError(f"x must be in [0, 255]; got {x}", code="INTERNAL")
+        raise ArgsInvalid(f"x must be in [0, 255]; got {x}")
     if not 0 <= y <= 255:
-        raise ToolError(f"y must be in [0, 255]; got {y}", code="INTERNAL")
+        raise ArgsInvalid(f"y must be in [0, 255]; got {y}")
     logger.info(
         "tool_call",
         extra={

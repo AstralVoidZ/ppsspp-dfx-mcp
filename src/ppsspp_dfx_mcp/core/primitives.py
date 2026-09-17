@@ -15,6 +15,13 @@ from __future__ import annotations
 
 DEFAULT_FRAME_INTERVAL_S = 1.0 / 60.0
 
+# Upper bounds so a mistyped/malicious wait or press cannot hang the tool
+# (or busy-loop the event loop) indefinitely. 5 minutes of game frames.
+# models/batch_step.py interpolates these into field descriptions — do not
+# restate the number there or in any doc text.
+MAX_WAIT_FRAMES = 60 * 300
+MAX_PRESS_DURATION_FRAMES = 60 * 300
+
 # ── Memory read/write limits ─────────────────────────────────────────────
 
 MAX_SINGLE_READ_BYTES = 65536   # hard ceiling for one memory.read

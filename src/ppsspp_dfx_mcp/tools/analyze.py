@@ -13,29 +13,27 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from mcp.types import ToolAnnotations
 from typing import Annotated, Any, Literal
 
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.address import parse_address
 from ppsspp_dfx_mcp.config import addresses as _addresses
 from ppsspp_dfx_mcp.config import config_dir, output_dir
-from ppsspp_dfx_mcp.errors import AddrInvalid, ToolError
+from ppsspp_dfx_mcp.errors import AddrInvalid, ArgsInvalid, ToolError
 from ppsspp_dfx_mcp.models.analyze import (
     AddressConversionResult,
     AnalyzeLogResult,
     LogMatch,
 )
 from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.tools._common import MAX_LOG_BYTES, MAX_LOG_MATCHES
+from ppsspp_dfx_mcp.tools._common import MAX_LOG_BYTES, MAX_LOG_MATCHES, translate_tool_errors
+from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.analyze import (
     AddressConversionResponse,
     AnalyzeLogResponse,
 )
-
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 
 AnalyzeLogOutput = derive_output_contract("AnalyzeLogOutput", AnalyzeLogResponse)
 AddressConversionOutput = derive_output_contract("AddressConversionOutput", AddressConversionResponse)
@@ -83,12 +81,10 @@ def _resolve_log_path(log_path: str) -> Path:
     """
     resolved = Path(log_path).expanduser().resolve()
     if not any(resolved.is_relative_to(root) for root in _LOG_ALLOWED_ROOTS):
-        raise ToolError(
+        raise ArgsInvalid(
             f"log_path is outside the allowed .ppsspp-dfx tree "
             f"(allowed roots: {[str(r) for r in _LOG_ALLOWED_ROOTS]}): "
-            f"{resolved}",
-            code="INTERNAL",
-        )
+            f"{resolved}")
     return resolved
 
 
@@ -101,10 +97,8 @@ def _filter_log_lines(path: Path, keywords: list[str]) -> list[LogMatch]:
     """
     size = path.stat().st_size
     if size > MAX_LOG_BYTES:
-        raise ToolError(
-            f"log file too large: {path} ({size} bytes; cap {MAX_LOG_BYTES})",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"log file too large: {path} ({size} bytes; cap {MAX_LOG_BYTES})")
     matches: list[LogMatch] = []
     with path.open("r", encoding="utf-8", errors="replace") as f:
         for i, line in enumerate(f, 1):
@@ -299,10 +293,8 @@ async def convert_address(
     elif resolved_mode == "ida_to_ppsspp":
         converted = address_int + offset
     else:
-        raise ToolError(
-            f"invalid mode={mode!r}; expected ida_to_ppsspp / ppsspp_to_ida / auto",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid mode={mode!r}; expected ida_to_ppsspp / ppsspp_to_ida / auto")
 
     result = AddressConversionResult(
         original=address_int,

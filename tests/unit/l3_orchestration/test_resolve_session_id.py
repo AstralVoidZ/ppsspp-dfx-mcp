@@ -9,8 +9,9 @@ tools keep the required contract.
 """
 
 from __future__ import annotations
+
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -48,7 +49,7 @@ class TestResolveSessionId:
         _patch_list(monkeypatch, [])
         with pytest.raises(ToolError) as exc:
             await resolve_session_id(None)
-        assert exc.value.code == "INTERNAL"
+        assert exc.value.code == "ARGS_INVALID"
         assert "no active session" in str(exc.value)
         assert 'ppsspp_session(action="start"' in str(exc.value)
 

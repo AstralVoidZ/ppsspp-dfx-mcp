@@ -15,21 +15,21 @@ from `SessionManager.start_session`; the client stays per-call
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
-from urllib.parse import urlparse
 import logging
-import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
 
 from ppsspp_dfx_mcp.config import addresses as _addresses
 from ppsspp_dfx_mcp.config import fixture_dir, test_mode
 from ppsspp_dfx_mcp.core.transport import WsTransport
 from ppsspp_dfx_mcp.errors import (
+    ArgsInvalid,
     SessionAmbiguous,
     SessionBusy,
     SessionNotFound,
-    ToolError,
     reset_error_context,
     set_error_context,
 )
@@ -62,11 +62,9 @@ async def resolve_session_id(session_id: str | None) -> str:
         return session_id
     sessions = await session_manager.list_sessions()
     if not sessions:
-        raise ToolError(
+        raise ArgsInvalid(
             "session_id is required — no active session; start one with "
-            'ppsspp_session(action="start", iso_path=...)',
-            code="INTERNAL",
-        )
+            'ppsspp_session(action="start", iso_path=...)')
     if len(sessions) > 1:
         ids = ", ".join(s.session_id for s in sessions)
         raise SessionAmbiguous(
@@ -101,8 +99,8 @@ def _build_fake_transport_for_session() -> Any:
     # importing them at module load would fail in production (no tests/
     # on sys.path). Defer to call time so the production code path
     # (test_mode == "") never triggers these imports.
-    from fake_transport import FakeTransport  # type: ignore[import-not-found]
     from contract_recorder.fixture_loader import load_all  # type: ignore[import-not-found]
+    from fake_transport import FakeTransport  # type: ignore[import-not-found]
 
     fdir = fixture_dir()
     if fdir is None:
@@ -233,7 +231,7 @@ async def session_client_with_transport(
         await asyncio.wait_for(
             session_lock.acquire(), timeout=SESSION_BUSY_TIMEOUT_S
         )
-    except asyncio.TimeoutError as e:
+    except TimeoutError as e:
         # If the lock is held by a detached background batch, point
         # the caller at the status/cancel tools instead of a blind retry.
         from ppsspp_dfx_mcp.core.batch_jobs import get_registry

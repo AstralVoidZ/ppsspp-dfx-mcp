@@ -13,20 +13,19 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, to_tool_error
 from ppsspp_dfx_mcp.models.smoke import CheckResult, SmokeTestResult
+from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import (
     read_game_mode_addr,
     session_client,
 )
-from ppsspp_dfx_mcp.views.smoke import SmokeTestResponse
-from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.smoke import SmokeTestResponse
 
 SmokeTestOutput = derive_output_contract("SmokeTestOutput", SmokeTestResponse)
 
@@ -85,10 +84,8 @@ async def smoke_test(
     selected = tuple(checks) if checks else _DEFAULT_CHECKS
     invalid = [c for c in selected if c not in _DEFAULT_CHECKS]
     if invalid:
-        raise ToolError(
-            f"invalid check(s) {invalid}; expected one of {_DEFAULT_CHECKS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid check(s) {invalid}; expected one of {_DEFAULT_CHECKS}")
 
     logger.info(
         "tool_call",

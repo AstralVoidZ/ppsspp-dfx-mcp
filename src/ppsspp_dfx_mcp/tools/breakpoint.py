@@ -16,18 +16,17 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.address import format_address, parse_address
-from ppsspp_dfx_mcp.errors import BreakpointError, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, BreakpointError, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.breakpoint import BreakpointResult
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 
 BreakpointOutput = derive_output_contract("BreakpointOutput", BreakpointResponse)
 
@@ -221,28 +220,22 @@ async def breakpoint(
     
     RETURNS: {action, address, enabled, breakpoints[]}."""
     if action not in _BP_ACTIONS:
-        raise ToolError(
-            f"invalid action={action!r}; expected one of {_BP_ACTIONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid action={action!r}; expected one of {_BP_ACTIONS}")
     address_int = parse_address(address)
     if action in _BP_ACTIONS_REQUIRING_ADDRESS and address_int == 0:
         # Not worded "address is required": this also fires when the caller
         # explicitly passes 0x0, so the message says what actually happened.
-        raise ToolError(
+        raise ArgsInvalid(
             f"address 0x0 is not a valid breakpoint target (the zero "
-            f"address is reserved) for action={action!r}",
-            code="INTERNAL",
-        )
+            f"address is reserved) for action={action!r}")
     if action in ("mem_set", "mem_remove", "mem_update") and size < 1:
         # A zero/negative-width watchpoint is stored by PPSSPP but can
         # never hit, and it stacks invisibly with same-address memchecks.
-        raise ToolError(
+        raise ArgsInvalid(
             f"invalid memcheck size {size} for action={action!r} — must "
             f"be a positive byte count (1/2/4 typical; removal matches "
-            f"the watchpoint's exact address+size pair)",
-            code="INTERNAL",
-        )
+            f"the watchpoint's exact address+size pair)")
 
     logger.info(
         "tool_call",

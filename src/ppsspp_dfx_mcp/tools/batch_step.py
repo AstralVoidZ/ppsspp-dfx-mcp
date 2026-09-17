@@ -49,16 +49,22 @@ from ppsspp_dfx_mcp.core.batch_jobs import (
     estimate_batch_seconds,
     get_registry,
 )
-from ppsspp_dfx_mcp.errors import StepInvalid, ToolError, to_tool_error
-from ppsspp_dfx_mcp.models.batch_step import BatchResult, BatchStepInput, StepResult
+from ppsspp_dfx_mcp.core.primitives import MAX_PRESS_DURATION_FRAMES, MAX_WAIT_FRAMES
+from ppsspp_dfx_mcp.errors import ArgsInvalid, StepInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.models.batch_step import (
+    STEP_TYPES,
+    BatchResult,
+    BatchStepInput,
+    StepResult,
+)
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client, validate_session_alive
 from ppsspp_dfx_mcp.tools._common import (
-    MAX_PRESS_DURATION_FRAMES,
     translate_tool_errors,
     wait_frames_chunked,
 )
 from ppsspp_dfx_mcp.tools.input import _PPSSPP_ALL_BUTTONS
+from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.batch_step import (
     BatchListResponse,
     BatchStatusResponse,
@@ -66,8 +72,6 @@ from ppsspp_dfx_mcp.views.batch_step import (
     BatchSubmitResponse,
 )
 from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
-
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 
 BatchStepOutput = derive_output_contract(
     "BatchStepOutput",
@@ -96,12 +100,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["batch_step", "batch_status", "batch_cancel", "batch_list"]
 
-_STEP_TYPES: tuple[str, ...] = (
-    "press",
-    "wait",
-    "state_probe",
-    "screenshot",
-)
+# STEP_TYPES comes from models.batch_step (single source of truth, locked
+# to the 4 step TypedDicts by an import-time assert there).
 # Single source of truth — a stale copy here once diverged from input.py,
 # so keep referencing input.py's button table directly (e.g. 'home' is
 # valid for ppsspp_press_button and must stay valid here).
@@ -118,10 +118,10 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
     if "type" not in step:
         raise StepInvalid(f"step[{index}] missing required 'type' field")
     stype = step["type"]
-    if stype not in _STEP_TYPES:
-        raise StepInvalid(
+    if stype not in STEP_TYPES:
+        raise ArgsInvalid(
             f"step[{index}] invalid type={stype!r}; "
-            f"expected one of {_STEP_TYPES}",
+            f"expected one of {STEP_TYPES}",
         )
     if stype == "press":
         button = step.get("button")
@@ -152,6 +152,11 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
         if not isinstance(frames, int) or frames < 0:
             raise StepInvalid(
                 f"step[{index}] frames must be int >= 0; got {frames!r}",
+            )
+        if frames > MAX_WAIT_FRAMES:
+            raise ArgsInvalid(
+                f"step[{index}] frames {frames} exceeds the cap "
+                f"{MAX_WAIT_FRAMES} (~{MAX_WAIT_FRAMES // 60}s of game time)",
             )
     elif stype == "state_probe":
         # names is optional (observe all); samples optional.

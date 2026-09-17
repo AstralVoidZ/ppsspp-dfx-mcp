@@ -17,12 +17,17 @@ import asyncio
 import functools
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
 
 from ppsspp_dfx_mcp.config import output_dir
-from ppsspp_dfx_mcp.core.primitives import DEFAULT_FRAME_INTERVAL_S, MAX_SINGLE_READ_BYTES
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.primitives import (
+    DEFAULT_FRAME_INTERVAL_S,
+    MAX_SINGLE_READ_BYTES,  # noqa: F401 — tool-layer re-export hub (R9 contract)
+    MAX_WAIT_FRAMES,
+)
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +80,9 @@ MULTI_SHAPE_OUTPUT_TOOLS: dict[str, str] = {
 }
 
 # ── Frame-wait pacing (input.wait_frames + batch_step wait steps) ────────
-# DEFAULT_FRAME_INTERVAL_S lives in core.primitives (imported above).
-
-# Upper bounds so a mistyped/malicious wait cannot hang the tool
-# (or busy-loop the event loop) indefinitely. 5 minutes of game frames.
-MAX_WAIT_FRAMES = 60 * 300
-MAX_PRESS_DURATION_FRAMES = 60 * 300
+# DEFAULT_FRAME_INTERVAL_S / MAX_WAIT_FRAMES live in core.primitives
+# (imported above), shared with models/batch_step descriptions — import;
+# do not copy the literals.
 
 # Bounds for interval validation: 0 < interval <= 1s (1s per frame is
 # already 60x slower than realtime; anything above is a units mistake).
@@ -141,28 +143,22 @@ async def wait_frames_chunked(
             (the caller's error translation wraps them).
     """
     if isinstance(frames, bool) or not isinstance(frames, int) or frames < 0:
-        raise ToolError(
-            f"frames must be int >= 0; got {frames!r}", code="INTERNAL"
+        raise ArgsInvalid(
+            f"frames must be int >= 0; got {frames!r}"
         )
     if frames > MAX_WAIT_FRAMES:
-        raise ToolError(
+        raise ArgsInvalid(
             f"frames {frames} exceeds the cap {MAX_WAIT_FRAMES} "
-            f"(~{MAX_WAIT_FRAMES // 60}s of game time)",
-            code="INTERNAL",
-        )
+            f"(~{MAX_WAIT_FRAMES // 60}s of game time)")
     per_frame = interval_s if interval_s is not None else DEFAULT_FRAME_INTERVAL_S
     if isinstance(per_frame, bool) or not isinstance(per_frame, (int, float)):
-        raise ToolError(
-            f"interval must be a number of seconds; got {per_frame!r}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"interval must be a number of seconds; got {per_frame!r}")
     if not (MIN_FRAME_INTERVAL_S <= per_frame <= MAX_FRAME_INTERVAL_S):
-        raise ToolError(
+        raise ArgsInvalid(
             f"interval must be in [{MIN_FRAME_INTERVAL_S}, "
             f"{MAX_FRAME_INTERVAL_S}] seconds; got {per_frame!r} "
-            "(interval <= 0 would busy-loop the event loop)",
-            code="INTERNAL",
-        )
+            "(interval <= 0 would busy-loop the event loop)")
 
     if session_id is not None:
         from ppsspp_dfx_mcp.session.client_helper import validate_session_alive
@@ -187,7 +183,7 @@ def require_session_id(session_id: str | None) -> str:
     tools — do not vary them per call site.
     """
     if not session_id:
-        raise ToolError("session_id is required", code="INTERNAL")
+        raise ArgsInvalid("session_id is required")
     return session_id
 
 
@@ -204,18 +200,16 @@ def resolve_output_path(subdir: str, filename: str) -> Path:
             the resolved path escapes the output root.
     """
     if not filename or Path(filename).name != filename:
-        raise ToolError(
+        raise ArgsInvalid(
             "filename must be a bare file name without directory parts: "
-            f"{filename!r}",
-            code="INTERNAL",
-        )
+            f"{filename!r}")
     root = (output_dir() / subdir).resolve()
     path = (root / filename).resolve()
     if not path.is_relative_to(root):
         # Defense in depth — unreachable after the name check on POSIX
         # and Windows, but keeps the invariant explicit.
-        raise ToolError(
-            f"resolved path escapes output dir: {path}", code="INTERNAL"
+        raise ArgsInvalid(
+            f"resolved path escapes output dir: {path}"
         )
     return path
 

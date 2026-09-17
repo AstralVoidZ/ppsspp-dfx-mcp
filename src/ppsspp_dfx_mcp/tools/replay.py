@@ -38,7 +38,7 @@ from typing import Annotated, Any, Literal
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.replay import (
     PPRFile,
     ReplayResult,
@@ -47,9 +47,8 @@ from ppsspp_dfx_mcp.models.replay import (
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
 from ppsspp_dfx_mcp.tools._common import resolve_output_path, translate_tool_errors
-from ppsspp_dfx_mcp.views.replay import ReplayResponse
-
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.replay import ReplayResponse
 
 ReplayOutput = derive_output_contract("ReplayOutput", ReplayResponse)
 
@@ -292,27 +291,23 @@ async def replay(
 
     RETURNS: {action, executing, saving, version, size, base64, base_rtc, data} — execute/load data carries t0_s, estimated_end_s, event_count and boot_aligned_sequence; fields depend on the action."""
     if action not in _REPLAY_ACTIONS:
-        raise ToolError(
-            f"invalid action={action!r}; expected one of {_REPLAY_ACTIONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid action={action!r}; expected one of {_REPLAY_ACTIONS}")
     if action == "execute":
         if version == 0:
-            raise ToolError(
+            raise ArgsInvalid(
                 "version is required when action=execute "
                 "(version=0 is not a valid replay version — obtain it "
-                "from a prior replay.flush response)",
-                code="INTERNAL",
-            )
+                "from a prior replay.flush response)")
         if not base64_input:
-            raise ToolError(
-                "base64_input is required when action=execute", code="INTERNAL"
+            raise ArgsInvalid(
+                "base64_input is required when action=execute"
             )
     ppr_path = None
     if action in ("save", "load"):
         if not file_path:
-            raise ToolError(
-                f"file_path is required when action={action}", code="INTERNAL"
+            raise ArgsInvalid(
+                f"file_path is required when action={action}"
             )
         # S2 fix: resolve + contain the path BEFORE any session I/O so an
         # illegal path fails fast without contacting PPSSPP.
@@ -448,8 +443,8 @@ async def replay(
                 # 1. read .ppr file (S2: contained to output/replays/;
                 # already resolved + validated before the session opened).
                 if not ppr_path.is_file():
-                    raise ToolError(
-                        f".ppr file not found: {ppr_path}", code="INTERNAL"
+                    raise ArgsInvalid(
+                        f".ppr file not found: {ppr_path}"
                     )
                 try:
                     raw = json.loads(
@@ -458,16 +453,13 @@ async def replay(
                         )
                     )
                 except json.JSONDecodeError as e:
-                    raise ToolError(
-                        f"invalid .ppr file (JSON parse error): {e}",
-                        code="INTERNAL",
-                    ) from e
+                    raise ArgsInvalid(
+                        f"invalid .ppr file (JSON parse error): {e}") from e
                 try:
                     ppr = PPRFile.from_dict(raw)
                 except ValueError as e:
-                    raise ToolError(
-                        f"invalid .ppr file: {e}", code="INTERNAL",
-                    ) from e
+                    raise ArgsInvalid(
+                        f"invalid .ppr file: {e}") from e
                 # R4: a live executing/saving state must not mix with the
                 # new event table.
                 await _ensure_replay_idle(client)

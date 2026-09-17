@@ -12,30 +12,27 @@ exceptions to ToolError. No business logic here.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.address import format_address, parse_address
+from ppsspp_dfx_mcp.address import parse_address
 from ppsspp_dfx_mcp.config import test_mode
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, to_tool_error
 from ppsspp_dfx_mcp.models.session import WaitReadyResult
+from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session import session_manager
 from ppsspp_dfx_mcp.session.client_helper import validate_session_alive
 from ppsspp_dfx_mcp.session.safe_boot import probe_cpu_ready
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
+from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.session import (
     SessionListResponse,
     SessionResponse,
     WaitReadyResponse,
 )
-from ppsspp_dfx_mcp.server import mcp
-
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 
 SessionOutput = derive_output_contract(
     "SessionOutput",
@@ -205,20 +202,16 @@ async def session(
     
     RETURNS: SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version} — or, for wait_ready, {action, ready, elapsed_s, probe_addr, probe_value, note}."""
     if action not in _VALID_ACTIONS:
-        raise ToolError(
-            f"invalid action={action!r}; expected one of {_VALID_ACTIONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid action={action!r}; expected one of {_VALID_ACTIONS}")
 
     logger.info("tool_call", extra={"tool": "ppsspp_session", "action": action})
     clamped_timeout = min(max(float(timeout_s), 1.0), 300.0)
     try:
         if action == "start":
             if not iso_path:
-                raise ToolError(
-                    "iso_path is required when action=start",
-                    code="INTERNAL",
-                )
+                raise ArgsInvalid(
+                    "iso_path is required when action=start")
             sess = await session_manager.start_session(
                 iso_path,
                 resilient=resilient,
@@ -230,32 +223,24 @@ async def session(
                 # action=wait_ready, inlined after a successful start.
                 probe_int = parse_address(probe_addr)
                 if probe_int == 0:
-                    raise ToolError(
+                    raise ArgsInvalid(
                         f"probe_addr must be a valid hex address, got "
-                        f"{probe_addr!r}",
-                        code="INTERNAL",
-                    )
+                        f"{probe_addr!r}")
                 await _wait_ready_cpu(sess.session_id, clamped_timeout, probe_int)
         elif action == "stop":
             if not session_id:
-                raise ToolError(
-                    "session_id is required when action=stop",
-                    code="INTERNAL",
-                )
+                raise ArgsInvalid(
+                    "session_id is required when action=stop")
             sess = await session_manager.stop_session(session_id)
         elif action == "wait_ready":
             if not session_id:
-                raise ToolError(
-                    "session_id is required when action=wait_ready",
-                    code="INTERNAL",
-                )
+                raise ArgsInvalid(
+                    "session_id is required when action=wait_ready")
             probe_int = parse_address(probe_addr)
             if probe_int == 0:
-                raise ToolError(
+                raise ArgsInvalid(
                     f"probe_addr must be a valid hex address, got "
-                    f"{probe_addr!r}",
-                    code="INTERNAL",
-                )
+                    f"{probe_addr!r}")
             if test_mode() == "fake":
                 result = WaitReadyResult(
                     ready=True,
@@ -274,10 +259,8 @@ async def session(
             )
         else:  # action == "get"
             if not session_id:
-                raise ToolError(
-                    "session_id is required when action=get",
-                    code="INTERNAL",
-                )
+                raise ArgsInvalid(
+                    "session_id is required when action=get")
             sess = await session_manager.get_session_state(session_id)
     except Exception as e:
         raise to_tool_error(e) from e

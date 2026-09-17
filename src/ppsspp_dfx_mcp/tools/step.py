@@ -29,18 +29,17 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.step import StepResult
-from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
-from ppsspp_dfx_mcp.views.step import StepResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.step import StepResponse
 
 StepOutput = derive_output_contract("StepOutput", StepResponse)
 
@@ -156,14 +155,12 @@ async def step(
     """
     session_id = await resolve_session_id(session_id)
     if action not in _STEP_ACTIONS:
-        raise ToolError(
-            f"invalid action={action!r}; expected one of {_STEP_ACTIONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid action={action!r}; expected one of {_STEP_ACTIONS}")
     address_int = parse_address(address)
     if action == "run_until" and address_int == 0:
-        raise ToolError(
-            "address is required when action=run_until", code="INTERNAL"
+        raise ArgsInvalid(
+            "address is required when action=run_until"
         )
 
     logger.info(

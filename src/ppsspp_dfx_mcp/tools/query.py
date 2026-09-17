@@ -30,18 +30,17 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.query import GetPcResult, QueryResult
-from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
-from ppsspp_dfx_mcp.views.query import GetPcResponse, QueryResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.query import GetPcResponse, QueryResponse
 
 QueryOutput = derive_output_contract(
     "QueryOutput",
@@ -184,33 +183,23 @@ async def query(
     
     RETURNS: {action, data, trust_level} — data shape depends on the action."""
     if action not in _QUERY_ACTIONS:
-        raise ToolError(
-            f"invalid action={action!r}; expected one of {_QUERY_ACTIONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid action={action!r}; expected one of {_QUERY_ACTIONS}")
     address_int = parse_address(address)
     if action == "func_add" and not name and address_int == 0:
-        raise ToolError(
-            "action='func_add' requires at least one of name or address",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            "action='func_add' requires at least one of name or address")
     if action == "func_remove" and address_int == 0:
-        raise ToolError(
+        raise ArgsInvalid(
             "action='func_remove' requires a non-zero address "
-            "(PPSSPP's hle.func.remove protocol does not accept a name)",
-            code="INTERNAL",
-        )
+            "(PPSSPP's hle.func.remove protocol does not accept a name)")
     if action == "register" and not name:
-        raise ToolError(
+        raise ArgsInvalid(
             "action='register' requires a register name "
-            "(MIPS name like 'a0'/'v0'/'t9', or 'pc'/'hi'/'lo')",
-            code="INTERNAL",
-        )
+            "(MIPS name like 'a0'/'v0'/'t9', or 'pc'/'hi'/'lo')")
     if action == "func_scan" and address_int == 0:
-        raise ToolError(
-            "action='func_scan' requires a non-zero address",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            "action='func_scan' requires a non-zero address")
 
     logger.info(
         "tool_call",
