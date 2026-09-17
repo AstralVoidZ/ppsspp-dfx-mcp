@@ -56,7 +56,7 @@ def is_pid_alive(pid: int | None) -> bool:
     else:
         try:
             os.kill(pid, 0)
-        except OSError, ProcessLookupError:
+        except (OSError, ProcessLookupError):
             return False
         # os.kill(pid, 0) returns True for zombies on POSIX. On Linux we
         # can disambiguate via /proc/<pid>/status; non-Linux POSIX keeps

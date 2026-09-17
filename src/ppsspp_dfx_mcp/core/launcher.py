@@ -241,7 +241,7 @@ def _get_listening_ports_for_pid_windows(pid: int) -> list[int]:
             errors="replace",
             timeout=5,
         )
-    except subprocess.SubprocessError, OSError:
+    except (subprocess.SubprocessError, OSError):
         return []
     return _parse_netstat_windows(result.stdout or "", pid)
 
@@ -266,7 +266,7 @@ def _get_listening_ports_for_pid_posix(pid: int) -> list[int]:
                 errors="replace",
                 timeout=5,
             )
-        except FileNotFoundError, subprocess.SubprocessError, OSError:
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
             continue
         ports = _parse_ss_or_netstat_posix(result.stdout or "", pid)
         if ports:
@@ -280,7 +280,7 @@ def _get_listening_ports_for_pid_posix(pid: int) -> list[int]:
             errors="replace",
             timeout=5,
         )
-    except FileNotFoundError, subprocess.SubprocessError, OSError:
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
         return []
     return _parse_lsof_posix(result.stdout or "")
 

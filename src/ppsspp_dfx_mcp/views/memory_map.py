@@ -68,7 +68,7 @@ class MemoryMapResponse(FrozenModel):
                 size_int = int(size) if not isinstance(size, int) else size
                 end_int = start_int + size_int
                 lines.append(f"0x{start_int:08X}-0x{end_int:08X} {type_}/{subtype} {name}")
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 lines.append(f"{start}-{size} {type_}/{subtype} {name}")
         return cls(
             ranges=ranges,

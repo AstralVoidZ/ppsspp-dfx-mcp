@@ -21,7 +21,7 @@ def _hex_or_none(value: Any) -> str | None:
         return None
     try:
         return f"0x{int(value):08X}"
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return str(value)
 
 

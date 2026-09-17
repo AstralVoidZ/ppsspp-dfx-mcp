@@ -110,12 +110,12 @@ def _seed_from_yaml() -> None:
             continue
         try:
             addr_int = int(addr, 0) if isinstance(addr, str) else int(addr)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         size = spec.get("size", 4)
         try:
             size_int = int(size)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             size_int = 4
         if size_int not in _VALID_SIZES:
             size_int = 4

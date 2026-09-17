@@ -37,9 +37,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        # 单版本策略：SDK v2 导入路径依赖 3.14 新特性（见 pyproject
-        # requires-python）。放宽到矩阵多版本前先解除该耦合。
-        python-version: ["3.14"]
+        # 3.14 为开发/测试基准版本；3.13 为支持下限（PEP 758 语法
+        # 已于 0.1.5 替换为括号形式，见 CHANGELOG）。
+        python-version: ["3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v5

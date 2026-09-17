@@ -95,7 +95,7 @@ def _compute_base64_size(b64: str) -> int:
         return 0
     try:
         return len(base64.b64decode(b64, validate=True))
-    except ValueError, base64.binascii.Error:
+    except (ValueError, base64.binascii.Error):
         return 0
 
 

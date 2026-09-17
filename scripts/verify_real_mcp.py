@@ -216,8 +216,7 @@ def summarize_content(result: Any, rec: Record) -> None:
         try:
             if len(json.dumps(rec.structured)) > 65536:
                 rec.structured = {"_truncated": True, "note": "structured response >64KB"}
-        except TypeError, ValueError:
-            rec.structured = {"_unserializable": str(rec.structured)[:200]}
+        except (TypeError, ValueError):            rec.structured = {"_unserializable": str(rec.structured)[:200]}
 
 
 def _hex_of(v: Any) -> str:
@@ -2464,8 +2463,7 @@ try:
     _FRAME_P50_BASELINE: dict[str, float] = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))[
         "p50_ms"
     ]
-except OSError, json.JSONDecodeError, KeyError:
-    _FRAME_P50_BASELINE = {}  # gate falls back to the fixed dict budget
+except (OSError, json.JSONDecodeError, KeyError):    _FRAME_P50_BASELINE = {}  # gate falls back to the fixed dict budget
 
 
 def _ok_p50_by_tool(records: list[dict]) -> dict[str, float]:

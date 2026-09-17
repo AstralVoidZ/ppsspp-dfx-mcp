@@ -261,7 +261,7 @@ def _idle_seconds(sess: Session) -> float:
     try:
         now = datetime.now(UTC)
         return (now - sess.last_active_at).total_seconds()
-    except TypeError, ArithmeticError:
+    except (TypeError, ArithmeticError):
         return float("inf")
 
 
@@ -1222,7 +1222,7 @@ def _extract_port_from_ws_url(ws_url: str) -> int | None:
 
     try:
         return urlparse(ws_url).port
-    except ValueError, AttributeError:
+    except (ValueError, AttributeError):
         return None
 
 
@@ -1272,7 +1272,7 @@ async def _probe_ws_connection(ws_url: str) -> bool:
         url = urlparse(ws_url)
         host = url.hostname or "127.0.0.1"
         port = url.port or 12345
-    except ValueError, AttributeError:
+    except (ValueError, AttributeError):
         log.warning("N-07 probe: malformed ws_url %r", ws_url)
         return False
 

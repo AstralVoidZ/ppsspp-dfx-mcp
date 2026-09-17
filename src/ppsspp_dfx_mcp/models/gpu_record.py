@@ -31,7 +31,7 @@ def _extract_bytes(raw: dict[str, Any]) -> bytes:
         return b""
     try:
         return base64.b64decode(b64)
-    except TypeError, ValueError, base64.binascii.Error:
+    except (TypeError, ValueError, base64.binascii.Error):
         return b""
 
 

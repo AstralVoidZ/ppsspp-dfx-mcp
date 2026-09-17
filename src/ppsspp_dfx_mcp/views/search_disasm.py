@@ -26,7 +26,7 @@ def _format_disasm_line(entry: dict[str, Any]) -> str:
     try:
         addr_int = int(addr) if not isinstance(addr, int) else addr
         addr_str = f"0x{addr_int:08X}"
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         addr_str = str(addr)
     text = entry.get("text")
     if not text:

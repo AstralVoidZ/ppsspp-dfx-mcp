@@ -557,7 +557,7 @@ class GameStateObserver:
             return  # silently drop malformed broadcasts
         try:
             level_int = int(level_num)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return  # invalid level, drop
         py_level = _LOG_LEVEL_MAP.get(level_int)
         if py_level is None:

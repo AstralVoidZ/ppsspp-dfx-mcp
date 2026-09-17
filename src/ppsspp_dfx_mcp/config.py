@@ -63,7 +63,7 @@ def rate_limit() -> int:
     raw = os.environ.get("PPSSPP_DFX_RATE_LIMIT", DEFAULT_RATE_LIMIT)
     try:
         return int(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return int(DEFAULT_RATE_LIMIT)
 
 
@@ -75,7 +75,7 @@ def ws_port() -> int:
     raw = os.environ.get("PPSSPP_DFX_WS_PORT", DEFAULT_WS_PORT)
     try:
         return int(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return int(DEFAULT_WS_PORT)
 
 

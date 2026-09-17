@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 [![PyPI](https://img.shields.io/pypi/v/ppsspp-dfx-mcp)](https://pypi.org/project/ppsspp-dfx-mcp/)
 [![CI](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.14%2B-blue)
+![Python](https://img.shields.io/badge/python-3.13%2B-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 
@@ -51,7 +51,7 @@ before running.
 
 ## Running
 
-Requirements: Python 3.14+ (with a dedicated venv — why: see
+Requirements: Python 3.13+ (with a dedicated venv — why: see
 [Run from source](#run-from-source)); a PPSSPP build with the WebSocket
 debugger enabled — official builds work, see
 [docs/ppsspp-build.md](docs/ppsspp-build.md) for the toggle (the server

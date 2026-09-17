@@ -56,7 +56,7 @@ class MemoryInfoSearchResponse(FrozenModel):
                 end_int = addr_int + size_int
                 tag_str = f" {tag}" if tag else ""
                 lines.append(f"0x{addr_int:08X}-0x{end_int:08X} {type_}{tag_str}")
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 lines.append(f"{addr}-{size} {type_} {tag}")
         return cls(
             regions=list(result.regions),

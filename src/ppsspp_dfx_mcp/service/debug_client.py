@@ -732,7 +732,7 @@ class PpssppDebugClient:
             return
         try:
             pc_int = int(pc)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return
         if not (_PSP_CODE_RANGE_LOW <= pc_int <= _PSP_CODE_RANGE_HIGH):
             raise StepOutError(
@@ -1387,7 +1387,7 @@ class PpssppDebugClient:
         # First probe — record ticks0 + stepping0.
         try:
             status0 = await self._transport.call("cpu.status")
-        except ConnectionRefusedError, OSError:
+        except (ConnectionRefusedError, OSError):
             # Transport-level failure (WS disconnected / port unreachable):
             # re-raise so to_tool_error can classify it as WsDisconnected
             # immediately, rather than letting the ticketed call time out.
@@ -1407,7 +1407,7 @@ class PpssppDebugClient:
         # Second probe — record ticks1 + stepping1.
         try:
             status1 = await self._transport.call("cpu.status")
-        except ConnectionRefusedError, OSError:
+        except (ConnectionRefusedError, OSError):
             raise
         except Exception:
             return

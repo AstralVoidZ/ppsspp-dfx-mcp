@@ -3,12 +3,12 @@
   "name": "io.github.AstralVoidZ/ppsspp-dfx-mcp",
   "title": "PPSSPP Debug MCP Server",
   "description": "Engineering-grade MCP debugging SDK turning the PPSSPP PSP emulator into an AI-debuggable target.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "ppsspp-dfx-mcp",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "transport": {
         "type": "stdio"
       }
