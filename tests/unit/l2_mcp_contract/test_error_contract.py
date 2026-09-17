@@ -64,15 +64,11 @@ ERROR_MATRIX: list[tuple[str, dict, str]] = [
         "Input should be",
     ),
     # ── address / input validation ───────────────────────────────────────
-    (
-        "ppsspp_convert_address",
-        {"address": "zzz", "mode": "auto"},
-        "not a valid decimal or hex string",
-    ),
+    # (ppsspp_convert_address row removed in v0.1.6 — tool un-tooled)
     # ── config lookups (F-11: must fail loudly, not return empty) ───────
     ("ppsspp_list_addresses", {"section": "no_such_section"}, "unknown section"),
     (
-        "ppsspp_memory_info_search",
+        "ppsspp_search_memory_info",
         {"match": "", "session_id": "sess_missing"},
         "match must be a non-empty substring",
     ),

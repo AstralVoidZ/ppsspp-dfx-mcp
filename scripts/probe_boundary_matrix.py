@@ -86,7 +86,7 @@ SESSION_ID_TOOLS = {
     "ppsspp_replay",
     "ppsspp_smoke_test",
     "ppsspp_run_script",
-    "ppsspp_memory_info_search",
+    "ppsspp_search_memory_info",
     "ppsspp_wait_breakpoint",
     "ppsspp_trace_memory_access",
     "ppsspp_frame_snapshot",

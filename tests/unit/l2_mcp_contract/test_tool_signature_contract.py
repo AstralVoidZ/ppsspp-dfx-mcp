@@ -8,7 +8,7 @@ FastMCP 分发时因参数名错配导致 TypeError。这些测试不调用工�
 
 覆盖的修复：
 - F-01 (P-02): read_memory 的 read_string action 不传 length 死参数
-- F-02 (P-03): memory_info_search 用 `type` 而非 `region_type` + alias
+- F-02 (P-03): search_memory_info 用 `type` 而非 `region_type` + alias
 - F-03 (P-01): dump_texture 用 `level` 而非 `address`
 """
 
@@ -24,8 +24,8 @@ import inspect
 from mcp.server.mcpserver import Image  # noqa: F401 (re-exported by screenshot.py)
 
 from ppsspp_dfx_mcp.tools.memory import read_memory
-from ppsspp_dfx_mcp.tools.memory_info_search import memory_info_search
-from ppsspp_dfx_mcp.tools.screenshot import dump_texture
+from ppsspp_dfx_mcp.tools.screenshot import dump
+from ppsspp_dfx_mcp.tools.search_memory_info import search_memory_info
 
 # ============================================================================
 # F-01 (P-02): read_memory read_string 不传 length
@@ -55,12 +55,12 @@ class TestReadStringLengthDeprecation:
 
 
 # ============================================================================
-# F-02 (P-03): memory_info_search 用 type 而非 region_type
+# F-02 (P-03): search_memory_info 用 type 而非 region_type
 # ============================================================================
 
 
-class TestMemoryInfoSearchTypeParam:
-    """memory_info_search 必须用 `type` 参数名（与 schema 一致）。
+class TestSearchMemoryInfoTypeParam:
+    """search_memory_info 必须用 `type` 参数名（与 schema 一致）。
 
     Anchor: analysis_ppsspp_dfx_mcp_live_evaluation_v1.md P-03。
     Pydantic alias="type" 导致 FastMCP 分发时仍以 `type` 为 kwarg
@@ -70,19 +70,19 @@ class TestMemoryInfoSearchTypeParam:
 
     def test_has_type_param(self):
         """函数签名必须包含 `type` 参数。"""
-        sig = inspect.signature(memory_info_search)
+        sig = inspect.signature(search_memory_info)
         assert "type" in sig.parameters, (
-            "memory_info_search 必须有 `type` 参数（不能用 region_type + alias）"
+            "search_memory_info 必须有 `type` 参数（不能用 region_type + alias）"
         )
 
     def test_no_region_type_param(self):
         """函数签名不能包含 `region_type` 参数（已重命名）。"""
-        sig = inspect.signature(memory_info_search)
+        sig = inspect.signature(search_memory_info)
         assert "region_type" not in sig.parameters, "region_type 参数应已重命名为 type，不应残留"
 
     def test_type_param_is_optional(self):
         """type 参数是可选的（默认 None）。"""
-        sig = inspect.signature(memory_info_search)
+        sig = inspect.signature(search_memory_info)
         type_param = sig.parameters["type"]
         assert type_param.default is None, f"type 参数默认值应为 None，实际为 {type_param.default}"
 
@@ -93,7 +93,7 @@ class TestMemoryInfoSearchTypeParam:
 
 
 class TestDumpTextureLevelParam:
-    """dump_texture 必须用 `level` 参数，不能有 `address` 参数。
+    """ppsspp_dump 必须用 `level` 参数，不能有 `address` 参数。
 
     Anchor: analysis_ppsspp_dfx_mcp_live_evaluation_v1.md P-01。
     PPSSPP 只能抓当前绑定纹理，不支持按 VRAM address 抓取。
@@ -102,18 +102,18 @@ class TestDumpTextureLevelParam:
 
     def test_has_level_param(self):
         """函数签名必须包含 `level` 参数。"""
-        sig = inspect.signature(dump_texture)
+        sig = inspect.signature(dump)
         assert "level" in sig.parameters, "dump_texture 必须有 `level` 参数"
 
     def test_no_address_param(self):
         """函数签名不能包含 `address` 参数。"""
-        sig = inspect.signature(dump_texture)
+        sig = inspect.signature(dump)
         assert "address" not in sig.parameters, (
             "dump_texture 不应有 `address` 参数（PPSSPP 不支持按地址抓取纹理）"
         )
 
     def test_level_default_is_zero(self):
         """level 参数默认值为 0（mipmap level 0）。"""
-        sig = inspect.signature(dump_texture)
+        sig = inspect.signature(dump)
         level_param = sig.parameters["level"]
         assert level_param.default == 0, f"level 参数默认值应为 0，实际为 {level_param.default}"

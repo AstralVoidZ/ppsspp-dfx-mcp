@@ -97,6 +97,24 @@ them like a public API.
   (`scripts/dump_tool_surface.py`) **in the same commit** and say so in the
   description.
 
+## Tool naming convention (v0.1.6)
+
+Established in the v0.1.6 surface refactor (Glama review: naming consistency).
+Apply to every new tool:
+
+1. **Atomic tools** — single verb-noun operation on one target:
+   `ppsspp_<verb>_<noun>` (e.g. `read_memory`, `press_button`, `search_disasm`).
+2. **Dispatcher tools** — noun + `action` parameter covering one resource's
+   lifecycle: `ppsspp_<noun>(action=...)` (e.g. `session`, `breakpoint`,
+   `replay`, `query`). Sub-actions read as `ppsspp_<noun>(action="list")`.
+3. **Family consistency** — a family shares one scheme
+   (`batch_step/batch_status/batch_cancel` are noun-first; keep the family
+   uniform rather than mixing schemes inside it).
+4. **No inverted forms for new tools** — `memory_info_search` was renamed to
+   `search_memory_info` in v0.1.6; don't add new `noun_verb` one-offs.
+5. Prefer merging a near-duplicate into an existing dispatcher (with an
+   `action`/`kind` parameter) over adding a new tool name.
+
 ## File naming
 
 - `scripts/` executables: verb-first snake_case — `<verb>_<object>.py`
@@ -133,6 +151,6 @@ its modules are marked `integration` + `real_ppsspp`.
   `proc.is_pid_alive(...)` (module attribute) — patch
   `ppsspp_dfx_mcp.core.proc.is_pid_alive`, never a stale re-export.
 - **Tool-surface baseline**: `tests/unit/l2_mcp_contract/tool_surface_baseline.json`
-  snapshots the *static* registry (41 tools). Manifest scripts add dynamic
+  snapshots the *static* registry (37 tools). Manifest scripts add dynamic
   `ppsspp_script_*` tools at runtime, so a live server's `tool_count` is
   baseline + manifest count.

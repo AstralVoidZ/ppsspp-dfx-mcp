@@ -116,6 +116,8 @@ async def list_addresses(
 
     USAGE: optional section filter; an unknown section returns an error listing the valid ones.
 
+
+    CONVERSION: IDA <-> PPSSPP address conversion is plain arithmetic — ppsspp_addr = ida_addr + (top_base.ppsspp - top_base.ida) (defaults 0x08804000 - 0x00000000). ppsspp_convert_address was un-tooled in v0.1.6.
     BEHAVIOR: READ-ONLY. Int values ≥0x1000 are returned as hex strings that can be pasted straight into address parameters.
 
     RETURNS: {sections, count, section_filter}."""

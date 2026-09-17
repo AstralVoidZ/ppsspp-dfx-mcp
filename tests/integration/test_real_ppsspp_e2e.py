@@ -13,7 +13,7 @@ Test scope (mapped to guide_ppsspp_dfx_mcp_live_test_methodology_v1.md):
 - Phase 2 — core debug (memory / CPU / stepping / breakpoint / disasm)
 - Phase 3 — script management (tested via tool wrappers separately)
 - Phase 4 — P0 debug enhancements (memory_map / evaluate)
-- Phase 5 — GPU & memory tracing (gpu_stats / memory_info_search)
+- Phase 5 — GPU & memory tracing (gpu_stats / search_memory_info)
 
 These tests are skipped when PPSSPP / ISO is unavailable (CI-safe).
 Run them locally with:
@@ -258,7 +258,7 @@ class TestRealPpssppBreakpoint:
 
 @pytest.mark.real_ppsspp
 class TestRealPpssppMemoryMap:
-    """memory_map and memory_info_search against the live PPSSPP."""
+    """memory_map and search_memory_info against the live PPSSPP."""
 
     async def test_memory_map_returns_non_empty_ranges(self, real_transport):
         """memory_map returns a non-empty `ranges` list."""

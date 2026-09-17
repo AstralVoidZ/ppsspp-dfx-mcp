@@ -16,7 +16,7 @@ category: tools
 |------|------|---------|
 | `ppsspp_health` | 探测 server 存活 | 不连 PPSSPP；`tool_count` 可作自检（静态数+暴露脚本数，以 `tools/list` 为准） |
 | `ppsspp_session` | start/stop/get/wait_ready | start 需 `iso_path`，`wait_ready=true` 一步等就绪（默认 75s 预算，`[BOOT_TIMEOUT]`=楔死嫌疑，勿继续重试读；等价旧 start→wait_ready 两步）；`start(resilient=true)` 自愈启动：楔死→隔离 GPU 黑名单→同 id 重启 ≤2，`recovered>0` = 现场已重置；错误码 `ISO_NOT_FOUND`/`PPSSPP_NOT_FOUND`/`PORT_CONFLICT` |
-| `ppsspp_session_list` | 列会话 | 空闲 30min 会话被 GC |
+| `ppsspp_session(action="list")` | 列会话 | 空闲 30min 会话被 GC |
 | `ppsspp_smoke_test` | 四项健康检查 | `iso_loaded/cpu_running/ws_connected/game_mode_valid`；game_mode_valid 依赖 addresses.yaml 配置 |
 
 ## 内存
@@ -76,12 +76,12 @@ category: tools
 
 ## 截图与 GPU
 
-> **图像工具返回两个通道**（`ppsspp_screenshot` / `ppsspp_dump_texture` / `ppsspp_dump_clut`）：像素在 `content` 的 **ImageContent** 块，元数据在 **`structuredContent`**——**没有**文本块承载元数据，`image_base64` 也**不在**结构化通道里。三者都会**自动落盘**，元数据里的 `file_path` 指向已保存的文件：要再用这张图，读那个文件即可，**不要重复截图**。
+> **图像工具返回两个通道**（`ppsspp_screenshot` / `ppsspp_dump`，kind=`texture`/`clut`）：像素在 `content` 的 **ImageContent** 块，元数据在 **`structuredContent`**——**没有**文本块承载元数据，`image_base64` 也**不在**结构化通道里。三者都会**自动落盘**，元数据里的 `file_path` 指向已保存的文件：要再用这张图，读那个文件即可，**不要重复截图**。
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_screenshot` | 抓帧缓冲 | 默认 `source=render`（空帧自动回退 VRAM，label `render→vram_fallback`，颜色不可靠）；`source=output` CRASH-RISK 勿用；与弃用 `mode` 互斥；空捕获返回 `empty:true` 不报错（`structuredContent` 含 `mode/source/file_path/size_bytes/width/height/format/empty`） |
-| `ppsspp_dump_texture` / `ppsspp_dump_clut` | 抓当前绑定纹理/CLUT | 只能抓"当前绑定"，不支持按 VRAM 地址；空捕获报 `CAPTURE_EMPTY`；`structuredContent` 只含元数据（texture 含 `level`），像素走 ImageContent |
+| `ppsspp_dump(kind=...)` | 抓当前绑定纹理/CLUT（v0.1.6 合并）| 只能抓"当前绑定"，不支持按 VRAM 地址；空捕获报 `CAPTURE_EMPTY`；`structuredContent` 只含元数据（texture 含 `level`），像素走 ImageContent |
 | `ppsspp_gpu_stats` | fps/vblanks/info | **RUN**（暂停时 `CPU_STATE_ERROR`）——可反向用作"CPU 是否暂停"的探针 |
 | `ppsspp_gpu_record` | 抓下一帧 GE 命令流 | RUN；二进制落盘 `output/gpu_dumps/`，不进 JSON |
 
@@ -90,7 +90,7 @@ category: tools
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_analyze_log` | 过滤 ERROR/WARNING/CRASH | 默认读广播日志镜像 `.ppsspp-dfx/output/ppsspp.log`；log_path 白名单限 `.ppsspp-dfx` 树内；>10MiB 拒绝；匹配上限 500 |
-| `ppsspp_convert_address` | IDA↔PPSSPP 换算 | 偏移 = `top_base.ppsspp - top_base.ida`；IDA 偏移→运行时用 `ida_to_ppsspp` |
+| （`ppsspp_convert_address` 已非工具化）| IDA↔PPSSPP 换算 = 纯算术 | 偏移 = `top_base.ppsspp - top_base.ida`；IDA 偏移→运行时用 `ida_to_ppsspp` |
 | `ppsspp_list_addresses` | 列 addresses.yaml 常量 | ≥0x1000 的 int 输出 hex 串，可直接回填地址参数；未知 section 报错并列出有效 section |
 
 ## 编排与观察
@@ -98,7 +98,7 @@ category: tools
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_batch_step` | press/wait/state_probe/screenshot 序列编排 | 有失败步时整体 isError（`BATCH_STEP_FAILED`），按 `results[]` 排查；录制中 screenshot 步自动 skipped（非失败） |
-| `ppsspp_batch_list` | 列举全部在册后台批任务（找回丢失的 batch_id / 背景活动盘点） | 只读无锁；按提交序返回；完结任务仅保留最近 32 个（`retention_jobs`），更早的已被淘汰 |
+| `ppsspp_batch_status(batch_id 省略)` | 列举全部在册后台批任务（找回丢失的 batch_id / 背景活动盘点；v0.1.6 合并）| 只读无锁；按提交序返回；完结任务仅保留最近 32 个（`retention_jobs`），更早的已被淘汰 |
 | `ppsspp_batch_status` | 轮询后台批任务状态与进度（completed 携带完整 results[]） | 只读无锁，可与读工具并发；永不触碰会话锁 |
 | `ppsspp_batch_cancel` | 取消排队中/运行中的后台批任务 | 取消发生在当前步边界；取消已完结任务是错误——不确定状态先 batch_status
 | `ppsspp_state_observer` | 命名探针注册/观察 | observe 在 RUNNING 态可靠；注册表**进程级**共享（跨会话），`register` 不写回 YAML，`clear` 后同进程不再播种 |
@@ -109,7 +109,7 @@ category: tools
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_memory_map` | 区域映射表 | 只读 |
-| `ppsspp_memory_info_search` | 按标签搜分配元数据 | match 必填（大小写不敏感子串）；返回单个 extent |
+| `ppsspp_search_memory_info` | 按标签搜分配元数据 | match 必填（大小写不敏感子串）；返回单个 extent |
 
 ## 脚本系统
 

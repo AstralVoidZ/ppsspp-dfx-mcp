@@ -606,18 +606,18 @@ class TestRegistryListJobs:
 
 class TestBatchListTool:
     async def test_empty_registry(self):
-        from ppsspp_dfx_mcp.tools.batch_step import batch_list
+        from ppsspp_dfx_mcp.tools.batch_step import batch_status
 
-        out = await batch_list()
+        out = await batch_status()
         assert out["jobs"] == []
         assert out["retention_jobs"] == FINISHED_JOB_RETENTION
 
     async def test_lists_lifecycle_with_result_flag(self, fresh_registry: BatchJobRegistry):
-        from ppsspp_dfx_mcp.tools.batch_step import batch_list
+        from ppsspp_dfx_mcp.tools.batch_step import batch_status
 
         id_a = fresh_registry.submit("s1", 1, _noop_runner)
         await asyncio.gather(fresh_registry.get(id_a).task, return_exceptions=True)
-        out = await batch_list()
+        out = await batch_status()
         assert len(out["jobs"]) == 1
         job = out["jobs"][0]
         assert job["batch_id"] == id_a

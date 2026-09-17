@@ -30,17 +30,9 @@ pytestmark = pytest.mark.asyncio
 # (tool, args, verdict, fragment) — verdict: "accept" | "reject"
 # Fragment pins the message identity; verdict pins accept/reject semantics.
 BOUNDARY_TABLE: list[tuple[str, dict, str, str]] = [
-    # convert_address (F-14: conversion semantics + hex validation)
-    ("ppsspp_convert_address", {"address": "0x0", "mode": "ida_to_ppsspp"}, "accept", ""),
-    ("ppsspp_convert_address", {"address": "0x08804000", "mode": "ppsspp_to_ida"}, "accept", ""),
-    (
-        "ppsspp_convert_address",
-        {"address": "0x08000000", "mode": "ppsspp_to_ida"},
-        "reject",
-        "is negative",
-    ),
+    # (ppsspp_convert_address rows removed in v0.1.6 — tool un-tooled)
     # session/health read-only paths
-    ("ppsspp_session_list", {}, "accept", ""),
+    ("ppsspp_session", {"action": "list"}, "accept", ""),
     ("ppsspp_health", {}, "accept", ""),
     # schema-level rejections (R2 pins the enum; here pin the wire text)
     (

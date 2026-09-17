@@ -8,7 +8,7 @@ probes of the active PPSSPP session.
 Session-selection convention: these URIs are session-less (a static
 Resource cannot take arguments), so both require exactly ONE active
 session. Zero sessions → ResourceError listing the prerequisite; more
-than one → ResourceError directing the caller to `ppsspp_session_list`
+than one → ResourceError directing the caller to `ppsspp_session(action="list")`
 + the session-argument tools (`ppsspp_query`).
 
 Registered via `@mcp.resource()` decorator (imported by
@@ -46,8 +46,8 @@ async def _require_single_session() -> str:
     if len(sessions) > 1:
         raise ResourceError(
             f"{len(sessions)} active sessions — snapshots require exactly "
-            "one; use ppsspp_session_list and the session-argument tools "
-            "(ppsspp_query / ppsspp_read_memory) instead"
+            'one; use ppsspp_session(action="list") and the session-argument '
+            "tools (ppsspp_query / ppsspp_read_memory) instead"
         )
     return sessions[0].session_id
 

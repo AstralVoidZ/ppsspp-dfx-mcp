@@ -63,7 +63,8 @@ def _detect_multi_shape_tools() -> dict[str, list[str]]:
         try:
             src = textwrap.dedent(inspect.getsource(fn))
             tree = ast.parse(src)
-        except (OSError, TypeError, SyntaxError):            continue
+        except (OSError, TypeError, SyntaxError):
+            continue
         classes: set[str] = set()
         for node in ast.walk(tree):
             # 构造式：XResponse(...)

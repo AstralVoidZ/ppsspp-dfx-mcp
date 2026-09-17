@@ -1,7 +1,8 @@
 """Offline re-score of stored B1 trajectories under v1.2 scenario cards.
 
 The 95-grid B1 archive was scored under v1.1 gates; v1.2 whitelisted
-ppsspp_session_list in L2-03/L2-04 first_tool. gates.evaluate is pure, so
+ppsspp_session (then ppsspp_session_list; merged into session in v0.1.6)
+in L2-03/L2-04 first_tool. gates.evaluate is pure, so
 stored tool_calls + final_answer can be re-scored against the CURRENT
 scenarios.yaml without re-running.
 

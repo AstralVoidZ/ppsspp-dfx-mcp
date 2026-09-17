@@ -46,7 +46,7 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 | "录制与回放" | [common/replay_recording](references/playbook/common/replay_recording.md) |
 | "批量按键 + 状态观察" | [common/batch_automation](references/playbook/common/batch_automation.md) |
 
-地址常量一律查 `.ppsspp-dfx/config/addresses.yaml`（`ppsspp_list_addresses` 可列出）。IDA 偏移 ↔ 运行时地址的离线换算用 `scripts/addr_convert.py`（自动读取 addresses.yaml 基址，无需活跃会话；运行中会话内也可用 `ppsspp_convert_address`）。具体游戏的界面签名、函数语义、码点约束等**项目上下文不在本技能书**——项目仓库如有对应的项目侧 skill（如 `ppsspp-dfx-<game>`），先确认其可用并优先遵循。
+地址常量一律查 `.ppsspp-dfx/config/addresses.yaml`（`ppsspp_list_addresses` 可列出）。IDA 偏移 ↔ 运行时地址的离线换算用 `scripts/addr_convert.py`（自动读取 addresses.yaml 基址，无需活跃会话；运行中会话内也可心算：`ppsspp_addr = ida_addr + (top_base.ppsspp - top_base.ida)`，v0.1.6 起 convert_address 已非工具化。具体游戏的界面签名、函数语义、码点约束等**项目上下文不在本技能书**——项目仓库如有对应的项目侧 skill（如 `ppsspp-dfx-<game>`），先确认其可用并优先遵循。
 
 ## 4. 通用约束（跨场景）
 
@@ -58,7 +58,7 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 6. **单次读上限** `read_bytes` 65536 字节，超出拆多次。
 7. **按键/等待单位是帧**（60fps），`press duration` 与 `wait frames` 上限 18000；`interval` ∈ [0.0001, 1.0]s。
 8. **写内存/汇编**受保护区（kernel <0x08800000、游戏代码段）需 `force=True`；`assemble` 按 `\n`/`;` 逐条汇编。
-9. **图像工具返回两个通道**（`ppsspp_screenshot` / `ppsspp_dump_texture` / `ppsspp_dump_clut`）：像素在 `content` 的 ImageContent 块，**元数据只在 `structuredContent`**——没有文本块承载元数据，`image_base64` 也不在结构化通道里。三者都**自动落盘**，元数据的 `file_path` 就是已保存的文件：复用那张图，别重复截。
+9. **图像工具返回两个通道**（`ppsspp_screenshot` / `ppsspp_dump`，kind=`texture`/`clut`）：像素在 `content` 的 ImageContent 块，**元数据只在 `structuredContent`**——没有文本块承载元数据，`image_base64` 也不在结构化通道里。三者都**自动落盘**，元数据的 `file_path` 就是已保存的文件：复用那张图，别重复截。
 
 ## 5. 错误码恢复矩阵
 

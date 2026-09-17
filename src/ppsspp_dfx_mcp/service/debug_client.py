@@ -19,7 +19,7 @@ Categories:
 - GPU Buffer (3): render_color, texture, clut
 - GPU Stats (1): gpu_stats
 - GPU Record (1): gpu_record_dump
-- Memory Info (1): memory_info_search
+- Memory Info (1): search_memory_info
 - Memory Scan (1): scan_memory (business orchestration, not WS event)
 - Replay (8): replay_begin / replay_abort / replay_flush / replay_execute /
   replay_status / replay_time_get / replay_time_set / replay_wait_complete
@@ -1505,7 +1505,7 @@ class PpssppDebugClient:
     # except `match` are optional. See MemoryInfoSubscriber.cpp:L52,
     # L324-393 for the response shape.
 
-    async def memory_info_search(
+    async def search_memory_info(
         self,
         match: str,
         address: int | None = None,

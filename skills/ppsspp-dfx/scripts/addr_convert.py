@@ -2,7 +2,7 @@
 """Convert between IDA offsets and PPSSPP runtime addresses (offline).
 
 runtime address = IDA offset + load base. The MCP tool
-`ppsspp_convert_address` does the same with the session's fixed base; this
+v0.1.6 un-tooled `ppsspp_convert_address`; this
 script works without a running session and accepts any base, including one
 read from `.ppsspp-dfx/config/addresses.yaml` (top_base.ppsspp).
 

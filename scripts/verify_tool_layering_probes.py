@@ -46,7 +46,8 @@ def _is_error(result) -> bool:
 def _hex(v) -> str:
     try:
         return f"0x{int(v):08X}"
-    except (TypeError, ValueError):        return str(v)
+    except (TypeError, ValueError):
+        return str(v)
 
 
 async def run() -> int:

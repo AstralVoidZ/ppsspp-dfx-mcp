@@ -177,12 +177,11 @@ class TestAssertCoreTools:
         with pytest.raises(RuntimeError, match="core tools missing from registry"):
             server_mod._assert_core_tools()
 
-    def test_core_tools_subset_is_three(self):
-        """_CORE_TOOLS contains exactly the 3 liveness-critical tools."""
+    def test_core_tools_subset_is_two(self):
+        """_CORE_TOOLS contains exactly the 2 liveness-critical tools."""
         assert {
             "ppsspp_health",
             "ppsspp_session",
-            "ppsspp_session_list",
         } == server_mod._CORE_TOOLS
 
 

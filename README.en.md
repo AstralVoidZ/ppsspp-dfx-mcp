@@ -26,7 +26,7 @@ before running.
 
 ## Features
 
-- **41 static tools**, all with structured `inputSchema` / `outputSchema` — no
+- **37 static tools**, all with structured `inputSchema` / `outputSchema` — no
   unconstrained return values; every parameter is typed and documented.
 - **Dynamic script tools**: project-specific diagnostic scripts are exposed as
   `ppsspp_script_<name>` tools via `scripts.manifest.yaml`, with input types
@@ -41,7 +41,7 @@ before running.
   disconnect disambiguation), with recovery hints embedded in error text.
 - **Background automation**: batch jobs run in detached server tasks,
   immune to MCP client tool-call timeouts; supports status polling,
-  cancellation, and registry inventory (`ppsspp_batch_list`).
+  cancellation, and registry inventory (`ppsspp_batch_status` with `batch_id` omitted).
 - **Built-in evaluations** (`evals/`): 21 scenario cards + deterministic gates
   + a blind-test runner over recorded fixtures + summary reports — the tool
   surface is tested the way agents actually use it.
@@ -207,7 +207,7 @@ request handler exists, so everything listed here is real):
 
 | Capability | Declared | Notes |
 |---|---------|-------|
-| `tools` | ✅ | 41 static tools + dynamic `ppsspp_script_<name>` |
+| `tools` | ✅ | 37 static tools + dynamic `ppsspp_script_<name>` |
 | `resources` | ✅ | `ppsspp://game-state`, `ppsspp://registers` (snapshots) |
 | `prompts` | ✅ | `memory-breakpoint-wizard`, `memory-trace-wizard` |
 | `completions` | ✅ | the wizards' `address` argument, candidates from `addresses.yaml` |
@@ -232,8 +232,7 @@ decision needs re-visiting, not a regression.
 
 ### Return shapes
 
-**Image tools** (`ppsspp_screenshot`, `ppsspp_dump_texture`,
-`ppsspp_dump_clut`) return a split `CallToolResult`:
+**Image tools** (`ppsspp_screenshot`, `ppsspp_dump`) return a split `CallToolResult`:
 
 - `content` — one `ImageContent` block carrying the pixels.
 - `structuredContent` — metadata only (`file_path` / `size_bytes` / `format`,

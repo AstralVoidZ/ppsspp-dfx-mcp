@@ -5,6 +5,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.6] - 2026-09-18
+
+### Changed（表面重构 — Glama AI 可用性评审整改：工具数 41 → 37）
+
+| v0.1.5 及之前 | v0.1.6 | 说明 |
+|---|---|---|
+| `ppsspp_session_list` | `ppsspp_session(action="list")` | 会话清单并入会话分发器；返回 `{sessions, count}` 不变 |
+| `ppsspp_batch_list` | `ppsspp_batch_status(batch_id 省略)` | 盘点模式并入状态查询；返回 `{jobs, retention_jobs}` 不变 |
+| `ppsspp_dump_texture` / `ppsspp_dump_clut` | `ppsspp_dump(kind="texture"/"clut", level?)` | 二合一；`kind="clut"` 时 `level` 必须为 0；元数据统一含 `level` 字段（clut 恒为 0） |
+| `ppsspp_convert_address` | （非工具化） | 纯算术：`ppsspp_addr = ida_addr + (top_base.ppsspp - top_base.ida)`；公式移入 `ppsspp_list_addresses` 描述与技能书 `scripts/addr_convert.py` |
+| `ppsspp_memory_info_search` | `ppsspp_search_memory_info` | 改名（verb_noun 约定），参数与返回不变 |
+
+- 命名成文约定落盘 CONTRIBUTING（原子工具 verb_noun / 分发器 noun(action=) / 族内自洽）。
+- 重叠簇交叉引用：`query`/`get_pc`/`frame_snapshot`/`state_observer`/`breakpoint`/
+  `wait_breakpoint`/`trace_memory_access`/`step`/`batch_step` 等 10 处描述新增 ROUTING 节
+  （何时用我、何时改用哪个相邻工具）。
+
+### Removed
+
+- 见上表前四行（均有等价替代路径，无能力删减）。
+
 ## [Unreleased]
 
 ## [0.1.5] - 2026-09-18

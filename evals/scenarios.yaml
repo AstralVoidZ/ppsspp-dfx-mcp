@@ -229,7 +229,7 @@ scenarios:
       帮我做一段自动化操作：按一下 start 键，等 60 帧，然后截一张图。
       要求尽量用一条命令完成整个序列。
     max_turns: 12
-    expected_first_tools: [ppsspp_batch_step, ppsspp_session_list]  # v1.2: 会话确认合理
+    expected_first_tools: [ppsspp_batch_step, ppsspp_session]  # v1.2: 会话确认合理（v0.1.6 起 list 并入 session）
     optimal_calls: 1
     param_expectations:
       - {tool: ppsspp_batch_step, param: steps, expect: {len: 3}}
@@ -244,7 +244,7 @@ scenarios:
     prompt: |
       从模拟器会话里读取 0x08804000 处的 16 个字节（用先启动的那个会话）。
     max_turns: 12
-    expected_first_tools: [ppsspp_read_memory, ppsspp_session_list]  # v1.2: 指定会话→先列合理
+    expected_first_tools: [ppsspp_read_memory, ppsspp_session]  # v1.2: 指定会话→先列合理（v0.1.6 起 list 并入 session）
     optimal_calls: 3
     gates:
       - type: first_tool

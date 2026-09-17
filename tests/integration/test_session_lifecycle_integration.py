@@ -41,7 +41,7 @@ from ppsspp_dfx_mcp.errors import (
     ToolError,
 )
 from ppsspp_dfx_mcp.session import session_manager as sm_mod
-from ppsspp_dfx_mcp.tools.session import session, session_list
+from ppsspp_dfx_mcp.tools.session import session
 
 # ============================================================================
 # Fixtures: isolate sessions.json + stub launcher for each test
@@ -161,7 +161,7 @@ class TestSessionListShape:
 
     async def test_session_list_returns_dict_with_sessions_and_count(self):
         """session_list() dict must have `sessions` (list) + `count` (int)."""
-        result = await session_list()
+        result = await session(action="list")
         assert isinstance(result, dict)
         assert "sessions" in result
         assert "count" in result
@@ -171,7 +171,7 @@ class TestSessionListShape:
 
     async def test_session_list_empty_when_no_sessions(self):
         """session_list() returns count=0 when no sessions are active."""
-        result = await session_list()
+        result = await session(action="list")
         assert result["count"] == 0
         assert result["sessions"] == []
 
@@ -217,7 +217,7 @@ class TestRealSessionLifecycle:
 
     async def test_session_list_contains_active_session(self, real_session):
         """session_list() must include the session_id returned by start."""
-        result = await session_list()
+        result = await session(action="list")
         session_ids = [s["session_id"] for s in result["sessions"]]
         assert real_session in session_ids, (
             f"active session {real_session} not in session_list: {session_ids}"
@@ -251,7 +251,7 @@ class TestRealSessionLifecycle:
             f"stopped session should have pid=None, got {stopped.get('pid')}"
         )
         # session_list should no longer contain it.
-        result = await session_list()
+        result = await session(action="list")
         session_ids = [s["session_id"] for s in result["sessions"]]
         assert real_session not in session_ids, (
             f"stopped session {real_session} still in session_list: {session_ids}"
@@ -269,7 +269,7 @@ class TestRealSessionLifecycle:
         real_session,
     ):
         """session_list() count is >=1 when at least one session is active."""
-        result = await session_list()
+        result = await session(action="list")
         assert result["count"] >= 1, (
             f"count should be >=1 with an active session, got {result['count']}"
         )

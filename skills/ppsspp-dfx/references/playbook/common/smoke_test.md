@@ -46,7 +46,7 @@ addresses: [game_mode]
 
 | 症状 | 原因 | 修复 |
 |------|------|------|
-| `PORT_CONFLICT` | 端口被旧会话/进程占用 | `ppsspp_session_list` 查旧会话并 stop；或确认无残留 PPSSPP 进程 |
+| `PORT_CONFLICT` | 端口被旧会话/进程占用 | `ppsspp_session(action="list")` 查旧会话并 stop；或确认无残留 PPSSPP 进程 |
 | 反复 `WS_TIMEOUT` | PPSSPP 假启动（无窗口/被杀） | 检查进程与窗口；按 [cpu-state-contract.md](../../cpu-state-contract.md) §4 归因 |
 | 标题→菜单转换期进程消失 | 项目已知不稳定段 | 查 `DUMP/log.txt` 与 `*.ppdmp` 转储；转 [crash_analysis.md](crash_analysis.md) |
 
