@@ -49,7 +49,7 @@ from ppsspp_dfx_mcp.core.batch_jobs import (
     estimate_batch_seconds,
     get_registry,
 )
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import StepInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.batch_step import BatchResult, BatchStepInput, StepResult
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client, validate_session_alive
@@ -112,71 +112,54 @@ ProgressCallback = Callable[[int, int, str, str], Awaitable[None]]
 
 
 def _validate_step(step: dict[str, Any], index: int) -> None:
-    """Validate a single step dict structure. Raises ToolError on invalid."""
+    """Validate a single step dict structure. Raises StepInvalid on invalid."""
     if not isinstance(step, dict):
-        raise ToolError(
-            f"step[{index}] must be a dict; got {type(step).__name__}",
-            code="INTERNAL",
-        )
+        raise StepInvalid(f"step[{index}] must be a dict; got {type(step).__name__}")
     if "type" not in step:
-        raise ToolError(
-            f"step[{index}] missing required 'type' field", code="INTERNAL"
-        )
+        raise StepInvalid(f"step[{index}] missing required 'type' field")
     stype = step["type"]
     if stype not in _STEP_TYPES:
-        raise ToolError(
+        raise StepInvalid(
             f"step[{index}] invalid type={stype!r}; "
             f"expected one of {_STEP_TYPES}",
-            code="INTERNAL",
         )
     if stype == "press":
         button = step.get("button")
         if not button:
-            raise ToolError(
-                f"step[{index}] type=press requires 'button' field",
-                code="INTERNAL",
-            )
+            raise StepInvalid(f"step[{index}] type=press requires 'button' field")
         if button not in _VALID_BUTTONS:
-            raise ToolError(
+            raise StepInvalid(
                 f"step[{index}] invalid button={button!r}; "
                 f"expected one of {_VALID_BUTTONS}",
-                code="INTERNAL",
             )
         duration = step.get("duration", 1)
         if not isinstance(duration, int) or duration < 0:
-            raise ToolError(
+            raise StepInvalid(
                 f"step[{index}] duration must be int >= 0; "
                 f"got {duration!r}",
-                code="INTERNAL",
             )
         if duration > MAX_PRESS_DURATION_FRAMES:
             # WS ticket timeout scales with duration — an
             # unbounded press hung the whole batch indefinitely.
-            raise ToolError(
+            raise StepInvalid(
                 f"step[{index}] duration {duration} exceeds the cap "
                 f"{MAX_PRESS_DURATION_FRAMES}",
-                code="INTERNAL",
             )
     elif stype == "wait":
         frames = step.get("frames")
         if frames is None:
-            raise ToolError(
-                f"step[{index}] type=wait requires 'frames' field",
-                code="INTERNAL",
-            )
+            raise StepInvalid(f"step[{index}] type=wait requires 'frames' field")
         if not isinstance(frames, int) or frames < 0:
-            raise ToolError(
+            raise StepInvalid(
                 f"step[{index}] frames must be int >= 0; got {frames!r}",
-                code="INTERNAL",
             )
     elif stype == "state_probe":
         # names is optional (observe all); samples optional.
         samples = step.get("samples", 1)
         if not isinstance(samples, int) or samples < 1:
-            raise ToolError(
+            raise StepInvalid(
                 f"step[{index}] samples must be int >= 1; "
                 f"got {samples!r}",
-                code="INTERNAL",
             )
     # screenshot: no required fields (source / mode optional).
 
@@ -487,12 +470,9 @@ async def batch_step(
 
     RETURNS: foreground {total, executed, succeeded, failed, skipped, recording_mode, results[], aborted}; background {action:'submitted', batch_id, session_id, total, estimated_s, hint}."""
     if not isinstance(steps, list):
-        raise ToolError(
-            f"steps must be a list; got {type(steps).__name__}",
-            code="INTERNAL",
-        )
+        raise StepInvalid(f"steps must be a list; got {type(steps).__name__}")
     if not steps:
-        raise ToolError("steps must not be empty", code="INTERNAL")
+        raise StepInvalid("steps must not be empty")
     for i, step in enumerate(steps):
         _validate_step(step, i)
 

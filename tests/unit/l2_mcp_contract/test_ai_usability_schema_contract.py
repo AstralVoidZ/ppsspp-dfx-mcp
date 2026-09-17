@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from ppsspp_dfx_mcp import server as server_mod
+from ppsspp_dfx_mcp.models.input import PPSSPP_ALL_BUTTONS
 
 pytestmark = pytest.mark.asyncio
 
@@ -46,7 +47,12 @@ class TestBatchStepsDiscriminatedUnion:
         """Per-type $defs carry typed properties (button/frames/...)."""
         schema = await _tool_schema("ppsspp_batch_step")
         defs = schema.get("$defs", {})
+        button = defs.get("PressStep", {}).get("properties", {}).get("button", {})
         assert "button" in defs.get("PressStep", {}).get("properties", {})
+        assert button.get("enum") == list(PPSSPP_ALL_BUTTONS), (
+            "PressStep.button must surface the 25-item whitelist as a "
+            "schema enum — a bare string regresses generation guidance"
+        )
         assert "frames" in defs.get("WaitStep", {}).get("properties", {})
         assert "samples" in defs.get("StateProbeStep", {}).get("properties", {})
         assert "source" in defs.get("ScreenshotStep", {}).get("properties", {})

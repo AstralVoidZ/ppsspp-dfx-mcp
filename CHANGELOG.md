@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `ppsspp_batch_step` 的 `PressStep.button` 在 inputSchema 中以 25 项枚举
+  下发（此前为裸 string + 文字描述，白名单约束仅存在于运行时）；按钮词汇表
+  规范定义上收至 `models/input.py`（`PPSSPP_ALL_BUTTONS`），input 工具与
+  批量步骤共用单一真相源。
+
+### Fixed
+
+- `_validate_step` 的 step 结构校验错误码由 `INTERNAL` 更正为
+  `STEP_INVALID`（输入校验失败不是服务器内部错误；新错误类继承
+  `ToolError`，既有客户端分类不受影响）。
+
 ## [0.1.2] - 2026-09-17
 
 ### Fixed

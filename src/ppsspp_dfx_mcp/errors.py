@@ -173,6 +173,12 @@ class ScanNoMatch(ToolError):
     code = "SCAN_NO_MATCH"
 
 
+class StepInvalid(ToolError):
+    """Batch step argument failed structural validation (type/field/value)."""
+
+    code = "STEP_INVALID"
+
+
 class NotImplemented(ToolError):
     """Requested action is not yet implemented."""
 
