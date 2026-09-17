@@ -7,8 +7,20 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-18
+
+### Added
+
+- 英文 README（`README.md` 转为英文主门面，中文迁至 `README.zh-CN.md`，
+  双语切换器）——面向 MCP 全球受众。
+- MCP Registry 元数据：`server.json`（官方 Registry 发布格式）与 README
+  的 `mcp-name` 所有权标记。
+
+## [0.1.3] - 2026-09-18
+
 ### Changed
 
+- README 增加徽章行（PyPI / CI / Python / License）。
 - 全库 ruff 清债至零并纳入 CI 执法：safe-fix 482 处（导入排序/类型现代化/
   未用导入）、`ruff format` 全库 214 文件、残量 SIM105/SIM117/F841 等手工
   清扫；`.github/workflows/ci.yml` 新增 lint job（`ruff check` +

@@ -1,6 +1,6 @@
 [project]
 name = "ppsspp-dfx-mcp"
-version = "0.1.2"
+version = "0.1.4"
 description = "PPSSPP debug MCP server — engineering-grade debugging SDK for PSP game localization"
 readme = "README.md"
 license = "MIT"
