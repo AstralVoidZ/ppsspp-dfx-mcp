@@ -2,11 +2,11 @@
 
 Verifies the MCP protocol layer (ClientSession → server → list_tools)
 returns all expected static tools. Anchors:
-- Phase 1 (3): ppsspp_health / ppsspp_session / ppsspp_session_list
+- Phase 1 (2): ppsspp_health / ppsspp_session
 - Phase 2 (16): ppsspp_smoke_test / ppsspp_screenshot / etc.
 - Phase 3 (3): ppsspp_list_scripts / ppsspp_run_script / ppsspp_reload_scripts
 - Phase 4 (5): ppsspp_write_register / ppsspp_evaluate / etc.
-- Phase 5 (3): ppsspp_gpu_stats / ppsspp_gpu_record / ppsspp_memory_info_search
+- Phase 5 (3): ppsspp_gpu_stats / ppsspp_gpu_record / ppsspp_search_memory_info
 - Phase 6 (1): ppsspp_replay (OpenSpec add-replay-tools)
 - Phase 7 (2): ppsspp_state_observer / ppsspp_batch_step (add-replay-tools P2)
 
@@ -36,11 +36,10 @@ EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset(
         # Phase 1 (3)
         "ppsspp_health",
         "ppsspp_session",
-        "ppsspp_session_list",
         # Phase 2 (16)
         "ppsspp_smoke_test",
         "ppsspp_screenshot",
-        "ppsspp_dump_texture",
+        "ppsspp_dump",
         "ppsspp_read_memory",
         "ppsspp_write_memory",
         "ppsspp_disassemble",
@@ -53,7 +52,6 @@ EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset(
         "ppsspp_send_analog",
         "ppsspp_wait_frames",
         "ppsspp_analyze_log",
-        "ppsspp_convert_address",
         # Phase 3 (3)
         "ppsspp_list_scripts",
         "ppsspp_run_script",
@@ -67,7 +65,7 @@ EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset(
         # Phase 5 (3)
         "ppsspp_gpu_stats",
         "ppsspp_gpu_record",
-        "ppsspp_memory_info_search",
+        "ppsspp_search_memory_info",
         # Phase 6 (1, OpenSpec add-replay-tools)
         "ppsspp_replay",
         # Phase 7 (2, OpenSpec add-replay-tools P2)
@@ -103,7 +101,7 @@ async def test_list_tools_includes_phase1_set(mcp_inspector):
     result = await mcp_inspector.list_tools()
     tool_names = {t.name for t in result.tools}
 
-    missing = {"ppsspp_health", "ppsspp_session", "ppsspp_session_list"} - tool_names
+    missing = {"ppsspp_health", "ppsspp_session"} - tool_names
     assert not missing, f"Phase 1 tools missing: {sorted(missing)}"
 
 

@@ -42,7 +42,7 @@ class TestSpecProtocolConsistency:
     # E-1: memory-info-search-tool — "extent" not "list"
     # ==================================================================
 
-    def test_memory_info_search_spec_contains_extent(self):
+    def test_search_memory_info_spec_contains_extent(self):
         """E-1 回归：memory-info-search-tool spec 应包含 "extent"。
 
         PPSSPP memory.info.search 返回单个 extent（null | object），
@@ -56,7 +56,7 @@ class TestSpecProtocolConsistency:
             "不是列表。如果此断言失败，E-1 回归（spec 错误说 list）。"
         )
 
-    def test_memory_info_search_spec_no_list_of_regions_phrase(self):
+    def test_search_memory_info_spec_no_list_of_regions_phrase(self):
         """E-1 回归：不应包含 "Returns a list of matching memory regions"。"""
         spec = _read_spec("memory-info-search-tool")
         assert "Returns a list of matching memory regions" not in spec, (

@@ -91,7 +91,8 @@ def _run(argv: list[str], cwd: Path | None = None) -> subprocess.CompletedProces
 def _sdk_version(python: Path) -> str | None:
     try:
         proc = _run([str(python), "-c", _SDK_PROBE], cwd=PROJECT_DIR)
-    except (OSError, subprocess.SubprocessError):        return None
+    except (OSError, subprocess.SubprocessError):
+        return None
     version = proc.stdout.strip()
     return version if proc.returncode == 0 and version else None
 
@@ -203,7 +204,8 @@ def check() -> int:
     _say(f"venv        {VENV_DIR_REL}  ✓")
     try:
         ver = _run([str(python), "-c", "import sys; print(sys.version.split()[0])"]).stdout.strip()
-    except (OSError, subprocess.SubprocessError):        ver = "?"
+    except (OSError, subprocess.SubprocessError):
+        ver = "?"
     _say(f"解释器      {_display(python)}  (Python {ver})  ✓")
 
     sdk = _sdk_version(python)

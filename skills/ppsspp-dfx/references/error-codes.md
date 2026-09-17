@@ -12,10 +12,10 @@ category: errors
 
 | 错误码 | 语义 | 恢复路径 |
 |---|---|---|
-| `SESSION_NOT_FOUND` | 会话 ID 不在活跃表 | `ppsspp_session_list` 查看；不存在则 `session(action="start")` 重建 |
+| `SESSION_NOT_FOUND` | 会话 ID 不在活跃表 | `ppsspp_session(action="list")` 查看；不存在则 `session(action="start")` 重建 |
 | `SESSION_EXPIRED` | 会话进程已死 | `session(action="start")` 重建（勿复用旧 session_id） |
 | `SESSION_BUSY` | 另一工具调用正占会话锁（>5s 报出） | 等当前长操作完成再调；`wait_breakpoint`/`trace_memory_access` 等待期不占锁，可并发读/观察 |
-| `SESSION_ALREADY_EXISTS` | 同资源已有活跃会话 | `session_list` 找到现有会话直接复用，或先 `session(action="stop")` 再建 |
+| `SESSION_ALREADY_EXISTS` | 同资源已有活跃会话 | `ppsspp_session(action="list")` 找到现有会话直接复用，或先 `session(action="stop")` 再建 |
 | `SESSION_AMBIGUOUS` | 省略 `session_id` 时有多个活跃会话（高频五工具自动解析的歧义保护） | 按 message 列出的 id 显式传入目标会话，或 stop 多余会话 |
 | `BOOT_TIMEOUT` | CPU 未在启动预算内就绪（楔死嫌疑） | `ppsspp_analyze_log` 查启动错误（GPU backend 失败是已知根因）→ `session(stop)` → `start(resilient=true)` 重试 |
 
@@ -25,7 +25,7 @@ category: errors
 |---|---|---|
 | `ISO_NOT_FOUND` | ISO 文件不存在 | 用存在的绝对路径重试 `session(start)` |
 | `PPSSPP_NOT_FOUND` | PPSSPP 可执行文件路径无效 | 检查 `ppsspp_exe` 配置（project.yaml 或 `PPSSPP_DFX_EXE_PATH`）后重试 |
-| `PORT_CONFLICT` | WS 端口被另一活跃会话占用 | `session_list` 找占用者并 stop；或换 `PPSSPP_DFX_WS_PORT` |
+| `PORT_CONFLICT` | WS 端口被另一活跃会话占用 | `ppsspp_session(action="list")` 找占用者并 stop；或换 `PPSSPP_DFX_WS_PORT` |
 | `CONFIG_INVALID` | 启动配置校验失败 | 按 message 修 `.ppsspp-dfx/config/` 配置或环境变量，重启 server |
 
 ## 连接与协议
@@ -52,11 +52,11 @@ category: errors
 
 | 错误码 | 语义 | 恢复路径 |
 |---|---|---|
-| `PROTECTED_ADDRESS` | 写入受保护区（kernel <0x08800000、top.prx 代码段） | 确认意图后加 `force=True`；误写会崩溃，先 `convert_address` 核对目标 |
+| `PROTECTED_ADDRESS` | 写入受保护区（kernel <0x08800000、top.prx 代码段） | 确认意图后加 `force=True`；误写会崩溃，先核对 IDA↔运行时换算（offset = `top_base.ppsspp - top_base.ida`）|
 | `BREAKPOINT_ERROR` | 断点操作失败 | 确认 CPUCore=2 与地址可执行；`mem_remove` 前先 `mem_list` 解析真实 size（按 address+size 匹配） |
 | `ADDR_INVALID` | 地址格式或范围非法 | 用 `"0x"` 前缀 hex 字符串重试；范围常量查 `ppsspp_list_addresses`，区域查 `ppsspp_memory_map` |
 | `SCAN_NO_MATCH` | 内存扫描无命中 | 放宽 pattern、扩大 start_addr/end_addr、核对字节序；可用 `read_bytes` 抽查目标区域佐证 |
-| `VERIFY_MISMATCH` | 反汇编结果与预期指令不符 | `ppsspp_convert_address` 核对 IDA↔运行时换算；确认补丁/hook 是否真正生效 |
+| `VERIFY_MISMATCH` | 反汇编结果与预期指令不符 | 按 offset 公式核对 IDA↔运行时换算（`ppsspp_list_addresses` 描述内有公式）；确认补丁/hook 是否真正生效 |
 
 ## 脚本系统与其它
 

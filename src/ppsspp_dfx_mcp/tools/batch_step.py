@@ -81,7 +81,11 @@ BatchStepOutput = derive_output_contract(
     # required 集合会在后台提交分支上硬失败，故全字段可选。
     partial=True,
 )
-BatchStatusOutput = derive_output_contract("BatchStatusOutput", BatchStatusResponse)
+BatchStatusOutput = derive_output_contract(
+    "BatchStatusOutput",
+    BatchStatusResponse,
+    partial=True,  # 多形态：batch_id 省略走 BatchListResponse 分支
+)
 BatchListOutput = derive_output_contract("BatchListOutput", BatchListResponse)
 
 
@@ -99,7 +103,7 @@ class BatchCancelOutput(TypedDict):
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["batch_step", "batch_status", "batch_cancel", "batch_list"]
+__all__ = ["batch_step", "batch_status", "batch_cancel"]
 
 # STEP_TYPES comes from models.batch_step (single source of truth, locked
 # to the 4 step TypedDicts by an import-time assert there).
@@ -447,6 +451,8 @@ async def batch_step(
 
     USAGE: session_id + steps:[{type: press|wait|state_probe|screenshot, ...}]; on_failure='continue'|'abort' (default continue); background=false|true.
 
+
+    ROUTING: ordered multi-step automation -> here; single CPU-step -> ppsspp_step; background job survey -> ppsspp_batch_status(batch_id omitted).
     BEHAVIOR: STATE-CHANGE. Foreground (default) holds the session lock for the whole batch; frames are 60fps wall-clock equivalents; sequences estimated >25s are rejected up-front with BATCH_BUDGET_EXCEEDED (the MCP client aborts tool calls at ~30s, killing the remaining steps server-side). Per-step MCP progress is reported when the client requests it. background=true validates and submits instantly, returns {action:'submitted', batch_id,...}, keeps the session lock for the batch duration, and reports progress via ppsspp_batch_status. If any foreground step fails the whole call is isError BATCH_STEP_FAILED — inspect results[] per step. Screenshots are auto-skipped during replay recording.
 
     RETURNS: foreground {total, executed, succeeded, failed, skipped, recording_mode, results[], aborted}; background {action:'submitted', batch_id, session_id, total, estimated_s, hint}."""
@@ -567,17 +573,40 @@ async def batch_step(
 @translate_tool_errors
 async def batch_status(
     batch_id: Annotated[
-        str,
-        Field(description="Job id returned by ppsspp_batch_step(background=true)."),
-    ],
+        str | None,
+        Field(
+            description=(
+                "Job id returned by ppsspp_batch_step(background=true). "
+                "Omit to survey ALL retained jobs instead (list mode; "
+                "recovers a batch_id after the submit response was lost)."
+            ),
+        ),
+    ] = None,
 ) -> BatchStatusOutput:
     """PURPOSE: Poll the state and progress of a background batch job without touching the session.
 
-    USAGE: batch_id from ppsspp_batch_step(background=true).
+    USAGE: batch_id from ppsspp_batch_step(background=true); omit batch_id for survey/list mode (e.g. to recover a lost batch_id or audit background activity before touching the session).
 
     BEHAVIOR: Lock-free registry read — never opens the WS transport and never waits for the per-session lock, so it is safe to call while a background batch (or any other tool) owns the session. Executed-step count updates as steps complete; 'completed' carries the full foreground-shaped result. READ-ONLY.
 
-    RETURNS: {batch_id, session_id, status: queued|running|completed|failed|cancelled, executed, total, error, result, retention_jobs}."""
+    RETURNS: with batch_id → {batch_id, session_id, status: queued|running|completed|failed|cancelled, executed, total, error, result, retention_jobs}; with batch_id omitted (survey) → {jobs: [{batch_id, session_id, status, executed, total, error, result_present}], retention_jobs} in submission order (finished jobs beyond retention are evicted and absent)."""
+    if batch_id is None:
+        jobs = get_registry().list_jobs()
+        return BatchListResponse(
+            jobs=[
+                {
+                    "batch_id": j.batch_id,
+                    "session_id": j.session_id,
+                    "status": j.status,
+                    "executed": j.executed,
+                    "total": j.total_steps,
+                    "error": j.error,
+                    "result_present": j.result is not None,
+                }
+                for j in jobs
+            ],
+            retention_jobs=FINISHED_JOB_RETENTION,
+        ).model_dump(mode="json")
     job = get_registry().get(batch_id)
     if job is None:
         raise ToolError(
@@ -613,7 +642,7 @@ async def batch_cancel(
 ) -> BatchCancelOutput:
     """PURPOSE: Request cancellation of a queued or running background batch job.
 
-    USAGE: batch_id from ppsspp_batch_step(background=true).
+    USAGE: batch_id from ppsspp_batch_step(background=true); omit batch_id for survey/list mode (e.g. to recover a lost batch_id or audit background activity before touching the session).
 
     BEHAVIOR: STATE-CHANGE. Cancels the detached task; the job's own finally block releases the session lock, so subsequent tool calls are free to use the session immediately. The abort happens at the current step boundary (a press finishes, a mid-wait cuts within ~1s). Cancelling an already-finished job is an error — check ppsspp_batch_status first if unsure.
 
@@ -641,34 +670,5 @@ async def batch_cancel(
     }
 
 
-@mcp.tool(
-    name="ppsspp_batch_list",
-    annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-    ),
-)
-@translate_tool_errors
-async def batch_list() -> BatchListOutput:
-    """PURPOSE: Survey all background batch jobs currently retained by the registry — the list companion to ppsspp_batch_status / ppsspp_batch_cancel.
-
-    USAGE: no parameters. Use it to recover a batch_id after the submit response was lost (e.g. client timeout) or to survey background activity before touching the session.
-
-    BEHAVIOR: Lock-free registry read — never opens the WS transport and never waits for the per-session lock. Jobs appear in submission order; finished jobs beyond the retention window (retention_jobs, in job count) are already evicted and absent. READ-ONLY.
-
-    RETURNS: {jobs: [{batch_id, session_id, status: queued|running|completed|failed|cancelled, executed, total, error, result_present}], retention_jobs}."""
-    jobs = get_registry().list_jobs()
-    return BatchListResponse(
-        jobs=[
-            {
-                "batch_id": job.batch_id,
-                "session_id": job.session_id,
-                "status": job.status,
-                "executed": job.executed,
-                "total": job.total_steps,
-                "error": job.error,
-                "result_present": job.result is not None,
-            }
-            for job in jobs
-        ],
-        retention_jobs=FINISHED_JOB_RETENTION,
-    ).model_dump(mode="json")
+# ppsspp_batch_list was merged into ppsspp_batch_status(batch_id omitted =
+# survey/list mode) in v0.1.6 (Glama surface review: tool-count reduction).

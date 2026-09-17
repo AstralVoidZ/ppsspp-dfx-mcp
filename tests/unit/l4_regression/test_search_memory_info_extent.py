@@ -1,7 +1,7 @@
 """L4 regression tests for V013.
 
 Violation:
-- V013 [HIGH]: `memory_info_search` docstring claimed the response
+- V013 [HIGH]: `search_memory_info` docstring claimed the response
   contained a `regions` key (plural, implying a list of matches).
   PPSSPP contract `memory.info.search` actually returns a single
   `extent` field — either null or one object (NOT a list). See
@@ -29,14 +29,14 @@ import pytest
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
 
-class TestV013MemoryInfoSearchExtent:
-    """V013: memory_info_search docstring must describe `extent`, not `regions`."""
+class TestV013SearchMemoryInfoExtent:
+    """V013: search_memory_info docstring must describe `extent`, not `regions`."""
 
     @pytest.mark.asyncio
-    async def test_forwards_to_memory_info_search_event(self, client, transport):
+    async def test_forwards_to_search_memory_info_event(self, client, transport):
         """L1 anchor: call forwards to `memory.info.search` WS event."""
         transport.set_response("memory.info.search", {"extent": None})
-        await client.memory_info_search(match="framebuf")
+        await client.search_memory_info(match="framebuf")
         assert transport.calls[-1][0] == "memory.info.search"
         assert transport.calls[-1][1] == {"match": "framebuf"}
 
@@ -48,14 +48,14 @@ class TestV013MemoryInfoSearchExtent:
         returns a single `extent` (null | object) — see
         MemoryInfoSubscriber.cpp:L52, L324-393.
         """
-        doc = inspect.getdoc(PpssppDebugClient.memory_info_search) or ""
+        doc = inspect.getdoc(PpssppDebugClient.search_memory_info) or ""
         assert "regions" not in doc, (
-            "memory_info_search docstring must NOT mention `regions` "
+            "search_memory_info docstring must NOT mention `regions` "
             "(plural list). If this fails, V013 fix was reverted. See "
             "MemoryInfoSubscriber.cpp:L52, L324-393."
         )
         assert "extent" in doc, (
-            "memory_info_search docstring MUST mention `extent` (null | "
+            "search_memory_info docstring MUST mention `extent` (null | "
             "single object) — see MemoryInfoSubscriber.cpp:L52, L324-393."
         )
 
@@ -73,6 +73,6 @@ class TestV013MemoryInfoSearchExtent:
             "tag": "framebuf",
         }
         transport.set_response("memory.info.search", {"extent": extent_payload})
-        result = await client.memory_info_search(match="framebuf")
+        result = await client.search_memory_info(match="framebuf")
         assert "extent" in result
         assert result["extent"] == extent_payload

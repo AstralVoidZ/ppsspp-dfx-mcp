@@ -68,17 +68,17 @@ class TestOutputSchemasOnTheWire:
         assert tool.output_schema is not None, f"{tool_name} 无 outputSchema"
         return tool.output_schema
 
-    async def test_dump_clut_has_no_unconstrained_items(self, mcp_inspector):
+    async def test_dump_has_no_unconstrained_items(self, mcp_inspector):
         """原始 issue：`items: {}` 触发 Inspector schema 告警。"""
-        schema = await self._schema(mcp_inspector, "ppsspp_dump_clut")
+        schema = await self._schema(mcp_inspector, "ppsspp_dump")
         for prop in (schema.get("properties") or {}).values():
             assert prop.get("items") != {}, (
-                "dump_clut 的数组返回仍未约束 items —— 即最初的 Inspector 告警形态"
+                "ppsspp_dump 的数组返回仍未约束 items —— 即最初的 Inspector 告警形态"
             )
 
     @pytest.mark.parametrize(
         "tool_name",
-        ["ppsspp_screenshot", "ppsspp_dump_texture", "ppsspp_dump_clut"],
+        ["ppsspp_screenshot", "ppsspp_dump"],
     )
     async def test_image_tools_declare_metadata_fields(self, mcp_inspector, tool_name: str):
         """图像工具的元数据契约可见（此前 screenshot/dump_texture 完全无 schema）。"""
@@ -89,9 +89,9 @@ class TestOutputSchemasOnTheWire:
         # 像素走 content，不进结构化通道。
         assert "image_base64" not in props
 
-    async def test_dump_texture_metadata_has_no_phantom_fields(self, mcp_inspector):
+    async def test_dump_metadata_has_no_phantom_fields(self, mcp_inspector):
         """spec 修正：address/texfmt/width/height 该协议不支持，不得出现在契约里。"""
-        schema = await self._schema(mcp_inspector, "ppsspp_dump_texture")
+        schema = await self._schema(mcp_inspector, "ppsspp_dump")
         props = set(schema.get("properties") or {})
         assert not (props & {"address", "texfmt", "width", "height"}), props
 

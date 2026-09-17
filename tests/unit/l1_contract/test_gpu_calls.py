@@ -245,20 +245,20 @@ class TestGpuStatsRecordRequiredRunning:
         assert len(gpu_record_calls) == 1
 
 
-class TestMemoryInfoSearchContract:
+class TestSearchMemoryInfoContract:
     """L1 contract: memory.info.search (required match + optional filters)."""
 
     @pytest.mark.asyncio
     async def test_required_match_only(self, client, transport):
         """L1 anchor: MemoryInfoSubscriber.cpp:L52, L324-393.
 
-        memory_info_search(match="framebuf") with no optional params
+        search_memory_info(match="framebuf") with no optional params
         forwards only the `match` key. Optional params (address / end
         / type) are omitted entirely when None — NOT forwarded as
         null.
         """
         transport.set_response("memory.info.search", {"extent": None})
-        await client.memory_info_search(match="framebuf")
+        await client.search_memory_info(match="framebuf")
         assert transport.calls[-1][0] == "memory.info.search"
         assert transport.calls[-1][1] == {"match": "framebuf"}
 
@@ -266,7 +266,7 @@ class TestMemoryInfoSearchContract:
     async def test_with_optional_params(self, client, transport):
         """L1 anchor: MemoryInfoSubscriber.cpp:L52, L324-393.
 
-        memory_info_search(match="texture", address=0x04000000,
+        search_memory_info(match="texture", address=0x04000000,
         end=0x04200000, type="texture") forwards all four params
         verbatim. The response `extent` field is passed through
         unchanged.
@@ -278,7 +278,7 @@ class TestMemoryInfoSearchContract:
             "tag": "framebuf",
         }
         transport.set_response("memory.info.search", {"extent": extent_payload})
-        result = await client.memory_info_search(
+        result = await client.search_memory_info(
             match="texture",
             address=0x04000000,
             end=0x04200000,

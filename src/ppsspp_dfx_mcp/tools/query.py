@@ -181,6 +181,8 @@ async def query(
 
     USAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).
 
+
+    ROUTING: cheapest one-shot PC read -> ppsspp_get_pc; pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; use query for game_state / backtrace / threads / modules / HLE func management.
     BEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused (pause first, or use get_pc); RUNNING-state PC/isCurrent is LOW trust.
 
     RETURNS: {action, data, trust_level} — data shape depends on the action."""
@@ -294,6 +296,8 @@ async def get_pc(
 
     USAGE: session_id optional when exactly one session is active.
 
+
+    ROUTING: this is the cheapest trusted PC read; full register file -> ppsspp_query(action=registers); pause+capture with probes -> ppsspp_frame_snapshot.
     BEHAVIOR: READ-ONLY. Pauses CPU temporarily for read consistency, then resumes. trust_level='high'.
 
     RETURNS: {pc, trust_level}.

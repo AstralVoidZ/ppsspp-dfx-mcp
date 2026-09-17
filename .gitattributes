@@ -1,0 +1,5 @@
+# EOL policy: normalize all text files to LF in-repo and on checkout.
+# 2026-09-18: ends the recurring whole-file CRLF<->LF churn (0f6aec8, 4bfef7b)
+# — with eol=lf pinned here, session-local core.autocrlf can no longer flip
+# entire files on checkout/edit.
+* text=auto eol=lf

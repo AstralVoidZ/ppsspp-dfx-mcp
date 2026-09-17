@@ -1,11 +1,11 @@
 """Analyze tool wrappers.
 
-2 tools exposed:
+1 tool exposed:
 - ppsspp_analyze_log(log_path?, filter?) — filter PPSSPP log for error/warning lines
-- ppsspp_convert_address(address, mode?) — convert IDA ↔ PPSSPP addresses
 
-Pure Python (no WS interaction): analyze_log reads from disk;
-convert_address reads config.addresses(). Both can run without a session.
+Pure Python (no WS interaction): analyze_log reads from disk and can run
+without a session. (ppsspp_convert_address was un-tooled in v0.1.6 —
+see the tombstone note at the bottom of this file.)
 """
 
 from __future__ import annotations
@@ -13,36 +13,24 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.config import addresses as _addresses
 from ppsspp_dfx_mcp.config import config_dir, output_dir
-from ppsspp_dfx_mcp.errors import AddrInvalid, ArgsInvalid, ToolError
-from ppsspp_dfx_mcp.models.analyze import (
-    AddressConversionResult,
-    AnalyzeLogResult,
-    LogMatch,
-)
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError
+from ppsspp_dfx_mcp.models.analyze import AnalyzeLogResult, LogMatch
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.tools._common import MAX_LOG_BYTES, MAX_LOG_MATCHES, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
-from ppsspp_dfx_mcp.views.analyze import (
-    AddressConversionResponse,
-    AnalyzeLogResponse,
-)
+from ppsspp_dfx_mcp.views.analyze import AnalyzeLogResponse
 
 AnalyzeLogOutput = derive_output_contract("AnalyzeLogOutput", AnalyzeLogResponse)
-AddressConversionOutput = derive_output_contract(
-    "AddressConversionOutput", AddressConversionResponse
-)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["analyze_log", "convert_address"]
+__all__ = ["analyze_log"]
 
 # Keywords that mark "interesting" log lines (case-sensitive; PPSSPP log
 # convention is uppercase severity prefixes).
@@ -226,82 +214,9 @@ async def analyze_log(
 #
 # Raises:
 # ToolError (AddrInvalid): on negative address or invalid mode.
-@mcp.tool(
-    name="ppsspp_convert_address",
-    annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-    ),
-)
-@translate_tool_errors
-async def convert_address(
-    address: Annotated[
-        str,
-        Field(
-            description=("Address to convert, as a hex string (e.g. '0x08804000')."),
-        ),
-    ],
-    mode: Annotated[
-        Literal["ida_to_ppsspp", "ppsspp_to_ida", "auto"],
-        Field(
-            default="auto",
-            description=(
-                "Conversion mode. 'auto' (default) infers from value: "
-                "if address >= top_base.ppsspp, treats as ppsspp_to_ida; "
-                "else ida_to_ppsspp."
-            ),
-        ),
-    ] = "auto",
-    session_id: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description="Optional session ID (reserved for future use; ignored).",
-        ),
-    ] = None,
-) -> AddressConversionOutput:
-    """PURPOSE: Convert an address between IDA and PPSSPP address spaces (offset ±0x08804000).
-
-    USAGE: address required; mode optional ('auto' default / 'ida_to_ppsspp' / 'ppsspp_to_ida'); session_id optional.
-
-    BEHAVIOR: READ-ONLY. Pure arithmetic on the address; no PPSSPP contact.
-
-    RETURNS: {original, converted, mode, top_base_ppsspp, top_base_ida}.
-    """
-    address_int = parse_address(address)
-    if address_int < 0:
-        raise AddrInvalid(f"address must be >= 0, got {address_int}")
-
-    addrs = _addresses()
-    top_base = addrs.get("top_base", {}) if isinstance(addrs, dict) else {}
-    if not isinstance(top_base, dict):
-        top_base = {}
-    # Tolerate quoted YAML values ("0x08804000") — int() alone
-    # would raise an untranslated ValueError on the string form.
-    ppsspp_base = _coerce_yaml_int(top_base.get("ppsspp", 0x08804000))
-    ida_base = _coerce_yaml_int(top_base.get("ida", 0x00000000))
-    offset = ppsspp_base - ida_base  # typically 0x08804000
-
-    resolved_mode = mode
-    if mode == "auto":
-        resolved_mode = "ppsspp_to_ida" if address_int >= ppsspp_base else "ida_to_ppsspp"
-
-    if resolved_mode == "ppsspp_to_ida":
-        converted = address_int - offset
-        if converted < 0:
-            raise AddrInvalid(
-                f"ppsspp_to_ida: converted={converted:#x} is negative "
-                f"(address={address_int:#x}, offset={offset:#x})"
-            )
-    elif resolved_mode == "ida_to_ppsspp":
-        converted = address_int + offset
-    else:
-        raise ArgsInvalid(f"invalid mode={mode!r}; expected ida_to_ppsspp / ppsspp_to_ida / auto")
-
-    result = AddressConversionResult(
-        original=address_int,
-        converted=converted,
-        mode=resolved_mode,
-        top_base_ppsspp=ppsspp_base,
-        top_base_ida=ida_base,
-    )
-    return AddressConversionResponse.from_result(result).model_dump(mode="json")
+# ppsspp_convert_address was un-tooled in v0.1.6 (Glama surface review:
+# pure arithmetic needs no tool). Conversion = offset between
+# addresses.yaml top_base.ppsspp / top_base.ida (defaults
+# 0x08804000 / 0x00000000): ppsspp_addr = ida_addr + offset.
+# Documented in ppsspp_list_addresses and the skill's
+# scripts/addr_convert.py.

@@ -65,6 +65,11 @@ DYNAMIC_INPUT_PARAMETERS: frozenset[str] = frozenset(
 # error on one branch only — invisible to a test suite that does not call
 # that branch.
 MULTI_SHAPE_OUTPUT_TOOLS: dict[str, str] = {
+    "ppsspp_batch_status": (
+        "batch_id 省略（survey/list 模式）返回 BatchListResponse"
+        "（{jobs, retention_jobs}），指定 batch_id 返回 BatchStatusResponse"
+        "（{batch_id, status, ...}）— v0.1.6 合并 ppsspp_batch_list"
+    ),
     "ppsspp_session": (
         "action='wait_ready' 返回 WaitReadyResponse（{action, ready, elapsed_s, "
         "probe_addr, probe_value, note}），其余 action 返回 SessionResponse"

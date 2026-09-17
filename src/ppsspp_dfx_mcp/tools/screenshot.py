@@ -61,7 +61,7 @@ class ClutDumpMeta(TypedDict):
     format: str
 
 
-__all__ = ["screenshot", "dump_texture", "dump_clut"]
+__all__ = ["screenshot", "dump"]
 
 
 def _detect_format(data: bytes) -> str:
@@ -313,14 +313,29 @@ async def screenshot(
 #
 # Returns [TextContent(metadata_json), ImageContent(image)] for token
 # efficiency. On failure, returns [TextContent(metadata_json)] only.
+# Former docstrings (kept as comment; description is now the TDQS docstring):
+# ppsspp_dump_texture / ppsspp_dump_clut: dump the currently-bound GPU
+# texture / CLUT palette as PNG. Merged into ppsspp_dump(kind=...) in
+# v0.1.6 (Glama surface review: tool-count reduction).
 @mcp.tool(
-    name="ppsspp_dump_texture",
+    name="ppsspp_dump",
     annotations=ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
     ),
 )
 @translate_tool_errors
-async def dump_texture(
+async def dump(
+    kind: Annotated[
+        Literal["texture", "clut"],
+        Field(
+            description=(
+                "What to capture from the CURRENTLY bound GPU state "
+                "(no VRAM-address targeting): 'texture' = the bound "
+                "texture (use level for mipmap); 'clut' = the bound "
+                "CLUT palette."
+            ),
+        ),
+    ],
     session_id: Annotated[
         str,
         Field(description="Active session ID."),
@@ -330,49 +345,51 @@ async def dump_texture(
         Field(
             default=0,
             description=(
-                "Texture mipmap level (default 0). PPSSPP captures the "
-                "currently-bound texture — it does NOT support capture by "
-                "VRAM address."
+                "Texture mipmap level (default 0). kind=texture only — "
+                "a non-zero level with kind=clut is rejected."
             ),
         ),
     ] = 0,
 ) -> Annotated[CallToolResult, TextureDumpMeta]:
-    """PURPOSE: Dump the currently-bound GPU texture as an image plus metadata.
+    """PURPOSE: Dump the currently-bound GPU texture OR CLUT palette as an image plus metadata.
 
-    USAGE: session_id. Only the CURRENTLY bound texture — no VRAM-address targeting.
+    USAGE: kind='texture' → the bound texture (level selects mipmap; PPSSPP captures the currently-bound texture — it does NOT support capture by VRAM address); kind='clut' → the bound palette (level must be 0).
 
-    BEHAVIOR: READ-ONLY. An empty capture raises CAPTURE_EMPTY — enter a scene that renders and retry.
+    BEHAVIOR: READ-ONLY. An empty capture raises CAPTURE_EMPTY — enter a scene that renders (texture) or uses the palette (clut) and retry.
 
-    RETURNS: structuredContent metadata (level/file_path/size_bytes/format); the image itself arrives as an ImageContent block."""
+    RETURNS: structuredContent metadata (kind/level/file_path/size_bytes/format); the image itself arrives as an ImageContent block."""
     logger.info(
         "tool_call",
-        extra={
-            "tool": "ppsspp_dump_texture",
-            "session_id": session_id,
-            "level": level,
-        },
+        extra={"tool": "ppsspp_dump", "kind": kind, "session_id": session_id, "level": level},
     )
+    if kind == "clut" and level != 0:
+        raise ArgsInvalid("level applies only to kind='texture'; got kind='clut'")
     try:
         async with session_capture(session_id) as (_client, capture):
-            data = await capture.dump_texture(level=level)
+            if kind == "clut":
+                data = await capture.dump_clut()
+            else:
+                data = await capture.dump_texture(level=level)
     except ToolError:
         raise
     except Exception as e:
         raise to_tool_error(e) from e
-    # An empty capture means PPSSPP could not
-    # deliver a texture (e.g. nothing bound at this state) — surface it
-    # as an error instead of a success with size_bytes=0.
+    # An empty capture means PPSSPP could not deliver the payload (nothing
+    # bound at this state) — surface it as an error instead of a success
+    # with size_bytes=0.
     if not data:
+        what = "CLUT" if kind == "clut" else "texture"
         raise ToolError(
-            f"dump_texture produced no image (level={level}) — no texture "
+            f"dump produced no image (kind={kind}, level={level}) — no {what} "
             f"is currently bound, or the GPU capture failed; try again "
             f"after a frame has been rendered",
             code="CAPTURE_EMPTY",
         )
 
-    file_path = ""
-    if data:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    if kind == "clut":
+        file_path = await _save_to_output(data, "cluts", f"clut_{ts}.png")
+    else:
         file_path = await _save_to_output(data, "textures", f"tex_level{level}_{ts}.png")
 
     meta: TextureDumpMeta = {
@@ -381,69 +398,6 @@ async def dump_texture(
         "size_bytes": len(data),
         "format": "png",
     }
-
-    # data is guaranteed non-empty (CAPTURE_EMPTY was raised above).
-    # `Image` is a b64 helper — convert via `to_image_content()` (see screenshot).
-    return CallToolResult(
-        content=[Image(data=data, format="png").to_image_content()],
-        structured_content=meta,
-    )
-
-
-@mcp.tool(
-    name="ppsspp_dump_clut",
-    annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-    ),
-)
-@translate_tool_errors
-async def dump_clut(
-    session_id: Annotated[
-        str,
-        Field(description="Active session ID."),
-    ],
-) -> Annotated[CallToolResult, ClutDumpMeta]:
-    """PURPOSE: Dump the currently-bound CLUT palette as an image plus metadata.
-
-    USAGE: session_id. Only the CURRENTLY bound palette can be captured — no VRAM-address targeting.
-
-    BEHAVIOR: READ-ONLY. An empty capture raises CAPTURE_EMPTY — advance to a scene that uses the palette and retry.
-
-    RETURNS: structuredContent metadata (file_path/size_bytes/format); the image itself arrives as an ImageContent block."""
-    logger.info(
-        "tool_call",
-        extra={"tool": "ppsspp_dump_clut", "session_id": session_id},
-    )
-    try:
-        async with session_capture(session_id) as (_client, capture):
-            data = await capture.dump_clut()
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
-    # Mirror dump_texture — an empty capture is an
-    # error, not a success with size_bytes=0.
-    if not data:
-        raise ToolError(
-            "dump_clut produced no image — no CLUT is currently bound, "
-            "or the GPU capture failed; try again after a frame has "
-            "been rendered",
-            code="CAPTURE_EMPTY",
-        )
-
-    file_path = ""
-    if data:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        file_path = await _save_to_output(data, "cluts", f"clut_{ts}.png")
-
-    meta: ClutDumpMeta = {
-        "file_path": file_path,
-        "size_bytes": len(data),
-        "format": "png",
-    }
-
-    # data is guaranteed non-empty (CAPTURE_EMPTY was raised above).
-    # `Image` is a b64 helper — convert via `to_image_content()` (see screenshot).
     return CallToolResult(
         content=[Image(data=data, format="png").to_image_content()],
         structured_content=meta,

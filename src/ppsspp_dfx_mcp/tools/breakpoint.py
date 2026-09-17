@@ -217,6 +217,8 @@ async def breakpoint(
 
     USAGE: action + session_id; set/remove/update manage CPU exec breakpoints (address required); mem_set/mem_remove/mem_update manage memory watchpoints (size 1/2/4+, read/write flags); list/mem_list take no address.
 
+
+    ROUTING: persistent breakpoint management -> here; one-shot block-until-hit -> ppsspp_wait_breakpoint; read/write access watch -> ppsspp_trace_memory_access.
     BEHAVIOR: MUTATING. Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification.
 
     RETURNS: {action, address, enabled, breakpoints[]}."""

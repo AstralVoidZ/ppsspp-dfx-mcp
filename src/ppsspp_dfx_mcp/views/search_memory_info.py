@@ -1,4 +1,4 @@
-"""Memory info search view — public JSON contract for ppsspp_memory_info_search.
+"""Memory info search view — public JSON contract for ppsspp_search_memory_info.
 
 Wraps the `memory.info.search` PPSSPP WebSocket response. The view
 exposes the typed `regions` list, the `count`, the raw response, and a
@@ -11,12 +11,12 @@ from typing import Any
 
 from pydantic import Field
 
-from ppsspp_dfx_mcp.models.memory_info_search import MemoryInfoSearchResult
+from ppsspp_dfx_mcp.models.search_memory_info import SearchMemoryInfoResult
 from ppsspp_dfx_mcp.views._base import FrozenModel
 
 
-class MemoryInfoSearchResponse(FrozenModel):
-    """Response view for ppsspp_memory_info_search."""
+class SearchMemoryInfoResponse(FrozenModel):
+    """Response view for ppsspp_search_memory_info."""
 
     regions: list[dict[str, Any]] = Field(
         default_factory=list,
@@ -43,7 +43,7 @@ class MemoryInfoSearchResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: MemoryInfoSearchResult) -> MemoryInfoSearchResponse:
+    def from_result(cls, result: SearchMemoryInfoResult) -> SearchMemoryInfoResponse:
         lines: list[str] = []
         for region in result.regions:
             addr = region.get("address", 0)

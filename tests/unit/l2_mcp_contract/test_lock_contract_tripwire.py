@@ -38,12 +38,11 @@ HOLDING_LOCK: frozenset[str] = frozenset(
         "ppsspp_replay",
         "ppsspp_gpu_stats",
         "ppsspp_gpu_record",
-        "ppsspp_memory_info_search",
+        "ppsspp_search_memory_info",
         "ppsspp_memory_map",
         # session_capture users
         "ppsspp_screenshot",
-        "ppsspp_dump_texture",
-        "ppsspp_dump_clut",
+        "ppsspp_dump",  # kind=texture|clut — session_capture user
         # hold_buttons / press_button / send_analog use session_client via input.py
         "ppsspp_press_button",
         "ppsspp_hold_buttons",
@@ -75,12 +74,11 @@ NOT_HOLDING_LOCK: frozenset[str] = frozenset(
         "ppsspp_run_script",  # executes manifest scripts (ctx-scoped)
         "ppsspp_wait_frames",  # pure wall-clock sleep + liveness checks
         "ppsspp_analyze_log",  # file only
-        "ppsspp_convert_address",  # pure arithmetic
         "ppsspp_health",  # server liveness
         "ppsspp_session",  # lifecycle (manages the lock owner itself);
         # wait_ready polls the raw session transport
         # (lock-free, like wait_frames)
-        "ppsspp_session_list",  # read-only listing
+        # action=list (read-only listing) merged into ppsspp_session
         "ppsspp_list_scripts",  # manifest read
         "ppsspp_reload_scripts",  # manifest reload
         "ppsspp_list_addresses",  # yaml read
@@ -89,7 +87,8 @@ NOT_HOLDING_LOCK: frozenset[str] = frozenset(
         # session lock for its whole (possibly minutes-long) duration.
         "ppsspp_batch_status",  # registry read (no WS, no lock)
         "ppsspp_batch_cancel",  # registry task.cancel (no WS, no lock)
-        "ppsspp_batch_list",  # registry read (no WS, no lock)
+        # survey/list mode (registry read, no WS, no lock) merged
+        # into ppsspp_batch_status(batch_id omitted)
     }
 )
 

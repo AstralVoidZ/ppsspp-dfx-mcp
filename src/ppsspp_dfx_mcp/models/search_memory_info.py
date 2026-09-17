@@ -1,6 +1,6 @@
 """Memory info search domain model (frozen dataclass).
 
-Wraps the result of `PpssppDebugClient.memory_info_search()` — a READ-ONLY
+Wraps the result of `PpssppDebugClient.search_memory_info()` — a READ-ONLY
 operation that calls `memory.info.search` to query PPSSPP's memory
 tracking system for allocation/write/texture metadata tags.
 """
@@ -27,7 +27,7 @@ def _extract_regions(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 @dataclass(frozen=True)
-class MemoryInfoSearchResult:
+class SearchMemoryInfoResult:
     """Result of a `memory.info.search` query.
 
     Attributes:
@@ -43,8 +43,8 @@ class MemoryInfoSearchResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_raw(cls, raw: dict[str, Any]) -> MemoryInfoSearchResult:
-        """Build MemoryInfoSearchResult from a raw `memory.info.search` response."""
+    def from_raw(cls, raw: dict[str, Any]) -> SearchMemoryInfoResult:
+        """Build SearchMemoryInfoResult from a raw `memory.info.search` response."""
         regions = _extract_regions(raw)
         return cls(
             regions=regions,

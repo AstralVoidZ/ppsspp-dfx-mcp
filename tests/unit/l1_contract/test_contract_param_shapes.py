@@ -146,7 +146,7 @@ async def _sweep(client: PpssppDebugClient, fake: FakeTransport) -> dict[str, se
     await c.write_u32(0x1000, 1)
     await c.write_bytes(0x1000, b"\x00\x01")
     await c.scan_memory(b"AB", 0x1000, 0x1100, max_results=10, chunk_size=64)
-    await c.memory_info_search("tex", address=0x1000, end=0x2000, type="texture")
+    await c.search_memory_info("tex", address=0x1000, end=0x2000, type="texture")
     await c.memory_map()
     # disasm
     await c.disasm(0x1000, 4, thread=1)

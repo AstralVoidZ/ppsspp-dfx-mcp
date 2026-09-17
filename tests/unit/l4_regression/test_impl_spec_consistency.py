@@ -20,7 +20,7 @@ import inspect
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 from ppsspp_dfx_mcp.tools.input import hold_buttons
 from ppsspp_dfx_mcp.tools.memory import read_memory
-from ppsspp_dfx_mcp.tools.screenshot import dump_texture
+from ppsspp_dfx_mcp.tools.screenshot import dump
 from ppsspp_dfx_mcp.tools.search_disasm import search_disasm
 
 # ============================================================================
@@ -33,9 +33,9 @@ class TestImplDumpTextureParams:
 
     def test_signature_has_level(self):
         """L4 anchor: `level` 在 dump_texture 签名中。"""
-        sig = inspect.signature(dump_texture)
+        sig = inspect.signature(dump)
         assert "level" in sig.parameters, (
-            "dump_texture 必须有 `level` 参数 — "
+            "ppsspp_dump 必须有 `level` 参数 — "
             "PPSSPP gpu.buffer.texture 按 mipmap level 捕获。"
             "如果此断言失败，P-01 回归。"
         )
@@ -46,7 +46,7 @@ class TestImplDumpTextureParams:
         PPSSPP 捕获当前绑定的纹理，不支持按 VRAM 地址捕获。
         之前 dump_texture 曾错误接受 address 参数。
         """
-        sig = inspect.signature(dump_texture)
+        sig = inspect.signature(dump)
         assert "address" not in sig.parameters, (
             "dump_texture 不应有 `address` 参数 — "
             "PPSSPP 不支持按地址捕获纹理（只捕获当前绑定纹理）。"

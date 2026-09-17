@@ -17,9 +17,9 @@
 | 内存读写 | `memory.read` `memory.read_u8/_u16/_u32` `memory.readString` `memory.write` | `read_memory`、`write_memory`、`read_memory_access` |
 | 内存观察 | `memory.breakpoint.add/list/remove/update` | `breakpoint`（mem_set/mem_list/mem_remove/mem_update）、`trace_memory_access` |
 | 反汇编/汇编 | `memory.disasm` `memory.assemble` `memory.searchDisasm` `memory.base` `memory.mapping` | `disassemble`、`assemble`、`search_disasm`、`memory_map` |
-| 搜索 | `memory.info.search` | `memory_info_search` |
+| 搜索 | `memory.info.search` | `search_memory_info` |
 | 输入 | `input.buttons.send` `input.buttons.press` `input.analog.send` | `press_button`、`hold_buttons`、`send_analog`、`batch_step`(press) |
-| GPU | `gpu.buffer.renderColor/renderDepth/renderStencil` `gpu.buffer.texture` `gpu.buffer.clut` `gpu.record.dump` `gpu.stats.get/feed` | `screenshot`、`dump_texture`、`dump_clut`、`gpu_record`、`gpu_stats` |
+| GPU | `gpu.buffer.renderColor/renderDepth/renderStencil` `gpu.buffer.texture` `gpu.buffer.clut` `gpu.record.dump` `gpu.stats.get/feed` | `screenshot`、`dump(kind=texture|clut)`、`gpu_record`、`gpu_stats` |
 | HLE | `hle.thread.list/stop/wake` `hle.module.list` `hle.func.list/scan/add/remove` `hle.backtrace` | `query`(threads/modules/funcs/func_scan/func_add/func_remove/backtrace)、`analyze_log` |
 | replay | `replay.begin/flush/abort/execute/status/time.get/time.set` | `replay`（全部 action）、`wait_complete` |
 | 广播 | `cpu.stepping`（无票据广播） | 步进广播路由：`wait_breakpoint` 订阅、批处理调度消费（见 `core/batch_jobs.py`） |

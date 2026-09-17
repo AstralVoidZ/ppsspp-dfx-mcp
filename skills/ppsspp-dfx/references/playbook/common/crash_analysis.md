@@ -34,7 +34,7 @@ category: crash-analysis
 2. **现场留存（进程还活着）** — `CPU_FREEZE_SUSPECTED` 时按 [../../cpu-state-contract.md](../../cpu-state-contract.md) §5：`ppsspp_screenshot` 拍现场 → **不要 stop 会话**。
 3. **暂停并取上下文** — `ppsspp_step(action="pause")` → `ppsspp_get_pc`（HIGH trust）→ `ppsspp_query(action="registers")` → `ppsspp_query(action="threads")` → `ppsspp_query(action="backtrace")`（调用链，比 PC 采样可靠，见 constraints C5）。
 4. **反汇编崩溃点** — `ppsspp_disassemble(address=<崩溃PC>, count=16)`。若得到 `0x68xxxxxx` 序列说明误用了 read_u32（constraints A1）。
-5. **崩溃地址归因** — 用 `ppsspp_convert_address(mode="ppsspp_to_ida")` 把运行时地址换算回 IDA 地址，对照 addresses.yaml `known_functions` 定位函数。
+5. **崩溃地址归因** — 用换算公式（`ppsspp_addr - offset = ida_addr`，offset = `top_base.ppsspp - top_base.ida`）把运行时地址换算回 IDA 地址，对照 addresses.yaml `known_functions` 定位函数。
 6. **恢复或收尾** — 分析完 `ppsspp_step(action="resume")`；进程已死则 `ppsspp_session(action="stop")` 后重建。
 
 ## 线程类型识别

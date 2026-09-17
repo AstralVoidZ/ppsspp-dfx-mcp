@@ -172,7 +172,7 @@ class TestTextureAndClutPersistence:
         out_root = _patch_output_dir(monkeypatch, tmp_path)
         _patch_capture(monkeypatch, dump_texture=_PNG)
 
-        result = await sc.dump_texture(session_id="s1", level=2)
+        result = await sc.dump(session_id="s1", kind="texture", level=2)
 
         meta = result.structured_content
         assert meta is not None
@@ -194,7 +194,7 @@ class TestTextureAndClutPersistence:
         out_root = _patch_output_dir(monkeypatch, tmp_path)
         _patch_capture(monkeypatch, dump_clut=_PNG)
 
-        result = await sc.dump_clut(session_id="s1")
+        result = await sc.dump(session_id="s1", kind="clut")
 
         meta = result.structured_content
         assert meta is not None

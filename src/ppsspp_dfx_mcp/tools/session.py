@@ -46,10 +46,10 @@ SessionListOutput = derive_output_contract("SessionListOutput", SessionListRespo
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["session", "session_list"]
+__all__ = ["session"]
 
 
-_VALID_ACTIONS = ("start", "stop", "get", "wait_ready")
+_VALID_ACTIONS = ("list", "start", "stop", "get", "wait_ready")
 
 # H0: probe address polled by wait_ready. 0x08804000 is the project's
 # top.prx load base (addresses.yaml top_base) — the same probe the test
@@ -115,10 +115,14 @@ async def _wait_ready_cpu(session_id: str, timeout_s: float, probe_addr: int) ->
 @translate_tool_errors
 async def session(
     action: Annotated[
-        Literal["start", "stop", "get", "wait_ready"],
+        Literal["list", "start", "stop", "get", "wait_ready"],
         Field(
             description=(
                 "Session operation. Valid values:\n"
+                "- 'list': list all active sessions (no other params). "
+                "Idle sessions (>30 min) are auto-GC'd as a side effect; "
+                "returns {sessions, count}. NOT a per-session health "
+                "probe — use ppsspp_smoke_test for that.\n"
                 "- 'start': launch a new PPSSPP session (requires iso_path). "
                 "Set wait_ready=true to block until the emulated CPU is up "
                 "(same probe/budget semantics as 'wait_ready').\n"
@@ -194,19 +198,22 @@ async def session(
         ),
     ] = False,
 ) -> SessionOutput:
-    """PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.
+    """PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=list / start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.
 
-    USAGE: action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).
+    USAGE: action='list' takes no other params and returns {sessions, count} (idle sessions >30min are auto-GC'd as a side effect; NOT a per-session health probe — use ppsspp_smoke_test for that); action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).
 
-    BEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; get is read-only.
+    BEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; list/get are read-only.
 
-    RETURNS: SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version} — or, for wait_ready, {action, ready, elapsed_s, probe_addr, probe_value, note}."""
+    RETURNS: action=start/get → SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version}; action=wait_ready → {action, ready, elapsed_s, probe_addr, probe_value, note}; action=list → {sessions: [SessionResponse...], count}."""
     if action not in _VALID_ACTIONS:
         raise ArgsInvalid(f"invalid action={action!r}; expected one of {_VALID_ACTIONS}")
 
     logger.info("tool_call", extra={"tool": "ppsspp_session", "action": action})
     clamped_timeout = min(max(float(timeout_s), 1.0), 300.0)
     try:
+        if action == "list":
+            sessions = await session_manager.list_sessions()
+            return SessionListResponse.from_sessions(sessions).model_dump(mode="json")
         if action == "start":
             if not iso_path:
                 raise ArgsInvalid("iso_path is required when action=start")
@@ -252,33 +259,11 @@ async def session(
         raise to_tool_error(e) from e
     return SessionResponse.from_session(sess).model_dump(mode="json")
 
-
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# List all active PPSSPP sessions (no parameters).
-#
-# Returns sessions with health info (pid_alive, ws_connected, exec_count,
-# idle_s). Idle sessions (>30min) are auto-GC'd as a side effect.
-@mcp.tool(
-    name="ppsspp_session_list",
-    annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-    ),
-)
-@translate_tool_errors
-async def session_list() -> SessionListOutput:
-    """PURPOSE: List all active PPSSPP sessions.
-
-    USAGE: No parameters. Idle sessions (>30 min) are auto-GC'd as a side effect.
-
-    BEHAVIOR: READ-ONLY. Reads the session manager's in-memory session dict. The idle-GC side effect reaps stale sessions but does not mutate the caller's state.
-
-    NOT a per-session status probe: for session health use ppsspp_smoke_test; for CPU/game state use ppsspp_get_pc or ppsspp_query(game_state). Reader tools whose session_id is optional auto-resolve when exactly one session is active, so you normally do NOT need to call this first just to obtain an ID.
-
-    RETURNS: {sessions: [SessionResponse...], count}.
-    """
-    logger.info("tool_call", extra={"tool": "ppsspp_session_list"})
-    try:
-        sessions = await session_manager.list_sessions()
-    except Exception as e:
-        raise to_tool_error(e) from e
+    # Former docstring (kept as comment; description is now the TDQS docstring):
+    # List all active PPSSPP sessions (no parameters).
+    #
+    # Returns sessions with health info (pid_alive, ws_connected, exec_count,
+    # idle_s). Idle sessions (>30min) are auto-GC'd as a side effect.
+    # ppsspp_session_list was merged into ppsspp_session(action="list") in
+    # v0.1.6 (Glama surface review: tool-count reduction, noun+action dispatch).
     return SessionListResponse.from_sessions(sessions).model_dump(mode="json")

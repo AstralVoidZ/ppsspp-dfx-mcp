@@ -24,7 +24,7 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
 
 ## 功能特性
 
-- **41 个静态工具**，全部带结构化 `inputSchema` / `outputSchema`——没有无约束的
+- **37 个静态工具**，全部带结构化 `inputSchema` / `outputSchema`——没有无约束的
   返回值，每个参数都有类型和说明。
 - **动态脚本工具**：项目专属的诊断脚本通过 `scripts.manifest.yaml` 暴露为
   `ppsspp_script_<name>` 工具，输入类型由脚本自带的 Pydantic model 决定；
@@ -37,7 +37,7 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
   防御性错误码（`[CODE] message` 格式、CPU 冻结与连接断开的区分），错误文本内嵌
   恢复建议。
 - **后台自动化**：批量任务跑在独立的服务端任务上，不受 MCP 客户端工具调用超时的
-  影响；支持状态轮询、取消与注册表盘点（`ppsspp_batch_list`）。
+  影响；支持状态轮询、取消与注册表盘点（`ppsspp_batch_status(batch_id 省略)`）。
 - **内建评估体系**（`evals/`）：21 张场景卡 + 确定性门禁 + 对录制夹具的盲测
   runner + 汇总报告——工具面按 agent 实际使用的方式被测试。
 - **诚实的协议面**：能力只在其背后存在可用实现时才声明；刻意置 `false` 的开关
@@ -190,7 +190,7 @@ cp examples/project.yaml examples/addresses.yaml \
 
 | 能力 | 声明 | 说明 |
 |---|---------|-------|
-| `tools` | ✅ | 41 个静态工具 + 动态 `ppsspp_script_<name>` |
+| `tools` | ✅ | 37 个静态工具 + 动态 `ppsspp_script_<name>` |
 | `resources` | ✅ | `ppsspp://game-state`、`ppsspp://registers`（快照） |
 | `prompts` | ✅ | `memory-breakpoint-wizard`、`memory-trace-wizard` |
 | `completions` | ✅ | 两个内存向导的 `address` 参数，候选来自 `addresses.yaml` |
@@ -211,8 +211,7 @@ cp examples/project.yaml examples/addresses.yaml \
 
 ### 返回形态
 
-**图像类工具**（`ppsspp_screenshot`、`ppsspp_dump_texture`、
-`ppsspp_dump_clut`）返回拆成两半的 `CallToolResult`：
+**图像类工具**（`ppsspp_screenshot`、`ppsspp_dump`）返回拆成两半的 `CallToolResult`：
 
 - `content` — 一个携带像素的 `ImageContent` 块。
 - `structuredContent` — 仅元数据（`file_path` / `size_bytes` / `format`，加上

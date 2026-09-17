@@ -96,7 +96,7 @@ async def test_session_can_be_started_and_stopped(mcp_inspector):
     assert sid
 
     # Verify it appears in session_list.
-    list_r = await mcp_inspector.call_tool("ppsspp_session_list", {})
+    list_r = await mcp_inspector.call_tool("ppsspp_session", {"action": "list"})
     assert not list_r.is_error
     list_p = json.loads(list_r.content[0].text)
     session_ids = [s["session_id"] for s in list_p["sessions"]]
@@ -110,7 +110,7 @@ async def test_session_can_be_started_and_stopped(mcp_inspector):
     assert not stop_r.is_error
 
     # Verify it's gone from session_list.
-    list_r2 = await mcp_inspector.call_tool("ppsspp_session_list", {})
+    list_r2 = await mcp_inspector.call_tool("ppsspp_session", {"action": "list"})
     assert not list_r2.is_error
     list_p2 = json.loads(list_r2.content[0].text)
     session_ids2 = [s["session_id"] for s in list_p2["sessions"]]

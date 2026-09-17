@@ -45,12 +45,11 @@ _READ_CLASS_TOOLS = {
     "ppsspp_get_pc",
     "ppsspp_frame_snapshot",
     "ppsspp_memory_map",
-    "ppsspp_memory_info_search",
+    "ppsspp_search_memory_info",
     "ppsspp_query",
     "ppsspp_evaluate",
     "ppsspp_screenshot",
-    "ppsspp_dump_texture",
-    "ppsspp_dump_clut",
+    "ppsspp_dump",
 }
 
 

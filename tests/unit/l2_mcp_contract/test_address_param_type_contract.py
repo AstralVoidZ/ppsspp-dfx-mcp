@@ -35,9 +35,9 @@ from mcp.server.mcpserver import Image  # noqa: F401
 from ppsspp_dfx_mcp.tools.assemble import assemble
 from ppsspp_dfx_mcp.tools.breakpoint import breakpoint
 from ppsspp_dfx_mcp.tools.memory import disassemble, read_memory, write_memory
-from ppsspp_dfx_mcp.tools.memory_info_search import memory_info_search
 from ppsspp_dfx_mcp.tools.query import query
 from ppsspp_dfx_mcp.tools.search_disasm import search_disasm
+from ppsspp_dfx_mcp.tools.search_memory_info import search_memory_info
 from ppsspp_dfx_mcp.tools.state_observer import state_observer
 from ppsspp_dfx_mcp.tools.step import step
 
@@ -75,7 +75,7 @@ def _is_str_annotation(annotation) -> bool:
     - `Annotated[str, ...]` (Pydantic Field form)
     - `Annotated[str | None, ...]` (optional with Field)
     - `Optional[Annotated[str | None, ...]]` (nested Optional+Annotated,
-      produced by memory_info_search's `address: Optional[Annotated[str | None, Field(...)]] = None`)
+      produced by search_memory_info's `address: Optional[Annotated[str | None, Field(...)]] = None`)
     """
     seen = set()
     while True:
@@ -173,7 +173,7 @@ class TestOptionalAddressParamsAreStr:
         "func,param_name",
         [
             (query, "address"),
-            (memory_info_search, "address"),
+            (search_memory_info, "address"),
         ],
     )
     def test_optional_address_param_is_str(self, func, param_name):

@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import inspect
 
+from ppsspp_dfx_mcp.service.capture import CaptureService
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-from ppsspp_dfx_mcp.tools.screenshot import dump_texture
+from ppsspp_dfx_mcp.tools.screenshot import dump
 
 # ============================================================================
 # dump_texture ↔ dump_texture: 参数一致
@@ -30,10 +31,10 @@ class TestToolDebugClientDumpTextureConsistency:
 
     def test_both_have_level_param(self):
         """L4 anchor: 两者都有 `level` 参数。"""
-        async_sig = inspect.signature(dump_texture)
-        tool_sig = inspect.signature(dump_texture)
-        assert "level" in async_sig.parameters, "dump_texture 必须有 `level` 参数。"
-        assert "level" in tool_sig.parameters, "dump_texture 工具必须有 `level` 参数。"
+        async_sig = inspect.signature(CaptureService.dump_texture)
+        tool_sig = inspect.signature(dump)
+        assert "level" in async_sig.parameters, "CaptureService.dump_texture 必须有 `level` 参数。"
+        assert "level" in tool_sig.parameters, "ppsspp_dump 工具必须有 `level` 参数。"
 
     def test_neither_has_address_param(self):
         """L4 anchor: 两者都没有 `address` 参数（P-01 回归）。
@@ -41,25 +42,29 @@ class TestToolDebugClientDumpTextureConsistency:
         PPSSPP 捕获当前绑定的纹理，不支持按 VRAM 地址捕获。
         dump_texture 和 dump_texture 都不应接受 address。
         """
-        async_sig = inspect.signature(dump_texture)
-        tool_sig = inspect.signature(dump_texture)
+        async_sig = inspect.signature(CaptureService.dump_texture)
+        tool_sig = inspect.signature(dump)
         assert "address" not in async_sig.parameters, (
-            "dump_texture 不应有 `address` 参数 — PPSSPP 不支持按地址捕获纹理。P-01 回归。"
+            "CaptureService.dump_texture 不应有 `address` 参数 — PPSSPP 不支持按地址捕获纹理。P-01 回归。"
         )
         assert "address" not in tool_sig.parameters, (
-            "dump_texture 工具不应有 `address` 参数 — PPSSPP 不支持按地址捕获纹理。P-01 回归。"
+            "ppsspp_dump 工具不应有 `address` 参数 — PPSSPP 不支持按地址捕获纹理。P-01 回归。"
         )
 
     def test_debugclient_param_sets_match(self):
-        """L4 anchor: 两者参数集合一致（session_id + level）。"""
-        async_sig = inspect.signature(dump_texture)
-        tool_sig = inspect.signature(dump_texture)
-        async_params = set(async_sig.parameters.keys())
-        tool_params = set(tool_sig.parameters.keys())
-        assert async_params == tool_params, (
-            f"dump_texture 参数 {async_params} 与 dump_texture "
-            f"参数 {tool_params} 不一致 — 两者应共享相同的参数集合 "
-            f"(session_id + level)。"
+        """L4 anchor: 纹理捕获参数链一致（level 存在、address 不存在）。
+
+        v0.1.6 起 tool 侧合并为 ppsspp_dump(kind, session_id, level)，
+        服务侧仍为 CaptureService.dump_texture(level)；参数链一致性改按
+        关键参数存在性 + 幽灵参数缺失双重断言。
+        """
+        async_params = set(inspect.signature(CaptureService.dump_texture).parameters.keys())
+        tool_params = set(inspect.signature(dump).parameters.keys())
+        assert "level" in async_params and "level" in tool_params, (
+            f"参数链必须都有 level：service={async_params}, tool={tool_params}"
+        )
+        assert "address" not in async_params and "address" not in tool_params, (
+            f"参数链不得引入 address：service={async_params}, tool={tool_params}"
         )
 
 

@@ -74,23 +74,21 @@ class TestReadOnlyAnnotations:
     # exhaustive coverage is the job of the parameterized test below).
     _READ_ONLY_TOOLS = {
         "ppsspp_health",
-        "ppsspp_session_list",
         "ppsspp_smoke_test",
         "ppsspp_screenshot",
-        "ppsspp_dump_texture",
+        "ppsspp_dump",
         "ppsspp_read_memory",
         "ppsspp_disassemble",
         "ppsspp_query",
         "ppsspp_get_pc",
         "ppsspp_analyze_log",
-        "ppsspp_convert_address",
         "ppsspp_list_scripts",
         "ppsspp_evaluate",
         "ppsspp_search_disasm",
         "ppsspp_memory_map",
         "ppsspp_gpu_stats",
         "ppsspp_gpu_record",
-        "ppsspp_memory_info_search",
+        "ppsspp_search_memory_info",
     }
 
     def test_read_only_tools_have_read_only_hint_true(self, annotations):

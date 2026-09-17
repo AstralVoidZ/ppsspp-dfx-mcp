@@ -35,7 +35,7 @@ VRAM 回退与 GPU 渲染不同步：适合判断"画面是否黑屏/有无内�
 1. **进入目标场景** — 会话启动见 [smoke_test.md](smoke_test.md)；推进场景用 `ppsspp_press_button` + `ppsspp_wait_frames`（或 `ppsspp_batch_step` 编排）；断点命中后画面即暂停态，可直接截。
 2. **截图** — `ppsspp_screenshot(session_id)`（默认 `source="render"`）。**不要传 `source="output"`**（CRASH-RISK）与弃用的 `mode` 参数（constraints B5）。
 3. **校验** — 检查 `structuredContent`：`empty=true` → 加大 `wait_frames` 重试；`render→vram_fallback` → 仅作结构参考。`file_path` 指向工具自动落盘的 PNG/JPG，可直接复用而不必重新截图。
-4. **纹理/CLUT 抓取**（字库/贴图分析）— `ppsspp_dump_texture` / `ppsspp_dump_clut`：只抓"当前绑定"对象，不支持按 VRAM 地址；须在目标纹理正被使用的画面调用；空捕获报 `CAPTURE_EMPTY`。
+4. **纹理/CLUT 抓取**（字库/贴图分析）— `ppsspp_dump(kind="texture"/"clut")`：只抓"当前绑定"对象，不支持按 VRAM 地址；须在目标纹理正被使用的画面调用；空捕获报 `CAPTURE_EMPTY`。
 5. **GPU 命令流**（渲染管线深查）— `ppsspp_gpu_record`（要求 CPU running）落盘 `.ppsspp-dfx/output/gpu_dumps/*.dump`。
 6. **GPU 状态** — `ppsspp_gpu_stats` 返回 fps/vblanks/绘制统计；也可作 CPU 状态探针（见 [../../cpu-state-contract.md](../../cpu-state-contract.md) §3.2）。
 

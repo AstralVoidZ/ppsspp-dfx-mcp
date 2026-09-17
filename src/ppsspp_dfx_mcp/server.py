@@ -503,7 +503,6 @@ _CORE_TOOLS: frozenset[str] = frozenset(
     {
         "ppsspp_health",
         "ppsspp_session",
-        "ppsspp_session_list",
     }
 )
 
@@ -522,7 +521,7 @@ _TOOL_MODULE_NAMES: tuple[str, ...] = (
     "introspect",
     "list_addresses",
     "memory",
-    "memory_info_search",
+    "search_memory_info",
     "memory_map",
     "query",
     "replay",
@@ -587,8 +586,8 @@ def registered_tool_count() -> int:
 def _assert_core_tools() -> None:
     """Verify the core tool subset is registered at startup.
 
-    Only checks that the 3 liveness-critical tools (health / session /
-    session_list) are present — additional tools are registered by
+    Only checks that the core liveness-critical tools (health / session)
+    are present — additional tools are registered by
     `register_all_tools()` before this check, and dynamic script tools
     are registered in lifespan.
 

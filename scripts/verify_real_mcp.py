@@ -216,7 +216,8 @@ def summarize_content(result: Any, rec: Record) -> None:
         try:
             if len(json.dumps(rec.structured)) > 65536:
                 rec.structured = {"_truncated": True, "note": "structured response >64KB"}
-        except (TypeError, ValueError):            rec.structured = {"_unserializable": str(rec.structured)[:200]}
+        except (TypeError, ValueError):
+            rec.structured = {"_unserializable": str(rec.structured)[:200]}
 
 
 def _hex_of(v: Any) -> str:
@@ -840,7 +841,7 @@ SESSION_TOOLS: list[tuple[str, dict[str, Any]]] = [
     ("ppsspp_gpu_record", {}),
     ("ppsspp_replay", {"action": "status"}),
     ("ppsspp_smoke_test", {}),
-    ("ppsspp_memory_info_search", {"match": "Game"}),
+    ("ppsspp_search_memory_info", {"match": "Game"}),
     # R-A: H1/H2 tools join the no-session guard sweep (they were added
     # after the sweep was written — v4 report gap G-1's guard half).
     ("ppsspp_wait_breakpoint", {"timeout_s": 0.5}),
@@ -1579,10 +1580,10 @@ PHASE_B: list[Scenario] = [
     ),
     Scenario("B.gpu_stats", "ppsspp_gpu_stats", {}),
     Scenario("B.gpu_record", "ppsspp_gpu_record", {}, note="ticket async — one frame GE dump"),
-    Scenario("B.mem_info_search.Game", "ppsspp_memory_info_search", {"match": "Game"}),
+    Scenario("B.mem_info_search.Game", "ppsspp_search_memory_info", {"match": "Game"}),
     Scenario(
         "B.mem_info_search.empty",
-        "ppsspp_memory_info_search",
+        "ppsspp_search_memory_info",
         {"match": ""},
         "error",
         note="O2 定版: F-11b 空/空白 match 确定性抛 ToolError（空串会"
@@ -2463,7 +2464,8 @@ try:
     _FRAME_P50_BASELINE: dict[str, float] = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))[
         "p50_ms"
     ]
-except (OSError, json.JSONDecodeError, KeyError):    _FRAME_P50_BASELINE = {}  # gate falls back to the fixed dict budget
+except (OSError, json.JSONDecodeError, KeyError):
+    _FRAME_P50_BASELINE = {}  # gate falls back to the fixed dict budget
 
 
 def _ok_p50_by_tool(records: list[dict]) -> dict[str, float]:

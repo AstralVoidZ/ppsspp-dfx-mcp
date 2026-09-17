@@ -80,8 +80,8 @@ class Session:
         Called by session_manager.update_ws_connected after a successful
         WS connect+handshake (connected=True) or on disconnect (False).
         The previous code never updated ws_connected after session creation
-        (it stayed False forever), making it a dead field in session_list
-        output.
+        (it stayed False forever), making it a dead field in the
+        session(action="list") output.
         """
         return replace(
             self,

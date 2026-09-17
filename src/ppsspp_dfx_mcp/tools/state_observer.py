@@ -327,6 +327,8 @@ async def state_observer(
 
     USAGE: action + session_id for observe; register needs name + address (+size 1/2/4, description); observe takes comma-separated names and samples.
 
+
+    ROUTING: recurring sampled probes across loops -> here; one-shot paused snapshot -> ppsspp_frame_snapshot; single-address access watch -> ppsspp_trace_memory_access.
     BEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PROCESS-wide (shared across sessions), seeded from addresses.yaml state_probes, and is NOT re-seeded after clear within the same process. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets (F-5 contract, 2026-09-08).
 
     RETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action."""

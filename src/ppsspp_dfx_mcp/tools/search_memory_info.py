@@ -1,7 +1,7 @@
 """Memory info search tool wrapper.
 
 1 tool exposed:
-- ppsspp_memory_info_search(session_id, match, address?, end?, type?) —
+- ppsspp_search_memory_info(session_id, match, address?, end?, type?) —
   call `memory.info.search` to query PPSSPP's memory tracking system
   for allocation/write/texture metadata tags.
 
@@ -20,37 +20,37 @@ from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
 from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
-from ppsspp_dfx_mcp.models.memory_info_search import MemoryInfoSearchResult
+from ppsspp_dfx_mcp.models.search_memory_info import SearchMemoryInfoResult
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
 from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
-from ppsspp_dfx_mcp.views.memory_info_search import MemoryInfoSearchResponse
+from ppsspp_dfx_mcp.views.search_memory_info import SearchMemoryInfoResponse
 
-MemoryInfoSearchOutput = derive_output_contract("MemoryInfoSearchOutput", MemoryInfoSearchResponse)
+SearchMemoryInfoOutput = derive_output_contract("SearchMemoryInfoOutput", SearchMemoryInfoResponse)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["memory_info_search"]
+__all__ = ["search_memory_info"]
 
 
 # Former docstring (kept as comment; description is now the TDQS docstring):
 # Search memory allocation/write/texture metadata tags.
 #
 # Returns:
-# MemoryInfoSearchResponse dict: regions / count / raw / text.
+# SearchMemoryInfoResponse dict: regions / count / raw / text.
 #
 # Raises:
 # ToolError: on session lookup failure, empty session_id, or WS
 # failure.
 @mcp.tool(
-    name="ppsspp_memory_info_search",
+    name="ppsspp_search_memory_info",
     annotations=ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
     ),
 )
 @translate_tool_errors
-async def memory_info_search(
+async def search_memory_info(
     session_id: Annotated[
         str,
         Field(description="Active session ID."),
@@ -96,7 +96,7 @@ async def memory_info_search(
             ),
         ),
     ] = None,
-) -> MemoryInfoSearchOutput:
+) -> SearchMemoryInfoOutput:
     """PURPOSE: Search PPSSPP's memory-tracking metadata for allocation/texture tags matching a string.
 
     USAGE: session_id + match (case-insensitive substring, required); optional address/end/type filters.
@@ -115,7 +115,7 @@ async def memory_info_search(
     logger.info(
         "tool_call",
         extra={
-            "tool": "ppsspp_memory_info_search",
+            "tool": "ppsspp_search_memory_info",
             "session_id": session_id,
             "match": match,
             "address": address_int,
@@ -126,7 +126,7 @@ async def memory_info_search(
 
     try:
         async with session_client(session_id) as client:
-            raw = await client.memory_info_search(
+            raw = await client.search_memory_info(
                 match=match, address=address_int, end=end_int, type=type
             )
     except ToolError:
@@ -137,5 +137,5 @@ async def memory_info_search(
     if not isinstance(raw, dict):
         raw = {}
 
-    result = MemoryInfoSearchResult.from_raw(raw)
-    return MemoryInfoSearchResponse.from_result(result).model_dump(mode="json")
+    result = SearchMemoryInfoResult.from_raw(raw)
+    return SearchMemoryInfoResponse.from_result(result).model_dump(mode="json")
