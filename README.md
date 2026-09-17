@@ -47,11 +47,12 @@ MCP Inspector 等）。
 `mcp` 包共存：
 
 ```bash
-python3.14 -m venv .venv
 # Windows：
-.venv\Scripts\python -m pip install ppsspp-dfx-mcp
+py -3.14 -m venv .venv
 # POSIX：
-.venv/bin/python -m pip install ppsspp-dfx-mcp
+python3.14 -m venv .venv
+.venv\Scripts\python -m pip install ppsspp-dfx-mcp     # Windows
+.venv/bin/python -m pip install ppsspp-dfx-mcp         # POSIX
 ```
 
 把服务器注册到你的 MCP 客户端（入口由安装包提供，无需指向仓库内脚本）：

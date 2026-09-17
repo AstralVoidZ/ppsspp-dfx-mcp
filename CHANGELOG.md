@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-17
+
+### Fixed
+
+- MCP 握手的 serverInfo 版本改为从包元数据读取（`importlib.metadata`），
+  消除 `__init__.py` 中与 pyproject 脱节的硬编码副本——0.1.1 曾在协议层
+  自报 0.1.0。
+- README：Windows 的 venv 创建命令更正为 `py -3.14`
+  （`python3.14` 别名在 Windows 上通常不存在）。
+
 ## [0.1.1] - 2026-09-17
 
 ### Added
