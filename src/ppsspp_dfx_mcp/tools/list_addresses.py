@@ -28,17 +28,16 @@ READ-ONLY: does not contact PPSSPP. Pure YAML read + format.
 from __future__ import annotations
 
 import logging
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
-from typing import Annotated
+from pydantic import Field
 
 from ppsspp_dfx_mcp import config
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.address import format_address
-from ppsspp_dfx_mcp.errors import ToolError
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 
 logger = logging.getLogger(__name__)
 
@@ -131,11 +130,9 @@ async def list_addresses(
             # An unknown section is a caller mistake
             # (typically a typo) — fail with the valid sections instead of
             # silently returning an empty result.
-            raise ToolError(
+            raise ArgsInvalid(
                 f"unknown section {section!r}; valid sections: "
-                f"{sorted(k for k in addrs if isinstance(k, str))}",
-                code="INTERNAL",
-            )
+                f"{sorted(k for k in addrs if isinstance(k, str))}")
         return {
             "sections": result,
             "count": len(result),

@@ -47,24 +47,23 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from ppsspp_dfx_mcp import config
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.state_observer import (
     ObservationResult,
     ProbeObservation,
     RegisterResult,
     StateProbe,
 )
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
 
 StateObserverOutput = derive_output_contract("StateObserverOutput", StateObserverResponse)
 
@@ -137,8 +136,8 @@ def _read_method(client: Any, size: int) -> Any:
         return client.read_u16
     if size == 4:
         return client.read_u32
-    raise ToolError(
-        f"invalid size={size}; expected one of {_VALID_SIZES}", code="INTERNAL"
+    raise ArgsInvalid(
+        f"invalid size={size}; expected one of {_VALID_SIZES}"
     )
 
 
@@ -163,18 +162,14 @@ def _resolve_target_probes(names: str) -> tuple[StateProbe, ...]:
     else:
         target_names = list(_REGISTRY.keys())
     if not target_names:
-        raise ToolError(
+        raise ArgsInvalid(
             "no probes to observe: register probes first or seed "
-            "addresses.yaml `state_probes` section",
-            code="INTERNAL",
-        )
+            "addresses.yaml `state_probes` section")
     missing = [n for n in target_names if n not in _REGISTRY]
     if missing:
-        raise ToolError(
+        raise ArgsInvalid(
             f"unknown probe name(s): {missing}; "
-            f"registered: {list(_REGISTRY.keys())}",
-            code="INTERNAL",
-        )
+            f"registered: {list(_REGISTRY.keys())}")
     return tuple(_REGISTRY[n] for n in target_names)
 
 
@@ -337,10 +332,8 @@ async def state_observer(
 
     RETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action."""
     if action not in _ACTIONS:
-        raise ToolError(
-            f"invalid action={action!r}; expected one of {_ACTIONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid action={action!r}; expected one of {_ACTIONS}")
     _seed_from_yaml()
     address_int = parse_address(address)
 
@@ -356,20 +349,16 @@ async def state_observer(
     try:
         if action == "register":
             if not name:
-                raise ToolError(
-                    "name is required when action=register", code="INTERNAL"
+                raise ArgsInvalid(
+                    "name is required when action=register"
                 )
             if address_int == 0:
-                raise ToolError(
+                raise ArgsInvalid(
                     "address is required when action=register "
-                    "(address=0 is NULL and not a valid probe target)",
-                    code="INTERNAL",
-                )
+                    "(address=0 is NULL and not a valid probe target)")
             if size not in _VALID_SIZES:
-                raise ToolError(
-                    f"size must be one of {_VALID_SIZES}; got {size}",
-                    code="INTERNAL",
-                )
+                raise ArgsInvalid(
+                    f"size must be one of {_VALID_SIZES}; got {size}")
             probe = StateProbe(
                 name=name, address=address_int, size=size, description=description
             )
@@ -397,8 +386,8 @@ async def state_observer(
 
         # action == "observe"
         if samples < 1:
-            raise ToolError(
-                f"samples must be >= 1; got {samples}", code="INTERNAL"
+            raise ArgsInvalid(
+                f"samples must be >= 1; got {samples}"
             )
         target_probes = _resolve_target_probes(names)
         async with session_client(session_id) as client:

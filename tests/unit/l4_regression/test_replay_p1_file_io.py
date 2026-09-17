@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import base64 as _b64
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,7 +28,6 @@ from ppsspp_dfx_mcp.errors import ToolError
 from ppsspp_dfx_mcp.models.replay import PPRFile
 from ppsspp_dfx_mcp.tools._common import resolve_output_path
 from ppsspp_dfx_mcp.tools.replay import replay
-
 
 # ============================================================================
 # PPRFile data layer — to_dict / from_dict round-trip
@@ -272,7 +271,6 @@ class TestSaveAction:
         """
         import shutil
 
-        import ppsspp_dfx_mcp.tools._common as common
 
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
@@ -516,7 +514,7 @@ class TestLoadErrors:
     async def test_load_missing_file_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """R-31: load non-existent file raises ToolError code=INTERNAL."""
+        """R-31: load non-existent file raises ToolError code=ARGS_INVALID."""
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
 
@@ -526,7 +524,7 @@ class TestLoadErrors:
                 action="load",
                 file_path="nope.ppr",
             )
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
         # execute must not be called when file is missing.
         mock.replay_execute.assert_not_awaited()
 
@@ -546,7 +544,7 @@ class TestLoadErrors:
                 action="load",
                 file_path="bad.ppr",
             )
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
     @pytest.mark.asyncio
     async def test_load_invalid_schema_raises(
@@ -567,7 +565,7 @@ class TestLoadErrors:
                 action="load",
                 file_path="bad.ppr",
             )
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
         mock.replay_execute.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -594,7 +592,7 @@ class TestLoadErrors:
                 action="load",
                 file_path="future.ppr",
             )
-        assert exc.value.code == "INTERNAL"
+        assert exc.value.code == "ARGS_INVALID"
 
 
 # ============================================================================

@@ -14,18 +14,16 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools._common import require_session_id
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.evaluate import EvaluateResult
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.evaluate import EvaluateResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.evaluate import EvaluateResponse
 
 EvaluateOutput = derive_output_contract("EvaluateOutput", EvaluateResponse)
 
@@ -100,7 +98,7 @@ async def evaluate(
     RETURNS: {expression, value, response, text}."""
     require_session_id(session_id)
     if not expression:
-        raise ToolError("expression is required", code="INTERNAL")
+        raise ArgsInvalid("expression is required")
 
     logger.info(
         "tool_call",

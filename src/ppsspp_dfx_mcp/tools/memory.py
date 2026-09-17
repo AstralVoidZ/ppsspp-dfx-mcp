@@ -12,27 +12,17 @@ write_bytes / disasm) directly; no orchestration wrapper indirection.
 """
 
 from __future__ import annotations
-from mcp.types import ToolAnnotations
 
 import base64
 import logging
 from typing import Annotated, Any, Literal
 
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import (
-    DEFAULT_STRING_CAP,
-    MAX_SCAN_PATTERN_BYTES,
-    MAX_SCAN_RANGE_BYTES,
-    MAX_SINGLE_READ_BYTES,
-    MIN_SCAN_CHUNK_BYTES,
-    require_session_id,
-    save_output_bytes,
-    save_output_text,
-    translate_tool_errors,
-)
 from ppsspp_dfx_mcp.address import parse_address, parse_value
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.memory import (
     DisassemblyResult,
     MemoryReadResult,
@@ -41,6 +31,15 @@ from ppsspp_dfx_mcp.models.memory import (
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.service.memory_protection import check_protected_address
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
+from ppsspp_dfx_mcp.tools._common import (
+    DEFAULT_STRING_CAP,
+    MAX_SCAN_PATTERN_BYTES,
+    MAX_SCAN_RANGE_BYTES,
+    MIN_SCAN_CHUNK_BYTES,
+    save_output_bytes,
+    save_output_text,
+    translate_tool_errors,
+)
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.memory import (
     DisassemblyResponse,
@@ -264,38 +263,32 @@ async def read_memory(
     RETURNS: {action, address, value, size, text, file} — value is the match list for scan. read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/)."""
     session_id = await resolve_session_id(session_id)
     if action not in _READ_ACTIONS:
-        raise ToolError(
-            f"invalid action={action!r}; expected one of {_READ_ACTIONS}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"invalid action={action!r}; expected one of {_READ_ACTIONS}")
     address_int = parse_address(address)
     start_addr_int = parse_address(start_addr)
     end_addr_int = parse_address(end_addr)
     # read_bytes/read_u32/read_string require a non-zero address; scan uses
     # start_addr/end_addr instead (address is ignored).
     if action != "scan" and address_int <= 0:
-        raise ToolError(
-            f"address must be > 0 for action={action!r}", code="INTERNAL"
+        raise ArgsInvalid(
+            f"address must be > 0 for action={action!r}"
         )
     if action == "scan":
         # Validate the scan envelope BEFORE opening the session —
         # pure input checks belong in the fail-fast section, not inside
         # the session_client block.
         if start_addr_int >= end_addr_int:
-            raise ToolError(
+            raise ArgsInvalid(
                 f"start_addr (0x{start_addr_int:08X}) must be < end_addr "
-                f"(0x{end_addr_int:08X}) for scan action",
-                code="INTERNAL",
-            )
+                f"(0x{end_addr_int:08X}) for scan action")
         if end_addr_int - start_addr_int > MAX_SCAN_RANGE_BYTES:
-            raise ToolError(
+            raise ArgsInvalid(
                 f"scan range too large: 0x{start_addr_int:08X}-"
                 f"0x{end_addr_int:08X} "
                 f"({end_addr_int - start_addr_int} bytes; cap 256 MiB). "
                 "Narrow start_addr/end_addr — unreadable regions are "
-                "skipped per-chunk, which costs one WS round-trip each.",
-                code="INTERNAL",
-            )
+                "skipped per-chunk, which costs one WS round-trip each.")
 
     # G1 file-mode locals — only populated for read_bytes + output="file"
     file_bin_path = ""
@@ -310,17 +303,15 @@ async def read_memory(
         async with session_client(session_id) as client:
             if action == "read_bytes":
                 if size <= 0:
-                    raise ToolError("size must be > 0 for read_bytes", code="INTERNAL")
+                    raise ArgsInvalid("size must be > 0 for read_bytes")
                 # Bound single reads — a 1 MB read
                 # succeeds but produces a multi-second response whose token
                 # cost is unbounded. Chunk via multiple calls instead.
                 if size > _MAX_READ_BYTES:
-                    raise ToolError(
+                    raise ArgsInvalid(
                         f"size ({size}) exceeds the single-read cap "
                         f"({_MAX_READ_BYTES} bytes); split the request into "
-                        f"multiple read_bytes calls",
-                        code="INTERNAL",
-                    )
+                        f"multiple read_bytes calls")
                 raw = await client.read_bytes(address=address_int, size=size)
                 result = MemoryReadResult(
                     action=action, address=address_int, value=list(raw), size=len(raw)
@@ -377,19 +368,15 @@ async def read_memory(
                 )
             else:  # scan
                 if not pattern:
-                    raise ToolError(
-                        "pattern is required for scan action", code="INTERNAL"
+                    raise ArgsInvalid(
+                        "pattern is required for scan action"
                     )
                 if max_results <= 0:
-                    raise ToolError(
-                        f"max_results must be > 0 (got {max_results})",
-                        code="INTERNAL",
-                    )
+                    raise ArgsInvalid(
+                        f"max_results must be > 0 (got {max_results})")
                 if chunk_size <= 0:
-                    raise ToolError(
-                        f"chunk_size must be > 0 (got {chunk_size})",
-                        code="INTERNAL",
-                    )
+                    raise ArgsInvalid(
+                        f"chunk_size must be > 0 (got {chunk_size})")
                 # Clamp chunk_size to the 64 KiB single-read cap —
                 # scan issues one memory.read per chunk (chunk+overlap), so
                 # an unclamped chunk bypassed the F-6 read_bytes cap, and
@@ -410,14 +397,12 @@ async def read_memory(
                 # every chunk read exceed the documented 64 KiB single-read
                 # budget. Fail fast with the cap named.
                 if len(pattern_bytes) > MAX_SCAN_PATTERN_BYTES:
-                    raise ToolError(
+                    raise ArgsInvalid(
                         f"pattern is {len(pattern_bytes)} bytes; the scan "
                         f"cap is {MAX_SCAN_PATTERN_BYTES} bytes (each scan "
                         f"chunk reads chunk_size + len(pattern) - 1 bytes "
                         f"in one request). Narrow the pattern or scan for "
-                        f"a shorter signature.",
-                        code="INTERNAL",
-                    )
+                        f"a shorter signature.")
                 matches = await client.scan_memory(
                     pattern=pattern_bytes,
                     start=start_addr_int,
@@ -561,10 +546,8 @@ async def write_memory(
         if not decoded_bytes:
             # An empty payload would pass every check and return
             # "success" having written nothing — fail loudly instead.
-            raise ToolError(
-                "data decodes to zero bytes for format='bytes'; nothing to write",
-                code="INTERNAL",
-            )
+            raise ArgsInvalid(
+                "data decodes to zero bytes for format='bytes'; nothing to write")
     try:
         async with session_client(session_id) as client:
             if format in ("u8", "u16", "u32"):
@@ -747,7 +730,7 @@ def _decode_bytes_input(data: int | str) -> bytes:
     containing only hex chars; otherwise base64 is attempted.
     """
     if isinstance(data, int):
-        raise ToolError("data must be str when format='bytes'", code="INTERNAL")
+        raise ArgsInvalid("data must be str when format='bytes'")
     s = data.strip()
     if s.lower().startswith("0x"):
         s = s[2:]
@@ -761,8 +744,8 @@ def _decode_bytes_input(data: int | str) -> bytes:
     try:
         return base64.b64decode(s, validate=True)
     except Exception as e:
-        raise ToolError(
-            f"could not decode data as hex or base64: {e}", code="INTERNAL"
+        raise ArgsInvalid(
+            f"could not decode data as hex or base64: {e}"
         ) from e
 
 
@@ -781,17 +764,13 @@ def _decode_hex_pattern(pattern: str) -> bytes:
     if s.lower().startswith("0x"):
         s = s[2:]
     if not s:
-        raise ToolError(
-            "pattern is empty after stripping 0x prefix", code="INTERNAL"
+        raise ArgsInvalid(
+            "pattern is empty after stripping 0x prefix"
         )
     if len(s) % 2 != 0:
-        raise ToolError(
-            f"pattern must have even length (got {len(s)} chars: {s!r})",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"pattern must have even length (got {len(s)} chars: {s!r})")
     if not all(c in "0123456789abcdefABCDEF" for c in s):
-        raise ToolError(
-            f"pattern must be valid hex (got non-hex chars in {s!r})",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"pattern must be valid hex (got non-hex chars in {s!r})")
     return bytes.fromhex(s)

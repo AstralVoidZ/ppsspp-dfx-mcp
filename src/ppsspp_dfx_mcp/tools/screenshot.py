@@ -20,14 +20,13 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, TypedDict
 
 from mcp.server.mcpserver import Image
-from pydantic import Field
 from mcp.types import CallToolResult, ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
-from ppsspp_dfx_mcp.tools._common import save_output_bytes
-from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_capture
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_capture
+from ppsspp_dfx_mcp.tools._common import save_output_bytes, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.screenshot import ScreenshotResponse, TextureDumpResponse
 
@@ -155,11 +154,9 @@ def _resolve_capture_strategy(
     """
     source_set = source is not None
     if source_set and mode_explicit:
-        raise ToolError(
+        raise ArgsInvalid(
             "ambiguous: provide either `source` (new) or `mode` (deprecated), "
-            "not both",
-            code="INTERNAL",
-        )
+            "not both")
     if source_set:
         assert source in ("render", "output")
         return (source, source)

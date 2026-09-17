@@ -65,8 +65,10 @@ category: errors
 | `SCRIPT_NOT_FOUND` | manifest 中无此脚本名 | `ppsspp_list_scripts` 查可用名（注意 `[skeleton]` 条目不可用） |
 | `SCRIPT_CONTRACT_ERROR` | 脚本 Input/Output/entry 契约损坏 | 查 manifest 条目与脚本模型定义；可经 `ppsspp_run_script` 获取更清晰的错误面 |
 | `MANIFEST_ERROR` | scripts.manifest.yaml 损坏或缺引用 | 修复 YAML 后 `ppsspp_reload_scripts`（无需重启 server） |
+| `ARGS_INVALID` | 工具参数未通过 schema 之外的校验（范围/跨字段/文件内容约束） | 按 message 修正参数后重试；涉及地址先 `ppsspp_list_addresses` 核对 |
+| `STEP_INVALID` | batch_step 的 step 结构非法（type/button/frames 越界） | 按 message 定位 `step[index]` 修正后重试 |
 | `NOT_IMPLEMENTED` | 请求动作未实现（skeleton 脚本等） | `list_scripts` 确认 status；不要把 skeleton 当可用能力 |
-| `INTERNAL` | 参数校验/内部错误（ToolError 兜底码） | 按 message 修正参数重试；持续复现按 §7 逃生舱走一次性 WS 客户端取证 |
+| `INTERNAL` | 服务器内部故障（兜底码；参数校验已由 `ARGS_INVALID` 承担） | 重试一次；持续复现按 §7 逃生舱走一次性 WS 客户端取证 |
 
 ## 关联资源
 

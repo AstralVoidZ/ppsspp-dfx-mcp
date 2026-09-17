@@ -13,21 +13,19 @@ regions in the same response.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools._common import require_session_id
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.memory_info_search import MemoryInfoSearchResult
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.memory_info_search import MemoryInfoSearchResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.memory_info_search import MemoryInfoSearchResponse
 
 MemoryInfoSearchOutput = derive_output_contract("MemoryInfoSearchOutput", MemoryInfoSearchResponse)
 
@@ -108,7 +106,7 @@ async def memory_info_search(
     # An empty match would match everything —
     # require a non-empty substring.
     if not match or not match.strip():
-        raise ToolError("match must be a non-empty substring", code="INTERNAL")
+        raise ArgsInvalid("match must be a non-empty substring")
     address_int = parse_address(address) if address is not None else None
     end_int = parse_address(end) if end is not None else None
 

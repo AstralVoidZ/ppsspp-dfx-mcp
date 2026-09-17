@@ -39,19 +39,17 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools._common import require_session_id
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.search_disasm import SearchDisasmResult
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.search_disasm import SearchDisasmResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.search_disasm import SearchDisasmResponse
 
 SearchDisasmOutput = derive_output_contract("SearchDisasmOutput", SearchDisasmResponse)
 
@@ -145,12 +143,12 @@ async def search_disasm(
     require_session_id(session_id)
     address_int = parse_address(address)
     if address_int <= 0:
-        raise ToolError("address must be > 0", code="INTERNAL")
+        raise ArgsInvalid("address must be > 0")
     end_int = parse_address(end)
     if not match:
-        raise ToolError("match is required (non-empty string)", code="INTERNAL")
+        raise ArgsInvalid("match is required (non-empty string)")
     if max_results <= 0:
-        raise ToolError("max_results must be > 0", code="INTERNAL")
+        raise ArgsInvalid("max_results must be > 0")
 
     # Strip the '$' register prefix — PPSSPP's MIPSDebugInterface omits
     # '$' from register names (MIPSDebugInterface.cpp:281-290). Callers

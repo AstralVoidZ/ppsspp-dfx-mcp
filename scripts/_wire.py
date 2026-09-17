@@ -11,20 +11,21 @@ error classification — and the duplicated classification promptly
 diverged (McpError vs MCPError SDK spellings).
 Import from here; do not re-implement.
 
-Usage (both runners run from mcps/ppsspp-dfx-mcp):
+Usage (run from the package root):
     PYTHONPATH=src python scripts/<runner>.py
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import time
-import os
 from pathlib import Path
 from typing import Any
 
 from mcp import StdioServerParameters
 from mcp.client.stdio import get_default_environment
+
 
 def find_package_root() -> Path:
     """Nearest ancestor (inclusive) containing pyproject.toml — the package
@@ -101,7 +102,7 @@ def check_editable_install_health() -> str | None:
         f"warning: '{_CANARY_MODULE}' is not importable — runners rely on "
         f"PYTHONPATH={SRC_DIR}; if 'pip show {_CANARY_MODULE}' exists, its "
         f"editable .pth points at a stale path (repo was renamed). Fix: "
-        f"pip install -e mcps/ppsspp-dfx-mcp"
+        f"pip install -e {PACKAGE_ROOT}"
     )
 
 
@@ -186,7 +187,7 @@ async def call_tool(session: Any, tool: str, args: dict[str, Any],
         rec["status"] = "tool_error" if err else "ok"
         if err:
             rec["error"] = rec["text"]
-    except asyncio.TimeoutError:
+    except TimeoutError:
         rec["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         rec["status"] = "timeout"
         rec["error"] = f"exceeded {timeout_s}s"

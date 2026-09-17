@@ -42,8 +42,9 @@ from __future__ import annotations
 import base64 as _b64
 import dataclasses
 import inspect
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -51,7 +52,6 @@ import pytest
 from ppsspp_dfx_mcp.errors import ToolError
 from ppsspp_dfx_mcp.models.replay import ReplayResult
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-from ppsspp_dfx_mcp.tools.replay import replay
 from ppsspp_dfx_mcp.tools.replay import replay
 from ppsspp_dfx_mcp.views.replay import ReplayResponse
 
@@ -187,11 +187,11 @@ class TestReplayActionValidation:
     """
 
     @pytest.mark.asyncio
-    async def test_invalid_action_raises_internal(self):
-        """R-04: unknown action raises ToolError code=INTERNAL."""
+    async def test_invalid_action_raises_args_invalid(self):
+        """R-04: unknown action raises ToolError code=ARGS_INVALID."""
         with pytest.raises(ToolError, match="invalid action") as exc_info:
             await replay(session_id="dummy", action="bogus")
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("action", ["save", "load"])
@@ -204,10 +204,10 @@ class TestReplayActionValidation:
         """
         with pytest.raises(ToolError, match="file_path is required") as exc_info:
             await replay(session_id="dummy", action=action)
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
     @pytest.mark.asyncio
-    async def test_execute_with_zero_version_raises_internal(self):
+    async def test_execute_with_zero_version_raises_args_invalid(self):
         """R-06a: execute action requires version != 0.
 
         Anchor: tools/replay.py — `if version == 0: raise ToolError(...)`.
@@ -221,10 +221,10 @@ class TestReplayActionValidation:
                 version=0,
                 base64_input="AAEC",
             )
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
     @pytest.mark.asyncio
-    async def test_execute_with_empty_base64_raises_internal(self):
+    async def test_execute_with_empty_base64_raises_args_invalid(self):
         """R-06b: execute action requires non-empty base64_input.
 
         Anchor: tools/replay.py — `if not base64_input: raise ToolError(...)`.
@@ -239,7 +239,7 @@ class TestReplayActionValidation:
                 version=1,
                 base64_input="",
             )
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
 
 # ============================================================================

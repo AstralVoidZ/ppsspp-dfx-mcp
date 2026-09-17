@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-from typing import Any, Callable, Optional
+from collections.abc import Callable
 
 from mcp.server.mcpserver.exceptions import ToolError as _SDKToolError
 
 from ppsspp_dfx_mcp.core import proc
+
 
 class ToolError(_SDKToolError):
     """Unified error type exposed to MCP clients.
@@ -48,6 +49,14 @@ class ToolError(_SDKToolError):
 
 
 # ── Business exceptions ─────────────────────────────────────────────────
+
+
+class ArgsInvalid(ToolError):
+    """Tool arguments failed validation the input schema cannot express
+    (range / cross-field / file-content constraints). The agent can fix
+    these by adjusting its own call — never a server malfunction."""
+
+    code = "ARGS_INVALID"
 
 
 class ConfigInvalid(ToolError):
@@ -409,9 +418,9 @@ _PPSSPP_ERROR_HINTS: dict[str, str] = {
 # asyncio task (tool call) gets its own resolver scope, set by
 # session_client_with_transport (accept phase). Module-level state set by
 # start_session would leak resolvers across concurrently running sessions.
-_pid_resolver: contextvars.ContextVar[Optional[Callable[[], int | None]]] = \
+_pid_resolver: contextvars.ContextVar[Callable[[], int | None] | None] = \
     contextvars.ContextVar("_pid_resolver", default=None)
-_game_state_resolver: contextvars.ContextVar[Optional[Callable[[], str | None]]] = \
+_game_state_resolver: contextvars.ContextVar[Callable[[], str | None] | None] = \
     contextvars.ContextVar("_game_state_resolver", default=None)
 
 # Token type returned by set_error_context (used by reset_error_context).
@@ -419,8 +428,8 @@ ErrorContextToken = tuple[contextvars.Token, contextvars.Token]
 
 
 def set_error_context(
-    pid_resolver: Optional[Callable[[], int | None]],
-    game_state_resolver: Optional[Callable[[], str | None]],
+    pid_resolver: Callable[[], int | None] | None,
+    game_state_resolver: Callable[[], str | None] | None,
 ) -> ErrorContextToken:
     """Inject PID + game-state resolvers used by ``to_tool_error``.
 
@@ -451,7 +460,7 @@ def reset_error_context(token: ErrorContextToken) -> None:
     _game_state_resolver.reset(t2)
 
 
-def _resolve_pid_alive() -> Optional[bool]:
+def _resolve_pid_alive() -> bool | None:
     """Best-effort PID liveness probe.
 
     Returns:
@@ -477,7 +486,7 @@ def _resolve_pid_alive() -> Optional[bool]:
         return None
 
 
-def _resolve_game_state() -> Optional[str]:
+def _resolve_game_state() -> str | None:
     """Best-effort game-state query.
 
     Returns:

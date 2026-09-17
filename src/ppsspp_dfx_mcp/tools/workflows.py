@@ -24,20 +24,18 @@ import logging
 import time
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import (
-    SessionNotFound,
-    ToolError,
-    to_tool_error,
-)
+from ppsspp_dfx_mcp.core.game_state_observer import SteppingSubscription
+from ppsspp_dfx_mcp.errors import ArgsInvalid, SessionNotFound, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.workflow import (
     FrameSnapshotResult,
     TraceAccessResult,
     WaitBreakpointResult,
 )
+from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session import session_manager
 from ppsspp_dfx_mcp.session.client_helper import (
     session_client,
@@ -45,15 +43,12 @@ from ppsspp_dfx_mcp.session.client_helper import (
     validate_session_alive,
 )
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
+from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.workflow import (
     FrameSnapshotResponse,
     TraceAccessResponse,
     WaitBreakpointResponse,
 )
-from ppsspp_dfx_mcp.core.game_state_observer import SteppingSubscription
-from ppsspp_dfx_mcp.server import mcp
-
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 
 WaitBreakpointOutput = derive_output_contract("WaitBreakpointOutput", WaitBreakpointResponse)
 FrameSnapshotOutput = derive_output_contract(
@@ -92,16 +87,14 @@ async def _get_live_observer(session_id: str) -> Any:
     try:
         return await session_manager.get_observer(session_id)
     except SessionNotFound as e:
-        raise ToolError(
+        raise ArgsInvalid(
             f"session {session_id} has no live broadcast observer — "
             f"wait tools (ppsspp_trace_memory_access / "
             f"ppsspp_wait_breakpoint / ppsspp_wait_frames) require a "
             f"live PPSSPP WebSocket link; fake-mode and disk-loaded "
             f"sessions have none. Recovery: check ppsspp_smoke_test "
             f"(ws_connected), then start a fresh session via "
-            f"ppsspp_session(action='start') and retry.",
-            code="INTERNAL",
-        ) from e
+            f"ppsspp_session(action='start') and retry.") from e
 
 
 def _find_mem_bp_by_addr(
@@ -409,15 +402,11 @@ async def trace_memory_access(
     budget = _clamp_timeout(timeout_s)
     addr = parse_address(address)
     if addr == 0:
-        raise ToolError(
-            f"address must be a valid hex address, got {address!r}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"address must be a valid hex address, got {address!r}")
     if size not in (1, 2, 4):
-        raise ToolError(
-            f"size must be 1, 2, or 4 bytes, got {size}",
-            code="INTERNAL",
-        )
+        raise ArgsInvalid(
+            f"size must be 1, 2, or 4 bytes, got {size}")
     read_flag = access in ("read", "read_write")
     write_flag = access in ("write", "read_write")
 

@@ -9,6 +9,16 @@
 
 ### Changed
 
+- 错误码分类学补全：输入参数校验统一为 `ARGS_INVALID`（全仓 83 处从
+  `INTERNAL` 迁移；`.ppr` 写盘失败等真实内部错误保留 `INTERNAL`）。
+  技能文档 `error-codes.md` 同步新增 `ARGS_INVALID`/`STEP_INVALID` 条目，
+  `INTERNAL` 行改写为仅限服务器自身故障。
+- `memory_protection` 的 top.prx 受保护段基址改从 `addresses.yaml` 的
+  `top_base.ppsspp` 读取（缺失时回退本项目默认值），落实"无硬编码项目
+  地址"原则；内核段保持 PSP 通用常量。
+- `MAX_WAIT_FRAMES` / `MAX_PRESS_DURATION_FRAMES` 下移至
+  `core/primitives.py`（单一真相源），`models/batch_step.py` 的字段描述
+  改为插值引用，不再手抄数值。
 - `ppsspp_batch_step` 的 `PressStep.button` 在 inputSchema 中以 25 项枚举
   下发（此前为裸 string + 文字描述，白名单约束仅存在于运行时）；按钮词汇表
   规范定义上收至 `models/input.py`（`PPSSPP_ALL_BUTTONS`），input 工具与
@@ -16,6 +26,8 @@
 
 ### Fixed
 
+- `batch_step` 的 wait step 补上帧上限执行（此前仅独立 `wait_frames`
+  工具执行该 cap，批量路径的文档承诺未兑现）。
 - `_validate_step` 的 step 结构校验错误码由 `INTERNAL` 更正为
   `STEP_INVALID`（输入校验失败不是服务器内部错误；新错误类继承
   `ToolError`，既有客户端分类不受影响）。

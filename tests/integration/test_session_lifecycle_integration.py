@@ -12,10 +12,10 @@ Integration scope:
 
 Contract (error paths):
 - `session(action='start', iso_path=<missing>)` → ToolError(ISO_NOT_FOUND)
-- `session(action='start')` (no iso_path) → ToolError(INTERNAL)
+- `session(action='start')` (no iso_path) → ToolError(ARGS_INVALID)
 - `session(action='stop', session_id=<missing>)` → ToolError(SESSION_NOT_FOUND)
 - `session(action='get', session_id=<missing>)` → ToolError(SESSION_NOT_FOUND)
-- `session(action=<invalid>)` → ToolError(INTERNAL)
+- `session(action=<invalid>)` → ToolError(ARGS_INVALID)
 - `session_list()` → dict with `sessions` (list) + `count` (int) fields
 
 Contract (real-PPSSPP path, skipped when PPSSPP unavailable):
@@ -29,7 +29,6 @@ Contract (real-PPSSPP path, skipped when PPSSPP unavailable):
 
 from __future__ import annotations
 
-import asyncio
 import re
 from pathlib import Path
 from unittest.mock import patch
@@ -43,7 +42,6 @@ from ppsspp_dfx_mcp.errors import (
 )
 from ppsspp_dfx_mcp.session import session_manager as sm_mod
 from ppsspp_dfx_mcp.tools.session import session, session_list
-
 
 # ============================================================================
 # Fixtures: isolate sessions.json + stub launcher for each test
@@ -86,18 +84,18 @@ class TestSessionStartErrorPaths:
         assert exc_info.value.code == "ISO_NOT_FOUND"
 
     async def test_start_without_iso_path_raises_tool_error(self):
-        """action='start' without iso_path raises ToolError(INTERNAL)."""
+        """action='start' without iso_path raises ToolError(ARGS_INVALID)."""
         with pytest.raises(ToolError) as exc_info:
             await session(action="start", iso_path=None)
         assert "iso_path is required" in str(exc_info.value)
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
     async def test_start_empty_iso_path_raises_tool_error(self):
-        """action='start' with empty string iso_path raises ToolError(INTERNAL)."""
+        """action='start' with empty string iso_path raises ToolError(ARGS_INVALID)."""
         with pytest.raises(ToolError) as exc_info:
             await session(action="start", iso_path="")
         assert "iso_path is required" in str(exc_info.value)
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
 
 # ============================================================================
@@ -123,18 +121,18 @@ class TestSessionStopGetErrorPaths:
         assert exc_info.value.code == "SESSION_NOT_FOUND"
 
     async def test_stop_without_session_id_raises_tool_error(self):
-        """action='stop' without session_id raises ToolError(INTERNAL)."""
+        """action='stop' without session_id raises ToolError(ARGS_INVALID)."""
         with pytest.raises(ToolError) as exc_info:
             await session(action="stop", session_id=None)
         assert "session_id is required" in str(exc_info.value)
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
     async def test_get_without_session_id_raises_tool_error(self):
-        """action='get' without session_id raises ToolError(INTERNAL)."""
+        """action='get' without session_id raises ToolError(ARGS_INVALID)."""
         with pytest.raises(ToolError) as exc_info:
             await session(action="get", session_id=None)
         assert "session_id is required" in str(exc_info.value)
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
 
 # ============================================================================
@@ -143,14 +141,14 @@ class TestSessionStopGetErrorPaths:
 
 
 class TestSessionInvalidAction:
-    """session(action=<invalid>) raises ToolError(INTERNAL)."""
+    """session(action=<invalid>) raises ToolError(ARGS_INVALID)."""
 
     async def test_invalid_action_raises_tool_error(self):
         """An invalid action value raises ToolError with code=INTERNAL."""
         with pytest.raises(ToolError) as exc_info:
             await session(action="invalid_action")
         assert "invalid action" in str(exc_info.value)
-        assert exc_info.value.code == "INTERNAL"
+        assert exc_info.value.code == "ARGS_INVALID"
 
 
 # ============================================================================

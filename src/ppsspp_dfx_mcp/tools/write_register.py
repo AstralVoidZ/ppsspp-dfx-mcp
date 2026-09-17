@@ -11,21 +11,19 @@ with_stepping pause/resume cycle internally.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
-from pydantic import Field
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools._common import require_session_id
 from ppsspp_dfx_mcp.address import parse_value
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.write_register import WriteRegisterResult
-from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.views.write_register import WriteRegisterResponse
 from ppsspp_dfx_mcp.server import mcp
-
+from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views.write_register import WriteRegisterResponse
 
 WriteRegisterOutput = derive_output_contract("WriteRegisterOutput", WriteRegisterResponse)
 
@@ -85,7 +83,7 @@ async def write_register(
     RETURNS: {name, value, response, text}."""
     require_session_id(session_id)
     if not name:
-        raise ToolError("name is required", code="INTERNAL")
+        raise ArgsInvalid("name is required")
 
     value_int = parse_value(value)
 
