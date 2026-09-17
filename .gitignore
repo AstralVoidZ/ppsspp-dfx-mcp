@@ -26,3 +26,6 @@ evals/llm_api.json
 .vscode/
 .idea/
 .DS_Store
+
+# uv lockfile — library project; regenerate locally with `uv lock`
+uv.lock
