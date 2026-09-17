@@ -86,9 +86,10 @@ def build_report(runs: list[dict[str, Any]], scenarios_cfg: dict[str, Any]) -> s
     commits = sorted({r.get("provenance", {}).get("git_commit", "?") for r in runs})
     models = sorted({r.get("model", "?") for r in runs})
     variants = sorted({r.get("variant", "?") for r in runs})
-    surfaces = sorted({r.get("provenance", {}).get("tool_surface_sha256", "?")[:12]
-                       for r in runs})
-    L.append(f"- 模型：{', '.join(models)}｜变体：{', '.join(variants)}｜commit：{', '.join(commits)}")
+    surfaces = sorted({r.get("provenance", {}).get("tool_surface_sha256", "?")[:12] for r in runs})
+    L.append(
+        f"- 模型：{', '.join(models)}｜变体：{', '.join(variants)}｜commit：{', '.join(commits)}"
+    )
     L.append(f"- 工具面哈希：{', '.join(surfaces)}（多值 = 网格跨越了工具面变更，需分层对比）")
     L.append(f"- 总运行数：{len(runs)}（基础设施失败的 run 不落盘，重跑即续）\n")
 
@@ -181,8 +182,9 @@ def build_report(runs: list[dict[str, Any]], scenarios_cfg: dict[str, Any]) -> s
                 (g for g in r.get("gate_details") or [] if g["type"] == "recovery"), None
             )
             rec = "—" if rec_gate is None else ("恢复✓" if rec_gate["pass"] else "恢复✗")
-            err_rows.append(f"| {r.get('scenario_id')} | n={r.get('run_idx')} | "
-                            f"#{i + 1} | {code} | {rec} |")
+            err_rows.append(
+                f"| {r.get('scenario_id')} | n={r.get('run_idx')} | #{i + 1} | {code} | {rec} |"
+            )
     if not err_rows:
         L.append("全程未出现工具级错误。\n")
     else:
@@ -214,8 +216,9 @@ def build_report(runs: list[dict[str, Any]], scenarios_cfg: dict[str, Any]) -> s
             row = [sid]
             for v in variants:
                 rs = by_s.get((sid, v), [])
-                row.append(_rate_str(sum(1 for r in rs if r.get("success")), len(rs))
-                           if rs else "未跑")
+                row.append(
+                    _rate_str(sum(1 for r in rs if r.get("success")), len(rs)) if rs else "未跑"
+                )
             L.append("| " + " | ".join(row) + " |")
         L.append("")
 
@@ -229,13 +232,14 @@ def main() -> None:
     ap.add_argument("--stdout", action="store_true")
     args = ap.parse_args()
 
-    scenarios_cfg = yaml.safe_load(
-        (_EVALS_DIR / "scenarios.yaml").read_text(encoding="utf-8"))
+    scenarios_cfg = yaml.safe_load((_EVALS_DIR / "scenarios.yaml").read_text(encoding="utf-8"))
     runs = _load_runs(Path(args.runs_dir))
     text = build_report(runs, scenarios_cfg)
 
-    out = Path(args.out) if args.out else (
-        _EVALS_DIR / "reports" / f"report-{datetime.now():%Y%m%d-%H%M}.md"
+    out = (
+        Path(args.out)
+        if args.out
+        else (_EVALS_DIR / "reports" / f"report-{datetime.now():%Y%m%d-%H%M}.md")
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text + "\n", encoding="utf-8")

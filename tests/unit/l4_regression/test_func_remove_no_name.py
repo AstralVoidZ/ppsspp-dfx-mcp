@@ -40,18 +40,14 @@ class TestV010FuncRemoveNoName:
         """L4 anchor: `address` is required (no default value)."""
         sig = inspect.signature(PpssppDebugClient.func_remove)
         params = sig.parameters
-        assert "address" in params, (
-            "func_remove signature missing `address` param."
-        )
+        assert "address" in params, "func_remove signature missing `address` param."
         assert params["address"].default is inspect.Parameter.empty, (
             f"func_remove `address` should be required (no default), "
             f"got default={params['address'].default!r}"
         )
 
     @pytest.mark.asyncio
-    async def test_positional_call_forwards_address_only(
-        self, client, transport
-    ):
+    async def test_positional_call_forwards_address_only(self, client, transport):
         """L1 anchor: func_remove(0x08800000) forwards only address."""
         await client.func_remove(0x08800000)
         assert transport.calls[-1][0] == "hle.func.remove"

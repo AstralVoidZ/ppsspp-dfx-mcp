@@ -13,13 +13,12 @@ L3 focus: Session.with_ws_connected + session_manager.update_ws_connected
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from ppsspp_dfx_mcp.models.session import Session
-from ppsspp_dfx_mcp.tools.screenshot import _image_dims, _jpeg_dims
+from ppsspp_dfx_mcp.tools.screenshot import _image_dims
 
 
 # Isolate session store: save/restore around each test so failures
@@ -27,6 +26,7 @@ from ppsspp_dfx_mcp.tools.screenshot import _image_dims, _jpeg_dims
 @pytest.fixture(autouse=True)
 def _isolate_session_store():
     from ppsspp_dfx_mcp.session import session_manager as sm
+
     original = sm._load_sessions()
     yield
     sm._save_sessions(original)
@@ -125,7 +125,9 @@ class TestUpdateWsConnected:
 
         mgr = sm.SessionManager()
         # Should not raise.
-        assert await mgr.update_ws_connected("nonexistent", True) is None  # no-op on missing session
+        assert (
+            await mgr.update_ws_connected("nonexistent", True) is None
+        )  # no-op on missing session
 
 
 # ============================================================================
@@ -150,7 +152,8 @@ class TestClientHelperWsConnected:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A fallback-path tool call leaves the persisted flag untouched."""
-        from ppsspp_dfx_mcp.session import client_helper, session_manager as sm
+        from ppsspp_dfx_mcp.session import client_helper
+        from ppsspp_dfx_mcp.session import session_manager as sm
 
         sess = Session(
             session_id="sess-1",
@@ -189,8 +192,9 @@ class TestClientHelperWsConnected:
     ) -> None:
         """W6: touch_session persists transport.is_connected() when a
         session-level transport exists."""
-        from ppsspp_dfx_mcp.session import session_manager as sm
         from unittest.mock import MagicMock
+
+        from ppsspp_dfx_mcp.session import session_manager as sm
 
         sess = Session(
             session_id="sess-1",
@@ -232,9 +236,7 @@ class TestScreenshotRenderFallback:
     """
 
     @pytest.mark.asyncio
-    async def test_render_empty_triggers_fallback(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_render_empty_triggers_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """render returns empty → safe_screenshot called → non-empty result."""
         from ppsspp_dfx_mcp.tools import screenshot as sc
 
@@ -250,9 +252,7 @@ class TestScreenshotRenderFallback:
 
         monkeypatch.setattr(sc, "session_capture", fake_session_capture)
 
-        result = await sc.screenshot(
-            session_id="sess-1", source="render"
-        )
+        result = await sc.screenshot(session_id="sess-1", source="render")
 
         # safe_screenshot was called as fallback.
         mock_capture.safe_screenshot.assert_awaited_once()
@@ -277,7 +277,7 @@ class TestImageDims:
         # Minimal PNG: 8-byte sig + IHDR (13 bytes data).
         # Width=480 (0x01E0), Height=272 (0x0110).
         png = b"\x89PNG\r\n\x1a\n"
-        png += b"\x00\x00\x00\x0D"  # IHDR length
+        png += b"\x00\x00\x00\x0d"  # IHDR length
         png += b"IHDR"  # chunk type
         png += (480).to_bytes(4, "big")  # width
         png += (272).to_bytes(4, "big")  # height

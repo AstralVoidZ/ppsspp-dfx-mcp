@@ -39,7 +39,7 @@ class _WedgeState:
 
     def __init__(self, fail_launches: int = 1) -> None:
         self.fail_launches = fail_launches
-        self.launchers: list["_WedgeLauncher"] = []
+        self.launchers: list[_WedgeLauncher] = []
 
     @property
     def transport_mode(self) -> str:
@@ -79,7 +79,8 @@ class _StubTransport:
     def __init__(self, state: _WedgeState) -> None:
         self._state = state
         self.version_info: dict[str, Any] | None = {
-            "name": "PPSSPP", "version": "1.19-fake",
+            "name": "PPSSPP",
+            "version": "1.19-fake",
         }
         self.closed = False
         self.events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -114,22 +115,20 @@ def _patch_production(
     monkeypatch.setattr(sm, "test_mode", lambda: "")
     monkeypatch.setattr(sm, "wedge_cooldown", lambda: None)
     monkeypatch.setattr(
-        sm, "probe_cpu_ready",
+        sm,
+        "probe_cpu_ready",
         functools.partial(sm.probe_cpu_ready, poll_interval_s=0.02),
     )
     monkeypatch.setattr(sm, "_probe_ws_connection", _async_true)
 
     import ppsspp_dfx_mcp.core.transport as transport_mod
-    monkeypatch.setattr(
-        transport_mod, "WsTransport", lambda *a, **k: _StubTransport(state)
-    )
+
+    monkeypatch.setattr(transport_mod, "WsTransport", lambda *a, **k: _StubTransport(state))
 
     iso = tmp_path / "game.iso"
     iso.write_bytes(b"ISO")
     exe_dir = tmp_path / "ppsspp"
-    blacklist = exe_dir / "memstick" / "PSP" / "SYSTEM" / (
-        "FailedGraphicsBackends.txt"
-    )
+    blacklist = exe_dir / "memstick" / "PSP" / "SYSTEM" / ("FailedGraphicsBackends.txt")
     blacklist.parent.mkdir(parents=True, exist_ok=True)
     blacklist.write_text("DIRECT3D11,VULKAN", encoding="utf-8")
 
@@ -146,7 +145,8 @@ async def _async_true(ws_url: str) -> bool:
 
 @pytest.mark.asyncio
 async def test_resilient_heals_one_wedge_with_stable_session_id(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     isolated_sessions_path: Path,
 ) -> None:
     """A2-1 + A2-2: one wedged launch → heal (kill → quarantine) →
@@ -156,16 +156,21 @@ async def test_resilient_heals_one_wedge_with_stable_session_id(
     iso, blacklist = _patch_production(monkeypatch, tmp_path, state)
 
     sess = await sm.get_session_manager().start_session(
-        str(iso), resilient=True, ready_timeout_s=0.4, max_restarts=2,
+        str(iso),
+        resilient=True,
+        ready_timeout_s=0.4,
+        max_restarts=2,
     )
 
     assert len(state.launchers) == 2  # one relaunch
     assert state.launchers[0].stop_calls == 1  # wedged attempt torn down
-    assert all(s.session_id == sess.session_id for s in
-               await sm.get_session_manager().list_sessions())
+    assert all(
+        s.session_id == sess.session_id for s in await sm.get_session_manager().list_sessions()
+    )
     assert sess.extra["recovered"] == 1
     assert sess.extra["ppsspp_version"] == {
-        "name": "PPSSPP", "version": "1.19-fake",
+        "name": "PPSSPP",
+        "version": "1.19-fake",
     }
     # Quarantine: original gone, evidence preserved as .bak-*.
     assert not blacklist.exists()
@@ -180,7 +185,8 @@ async def test_resilient_heals_one_wedge_with_stable_session_id(
 
 @pytest.mark.asyncio
 async def test_resilient_exhaustion_raises_boot_timeout_and_discards(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     isolated_sessions_path: Path,
 ) -> None:
     """A2-3: every attempt wedges → BootTimeout with the attempt count and
@@ -190,13 +196,16 @@ async def test_resilient_exhaustion_raises_boot_timeout_and_discards(
 
     with pytest.raises(BootTimeout) as ei:
         await sm.get_session_manager().start_session(
-            str(iso), resilient=True, ready_timeout_s=0.3, max_restarts=2,
+            str(iso),
+            resilient=True,
+            ready_timeout_s=0.3,
+            max_restarts=2,
         )
     msg = str(ei.value)
     assert "3 launch attempt(s)" in msg
     assert "quarantined" in msg
     assert len(state.launchers) == 3
-    assert all(l.stop_calls == 1 for l in state.launchers)
+    assert all(la.stop_calls == 1 for la in state.launchers)
     assert not blacklist.exists()  # quarantined on every heal
     with pytest.raises(SessionNotFound):
         await sm.get_session_manager().get_session_state("nonexistent-probe")
@@ -207,7 +216,8 @@ async def test_resilient_exhaustion_raises_boot_timeout_and_discards(
 
 @pytest.mark.asyncio
 async def test_resilient_disabled_by_default_keeps_legacy_behavior(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     isolated_sessions_path: Path,
 ) -> None:
     """裁决②: default OFF — a wedged CPU with resilient=False returns the
@@ -226,7 +236,8 @@ async def test_resilient_disabled_by_default_keeps_legacy_behavior(
 
 @pytest.mark.asyncio
 async def test_quarantine_env_gate_disables_file_touch(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     isolated_sessions_path: Path,
 ) -> None:
     """A2-2 (gate): PPSSPP_DFX_BOOT_HEAL_QUARANTINE=0 → heal still
@@ -236,7 +247,10 @@ async def test_quarantine_env_gate_disables_file_touch(
     monkeypatch.setenv("PPSSPP_DFX_BOOT_HEAL_QUARANTINE", "0")
 
     sess = await sm.get_session_manager().start_session(
-        str(iso), resilient=True, ready_timeout_s=0.3, max_restarts=1,
+        str(iso),
+        resilient=True,
+        ready_timeout_s=0.3,
+        max_restarts=1,
     )
 
     assert sess.extra["recovered"] == 1
@@ -246,7 +260,8 @@ async def test_quarantine_env_gate_disables_file_touch(
 
 @pytest.mark.asyncio
 async def test_handshake_hang_wedge_variant_heals(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     isolated_sessions_path: Path,
 ) -> None:
     """Device-creation-hang variant: the port listens but the debugger
@@ -262,7 +277,10 @@ async def test_handshake_hang_wedge_variant_heals(
     monkeypatch.setattr(sm, "_probe_ws_connection", _ws_hang)
 
     sess = await sm.get_session_manager().start_session(
-        str(iso), resilient=True, ready_timeout_s=0.3, max_restarts=1,
+        str(iso),
+        resilient=True,
+        ready_timeout_s=0.3,
+        max_restarts=1,
     )
     assert len(state.launchers) == 2
     assert sess.extra["recovered"] == 1
@@ -270,7 +288,8 @@ async def test_handshake_hang_wedge_variant_heals(
 
 @pytest.mark.asyncio
 async def test_dead_pid_port_conflict_is_skipped(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     isolated_sessions_path: Path,
 ) -> None:
     """A4 audit lock: a conflicting session whose PID is dead does NOT
@@ -287,8 +306,10 @@ async def test_dead_pid_port_conflict_is_skipped(
     )
     isolated_sessions_path.parent.mkdir(parents=True, exist_ok=True)
     import json
-    isolated_sessions_path.write_text(json.dumps(
-        {"stale-dead": sm._session_to_dict(stale)}), encoding="utf-8")
+
+    isolated_sessions_path.write_text(
+        json.dumps({"stale-dead": sm._session_to_dict(stale)}), encoding="utf-8"
+    )
 
     sess = await sm.get_session_manager().start_session(str(iso))
     assert sess.ws_url.endswith(":12345/debugger")

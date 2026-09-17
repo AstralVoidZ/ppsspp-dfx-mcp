@@ -80,9 +80,7 @@ def _make_mock_client(saving: bool = False) -> AsyncMock:
     return mock
 
 
-def _patch_session_client(
-    monkeypatch: pytest.MonkeyPatch, mock: AsyncMock
-) -> list[str]:
+def _patch_session_client(monkeypatch: pytest.MonkeyPatch, mock: AsyncMock) -> list[str]:
     """Patch batch_step.session_client to yield `mock`; returns the list of
     session_ids it was opened for (to assert the budget gate never opens
     one)."""
@@ -93,9 +91,7 @@ def _patch_session_client(
         opened.append(session_id)
         yield mock
 
-    monkeypatch.setattr(
-        bs_module, "session_client", fake_session_client
-    )
+    monkeypatch.setattr(bs_module, "session_client", fake_session_client)
     return opened
 
 
@@ -114,12 +110,11 @@ def _no_wait_liveness(monkeypatch: pytest.MonkeyPatch):
     """wait_frames_chunked re-validates the session between chunks via the
     client_helper symbol (imported at call time) — no session exists in
     unit tests, so neutralize it (same stand-in as the W3 invariants)."""
+
     async def noop(session_id: str) -> None:
         return None
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.session.client_helper.validate_session_alive", noop
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.session.client_helper.validate_session_alive", noop)
 
 
 @pytest.fixture(autouse=True)
@@ -143,9 +138,7 @@ def _fast_waits(monkeypatch: pytest.MonkeyPatch):
 
 class TestEstimateBatchSeconds:
     def test_press_duration_and_overhead(self):
-        est = estimate_batch_seconds(
-            [{"type": "press", "button": "cross", "duration": 60}]
-        )
+        est = estimate_batch_seconds([{"type": "press", "button": "cross", "duration": 60}])
         assert est == pytest.approx(60 / 60 + 0.1)
 
     def test_wait_uses_default_interval(self):
@@ -153,9 +146,7 @@ class TestEstimateBatchSeconds:
         assert est == pytest.approx(10.0)
 
     def test_wait_uses_explicit_interval(self):
-        est = estimate_batch_seconds(
-            [{"type": "wait", "frames": 600, "interval": 0.5}]
-        )
+        est = estimate_batch_seconds([{"type": "wait", "frames": 600, "interval": 0.5}])
         assert est == pytest.approx(300.0)
 
     def test_probe_and_screenshot(self):
@@ -168,9 +159,7 @@ class TestEstimateBatchSeconds:
         assert est == pytest.approx(2 * 0.25 + 1.0)
 
     def test_malformed_steps_cost_zero(self):
-        est = estimate_batch_seconds(
-            [{"type": "press", "duration": "x"}, "not-a-dict", {}]
-        )
+        est = estimate_batch_seconds([{"type": "press", "duration": "x"}, "not-a-dict", {}])
         assert est >= 0
 
 
@@ -191,9 +180,7 @@ class TestForegroundBudgetGate:
         assert "background=true" in str(ei.value)
         assert opened == []  # rejected BEFORE any session/WS work
 
-    async def test_within_budget_executes_normally(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_within_budget_executes_normally(self, monkeypatch: pytest.MonkeyPatch):
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
         steps = [
@@ -205,9 +192,7 @@ class TestForegroundBudgetGate:
         assert resp["executed"] == 2
         assert resp["succeeded"] == 2
 
-    async def test_background_bypasses_foreground_budget(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_background_bypasses_foreground_budget(self, monkeypatch: pytest.MonkeyPatch):
         """A 30s-estimate sequence is fine in background mode."""
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
@@ -226,9 +211,7 @@ class TestForegroundBudgetGate:
 
 
 class TestBackgroundLifecycle:
-    async def test_submit_returns_immediately_and_completes(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_submit_returns_immediately_and_completes(self, monkeypatch: pytest.MonkeyPatch):
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
         _patch_validate(monkeypatch)
@@ -240,9 +223,7 @@ class TestBackgroundLifecycle:
         ]
         resp = await batch_step(session_id="s1", steps=steps, background=True)
         assert resp["action"] == "submitted"
-        assert set(resp) == {
-            "action", "batch_id", "session_id", "total", "estimated_s", "hint"
-        }
+        assert set(resp) == {"action", "batch_id", "session_id", "total", "estimated_s", "hint"}
         reg = bj_module.get_registry()
         job = reg.get(resp["batch_id"])
         assert job is not None and job.total_steps == 2
@@ -254,12 +235,18 @@ class TestBackgroundLifecycle:
         assert job.result is not None
         assert job.result["total"] == 2
         assert job.result["succeeded"] == 2
-        assert {"total", "executed", "succeeded", "failed", "skipped",
-                "recording_mode", "results", "aborted"} <= set(job.result)
+        assert {
+            "total",
+            "executed",
+            "succeeded",
+            "failed",
+            "skipped",
+            "recording_mode",
+            "results",
+            "aborted",
+        } <= set(job.result)
 
-    async def test_status_poll_reflects_lifecycle(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_status_poll_reflects_lifecycle(self, monkeypatch: pytest.MonkeyPatch):
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
         _patch_validate(monkeypatch)
@@ -271,17 +258,13 @@ class TestBackgroundLifecycle:
         status = await batch_status(batch_id=resp["batch_id"])
         assert status["session_id"] == "s1"
         assert status["total"] == 3
-        await asyncio.wait_for(
-            bj_module.get_registry().get(resp["batch_id"]).task, timeout=5
-        )
+        await asyncio.wait_for(bj_module.get_registry().get(resp["batch_id"]).task, timeout=5)
         final = await batch_status(batch_id=resp["batch_id"])
         assert final["status"] == "completed"
         assert final["executed"] == 3
         assert final["result"]["succeeded"] == 3
 
-    async def test_progress_executed_monotonic(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_progress_executed_monotonic(self, monkeypatch: pytest.MonkeyPatch):
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
         _patch_validate(monkeypatch)
@@ -290,6 +273,7 @@ class TestBackgroundLifecycle:
         async def runner(job: BatchJob):
             async def on_progress(processed, total, stype, status):
                 seen.append(processed)
+
             return await _execute_batch(
                 "s1",
                 [{"type": "wait", "frames": 10}] * 4,
@@ -325,9 +309,7 @@ class TestBackgroundLifecycle:
         assert job.result is not None
         assert job.result["failed"] == 1
 
-    async def test_duplicate_background_submit_is_busy(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_duplicate_background_submit_is_busy(self, monkeypatch: pytest.MonkeyPatch):
         """A queued/running job on the session blocks a second submit."""
         started = asyncio.Event()
         release = asyncio.Event()
@@ -438,9 +420,7 @@ class TestRegistryRetention:
             batch_id = reg.submit("s1", 1, _noop_runner)
             ids.append(batch_id)
             # Deterministic completion so eviction order == submit order.
-            await asyncio.gather(
-                reg.get(batch_id).task, return_exceptions=True
-            )
+            await asyncio.gather(reg.get(batch_id).task, return_exceptions=True)
         # Oldest 8 evicted, newest 32 retained.
         for old in ids[:8]:
             assert reg.get(old) is None
@@ -455,9 +435,7 @@ class TestRegistryRetention:
         await asyncio.wait_for(task, timeout=5)
         for _ in range(FINISHED_JOB_RETENTION):
             batch_id = reg.submit("s2", 1, _noop_runner)
-            await asyncio.gather(
-                reg.get(batch_id).task, return_exceptions=True
-            )
+            await asyncio.gather(reg.get(batch_id).task, return_exceptions=True)
         assert reg.get(first) is None
         assert job.task is None  # strong ref released on eviction
         del task
@@ -478,16 +456,12 @@ class TestRegistryRetention:
         for _ in range(FINISHED_JOB_RETENTION + 5):
             batch_id = reg.submit("s2", 1, _noop_runner)
             finished_ids.append(batch_id)
-            await asyncio.gather(
-                reg.get(batch_id).task, return_exceptions=True
-            )
+            await asyncio.gather(reg.get(batch_id).task, return_exceptions=True)
         # 37 finished jobs each ran an eviction pass; the RUNNING job was
         # never in the retention deque, so it survived all of them.
         assert reg.get(running_id) is not None
         release.set()
-        await asyncio.gather(
-            reg.get(running_id).task, return_exceptions=True
-        )
+        await asyncio.gather(reg.get(running_id).task, return_exceptions=True)
 
 
 async def _noop_runner(job: BatchJob) -> dict:
@@ -500,9 +474,7 @@ async def _noop_runner(job: BatchJob) -> dict:
 
 
 class TestForegroundProgress:
-    async def test_ctx_report_progress_per_step(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_ctx_report_progress_per_step(self, monkeypatch: pytest.MonkeyPatch):
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
         ctx = AsyncMock()
@@ -511,9 +483,7 @@ class TestForegroundProgress:
             {"type": "wait", "frames": 5},
             {"type": "wait", "frames": 5},
         ]
-        resp = await batch_step(
-            session_id="s1", steps=steps, on_failure="continue", ctx=ctx
-        )
+        resp = await batch_step(session_id="s1", steps=steps, on_failure="continue", ctx=ctx)
         assert resp["succeeded"] == 3
         assert ctx.report_progress.await_count == 3
         calls = ctx.report_progress.await_args_list
@@ -537,9 +507,7 @@ class TestForegroundProgress:
     async def test_no_ctx_still_works(self, monkeypatch: pytest.MonkeyPatch):
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
-        resp = await batch_step(
-            session_id="s1", steps=[{"type": "wait", "frames": 5}]
-        )
+        resp = await batch_step(session_id="s1", steps=[{"type": "wait", "frames": 5}])
         assert resp["succeeded"] == 1
 
 
@@ -549,9 +517,7 @@ class TestForegroundProgress:
 
 
 class TestBusyHint:
-    async def test_busy_message_names_background_batch(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_busy_message_names_background_batch(self, monkeypatch: pytest.MonkeyPatch):
         """Hold the session lock manually, plant a running background job,
         and assert the SessionBusy error carries the batch id + tool hints."""
         from ppsspp_dfx_mcp.session import client_helper
@@ -584,9 +550,7 @@ class TestBusyHint:
         finally:
             lock.release()
 
-    async def test_busy_message_without_background_batch(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_busy_message_without_background_batch(self, monkeypatch: pytest.MonkeyPatch):
         from ppsspp_dfx_mcp.session import client_helper
         from ppsspp_dfx_mcp.session import session_manager as sm
 
@@ -623,9 +587,7 @@ class TestRegistryListJobs:
         reg = BatchJobRegistry()
         id_a = reg.submit("s1", 2, _noop_runner)
         id_b = reg.submit("s2", 3, _noop_runner)
-        await asyncio.gather(
-            reg.get(id_a).task, reg.get(id_b).task, return_exceptions=True
-        )
+        await asyncio.gather(reg.get(id_a).task, reg.get(id_b).task, return_exceptions=True)
         jobs = reg.list_jobs()
         assert [j.batch_id for j in jobs] == [id_a, id_b]
         assert all(j.status == "completed" for j in jobs)
@@ -650,15 +612,11 @@ class TestBatchListTool:
         assert out["jobs"] == []
         assert out["retention_jobs"] == FINISHED_JOB_RETENTION
 
-    async def test_lists_lifecycle_with_result_flag(
-        self, fresh_registry: BatchJobRegistry
-    ):
+    async def test_lists_lifecycle_with_result_flag(self, fresh_registry: BatchJobRegistry):
         from ppsspp_dfx_mcp.tools.batch_step import batch_list
 
         id_a = fresh_registry.submit("s1", 1, _noop_runner)
-        await asyncio.gather(
-            fresh_registry.get(id_a).task, return_exceptions=True
-        )
+        await asyncio.gather(fresh_registry.get(id_a).task, return_exceptions=True)
         out = await batch_list()
         assert len(out["jobs"]) == 1
         job = out["jobs"][0]
@@ -670,14 +628,10 @@ class TestBatchListTool:
         assert job["error"] == ""
         assert job["result_present"] is True
 
-    async def test_status_response_carries_retention_jobs(
-        self, fresh_registry: BatchJobRegistry
-    ):
+    async def test_status_response_carries_retention_jobs(self, fresh_registry: BatchJobRegistry):
         from ppsspp_dfx_mcp.tools.batch_step import batch_status
 
         batch_id = fresh_registry.submit("s1", 1, _noop_runner)
-        await asyncio.gather(
-            fresh_registry.get(batch_id).task, return_exceptions=True
-        )
+        await asyncio.gather(fresh_registry.get(batch_id).task, return_exceptions=True)
         out = await batch_status(batch_id=batch_id)
         assert out["retention_jobs"] == FINISHED_JOB_RETENTION

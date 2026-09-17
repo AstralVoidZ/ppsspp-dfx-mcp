@@ -15,16 +15,14 @@ class StepResultView(FrozenModel):
 
     index: int = Field(description="Step position (0-based)")
     type: str = Field(description="Step type executed")
-    status: str = Field(
-        description="Step status: 'success' / 'failure' / 'skipped'"
-    )
+    status: str = Field(description="Step status: 'success' / 'failure' / 'skipped'")
     error: str = Field(default="", description="Empty on success; error on failure")
     data: dict[str, Any] | None = Field(
         default=None, description="Step-type-specific result payload"
     )
 
     @classmethod
-    def from_result(cls, r: StepResult) -> "StepResultView":
+    def from_result(cls, r: StepResult) -> StepResultView:
         return cls(
             index=r.index,
             type=r.type,
@@ -49,13 +47,11 @@ class BatchStepResponse(FrozenModel):
     results: list[StepResultView] = Field(
         default_factory=list, description="Per-step results, in order"
     )
-    aborted: bool = Field(
-        default=False, description="Whether batch aborted early on failure"
-    )
+    aborted: bool = Field(default=False, description="Whether batch aborted early on failure")
     abort_reason: str = Field(default="", description="Empty if not aborted")
 
     @classmethod
-    def from_result(cls, r: BatchResult) -> "BatchStepResponse":
+    def from_result(cls, r: BatchResult) -> BatchStepResponse:
         return cls(
             action=r.action,
             total=r.total,
@@ -83,12 +79,8 @@ class BatchSubmitResponse(FrozenModel):
     batch_id: str = Field(description="Job id for ppsspp_batch_status / _cancel")
     session_id: str = Field(description="Session the batch will execute on")
     total: int = Field(description="Total steps in the batch")
-    estimated_s: float = Field(
-        description="Heuristic wall-clock estimate in seconds"
-    )
-    hint: str = Field(
-        description="How to poll / cancel this background batch"
-    )
+    estimated_s: float = Field(description="Heuristic wall-clock estimate in seconds")
+    hint: str = Field(description="How to poll / cancel this background batch")
 
 
 class BatchStatusResponse(FrozenModel):
@@ -112,10 +104,7 @@ class BatchStatusResponse(FrozenModel):
     error: str = Field(default="", description="Error message if failed/cancelled")
     result: dict[str, Any] | None = Field(
         default=None,
-        description=(
-            "Final ppsspp_batch_step-shaped response; present once the "
-            "batch completed"
-        ),
+        description=("Final ppsspp_batch_step-shaped response; present once the batch completed"),
     )
     retention_jobs: int = Field(
         description=(

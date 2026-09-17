@@ -80,9 +80,7 @@ class TestOutputSchemasOnTheWire:
         "tool_name",
         ["ppsspp_screenshot", "ppsspp_dump_texture", "ppsspp_dump_clut"],
     )
-    async def test_image_tools_declare_metadata_fields(
-        self, mcp_inspector, tool_name: str
-    ):
+    async def test_image_tools_declare_metadata_fields(self, mcp_inspector, tool_name: str):
         """图像工具的元数据契约可见（此前 screenshot/dump_texture 完全无 schema）。"""
         schema = await self._schema(mcp_inspector, tool_name)
         props = schema.get("properties") or {}

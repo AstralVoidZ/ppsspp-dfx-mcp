@@ -24,26 +24,23 @@ Test groups:
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.core.stepping import SteppingManager
 from ppsspp_dfx_mcp.errors import (
     CpuFreezeSuspected,
     CpuStateError,
     SteppingFailedError,
-    ToolError,
     WsDisconnected,
     WsTimeout,
     set_error_context,
     to_tool_error,
 )
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-
 
 # ============================================================================
 # 12.1 — to_tool_error SteppingFailedError translation split (multi-path)
@@ -141,9 +138,7 @@ class TestSteppingFailedErrorTranslation:
         try:
             raise ConnectionRefusedError("WebSocket not connected")
         except ConnectionRefusedError as cause:
-            exc = SteppingFailedError(
-                "pause failed; CPU state unknown", pid_alive=True
-            )
+            exc = SteppingFailedError("pause failed; CPU state unknown", pid_alive=True)
             exc.__cause__ = cause
 
         result = to_tool_error(exc)
@@ -184,6 +179,7 @@ class TestTimeoutErrorComprehensiveJudgment:
         set_error_context(None, None)
         if self._orig_is_pid_alive is not None:
             import ppsspp_dfx_mcp.core.proc as proc_mod
+
             proc_mod.is_pid_alive = self._orig_is_pid_alive
             self._orig_is_pid_alive = None
 
@@ -196,11 +192,11 @@ class TestTimeoutErrorComprehensiveJudgment:
         # Patch is_pid_alive to return the requested pid_alive value.
         # _resolve_pid_alive calls proc.is_pid_alive(pid) — patch the
         # core.proc module attribute.
-        from ppsspp_dfx_mcp.errors import _resolve_pid_alive
         # Inject by patching the function lookup in the errors module. We
         # achieve this by overriding _pid_resolver to also drive the
         # alive result, and patching is_pid_alive in core.proc.
         import ppsspp_dfx_mcp.core.proc as proc_mod
+
         if self._orig_is_pid_alive is None:
             # Save once per test — a second _set_context call in the same
             # test must not snapshot the lambda itself (restore-the-patch
@@ -222,7 +218,7 @@ class TestTimeoutErrorComprehensiveJudgment:
     def test_pid_dead_translates_to_ws_disconnected(self):
         """12.2a: TimeoutError + PID dead → WsDisconnected (real disconnect)."""
         self._set_context(pid_alive=False, game_state="running")
-        exc = asyncio.TimeoutError("gpu.stats.get timed out")
+        exc = TimeoutError("gpu.stats.get timed out")
 
         result = to_tool_error(exc)
 
@@ -234,7 +230,7 @@ class TestTimeoutErrorComprehensiveJudgment:
     def test_pid_alive_game_running_translates_to_cpu_freeze(self):
         """12.2b: TimeoutError + PID alive + game running → CpuFreezeSuspected."""
         self._set_context(pid_alive=True, game_state="running")
-        exc = asyncio.TimeoutError("gpu.stats.get timed out")
+        exc = TimeoutError("gpu.stats.get timed out")
 
         result = to_tool_error(exc)
 
@@ -249,7 +245,7 @@ class TestTimeoutErrorComprehensiveJudgment:
         (caller misuse: ticketed call should not be invoked while paused).
         """
         self._set_context(pid_alive=True, game_state="paused")
-        exc = asyncio.TimeoutError("gpu.stats.get timed out")
+        exc = TimeoutError("gpu.stats.get timed out")
 
         result = to_tool_error(exc)
 
@@ -264,7 +260,7 @@ class TestTimeoutErrorComprehensiveJudgment:
         (game exited, session should be restarted).
         """
         self._set_context(pid_alive=True, game_state="quit")
-        exc = asyncio.TimeoutError("gpu.stats.get timed out")
+        exc = TimeoutError("gpu.stats.get timed out")
 
         result = to_tool_error(exc)
 
@@ -278,7 +274,7 @@ class TestTimeoutErrorComprehensiveJudgment:
         (large file load may be slow — preserve existing behavior).
         """
         self._set_context(pid_alive=True, game_state="loading")
-        exc = asyncio.TimeoutError("gpu.stats.get timed out")
+        exc = TimeoutError("gpu.stats.get timed out")
 
         result = to_tool_error(exc)
 
@@ -293,7 +289,7 @@ class TestTimeoutErrorComprehensiveJudgment:
         not available) → WsTimeout (conservative — preserve existing).
         """
         self._set_context(pid_alive=True, game_state=None)
-        exc = asyncio.TimeoutError("gpu.stats.get timed out")
+        exc = TimeoutError("gpu.stats.get timed out")
 
         result = to_tool_error(exc)
 
@@ -308,7 +304,7 @@ class TestTimeoutErrorComprehensiveJudgment:
         (preserve existing behavior, conservative default).
         """
         self._set_context(pid_alive=None, game_state=None)
-        exc = asyncio.TimeoutError("gpu.stats.get timed out")
+        exc = TimeoutError("gpu.stats.get timed out")
 
         result = to_tool_error(exc)
 
@@ -424,7 +420,9 @@ class TestPausePidPreCheck:
         # Configure wait_for_state to always time out (predicate never
         # satisfied — stepping stays False after fire_and_forget).
         # Override wait_for_state to raise TimeoutError directly.
-        async def _timeout_wait(predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50) -> dict[str, Any]:
+        async def _timeout_wait(
+            predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50
+        ) -> dict[str, Any]:
             raise TimeoutError("wait_for_state timed out")
 
         transport.wait_for_state = _timeout_wait  # type: ignore[assignment]
@@ -450,13 +448,16 @@ class TestPausePidPreCheck:
         transport = FakeTransport()
         transport.set_state({"stepping": False, "ticks": 12345})
 
-        async def _timeout_wait(predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50) -> dict[str, Any]:
+        async def _timeout_wait(
+            predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50
+        ) -> dict[str, Any]:
             raise TimeoutError("wait_for_state timed out")
 
         transport.wait_for_state = _timeout_wait  # type: ignore[assignment]
 
         # Patch is_pid_alive to return True (PID alive).
         import ppsspp_dfx_mcp.core.proc as sm_mod
+
         monkeypatch.setattr(sm_mod, "is_pid_alive", lambda _pid: True)
 
         mgr = SteppingManager(transport, pid=99999)
@@ -465,12 +466,9 @@ class TestPausePidPreCheck:
             await mgr.pause()
 
         assert exc_info.value.pid_alive is True, (
-            "pause() with valid PID + PID alive must raise "
-            "SteppingFailedError(pid_alive=True)."
+            "pause() with valid PID + PID alive must raise SteppingFailedError(pid_alive=True)."
         )
-        assert "PID alive" in str(exc_info.value), (
-            "Error message must encode PID alive status."
-        )
+        assert "PID alive" in str(exc_info.value), "Error message must encode PID alive status."
         assert isinstance(exc_info.value.__cause__, TimeoutError)
 
     @pytest.mark.asyncio
@@ -481,13 +479,16 @@ class TestPausePidPreCheck:
         transport = FakeTransport()
         transport.set_state({"stepping": False, "ticks": 12345})
 
-        async def _timeout_wait(predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50) -> dict[str, Any]:
+        async def _timeout_wait(
+            predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50
+        ) -> dict[str, Any]:
             raise TimeoutError("wait_for_state timed out")
 
         transport.wait_for_state = _timeout_wait  # type: ignore[assignment]
 
         # Patch is_pid_alive to return False (PID dead).
         import ppsspp_dfx_mcp.core.proc as sm_mod
+
         monkeypatch.setattr(sm_mod, "is_pid_alive", lambda _pid: False)
 
         mgr = SteppingManager(transport, pid=99999)
@@ -496,12 +497,9 @@ class TestPausePidPreCheck:
             await mgr.pause()
 
         assert exc_info.value.pid_alive is False, (
-            "pause() with valid PID + PID dead must raise "
-            "SteppingFailedError(pid_alive=False)."
+            "pause() with valid PID + PID dead must raise SteppingFailedError(pid_alive=False)."
         )
-        assert "PID dead" in str(exc_info.value), (
-            "Error message must encode PID dead status."
-        )
+        assert "PID dead" in str(exc_info.value), "Error message must encode PID dead status."
         assert isinstance(exc_info.value.__cause__, TimeoutError)
 
     @pytest.mark.asyncio
@@ -516,7 +514,9 @@ class TestPausePidPreCheck:
         # Configure wait_for_state to raise ConnectionRefusedError (not
         # TimeoutError). pause() must NOT catch this — it propagates to
         # with_stepping which wraps it in SteppingFailedError.
-        async def _conn_refused_wait(predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50) -> dict[str, Any]:
+        async def _conn_refused_wait(
+            predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50
+        ) -> dict[str, Any]:
             raise ConnectionRefusedError("WS not connected")
 
         transport.wait_for_state = _conn_refused_wait  # type: ignore[assignment]
@@ -560,8 +560,12 @@ class TestResumeBroadcastConfirmation:
         mgr = SteppingManager(transport, game_state_observer=observer)
 
         # Configure wait_for_state to raise if called (should NOT be).
-        async def _should_not_be_called(predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50) -> dict[str, Any]:
-            raise AssertionError("wait_for_state should not be called when broadcast confirms resume")
+        async def _should_not_be_called(
+            predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50
+        ) -> dict[str, Any]:
+            raise AssertionError(
+                "wait_for_state should not be called when broadcast confirms resume"
+            )
 
         transport.wait_for_state = _should_not_be_called  # type: ignore[assignment]
 
@@ -656,13 +660,16 @@ class TestWithSteppingNoDoubleWrap:
 
         # Configure wait_for_state to time out (so pause() takes the
         # PID pre-check path).
-        async def _timeout_wait(predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50) -> dict[str, Any]:
+        async def _timeout_wait(
+            predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50
+        ) -> dict[str, Any]:
             raise TimeoutError("wait_for_state timed out")
 
         transport.wait_for_state = _timeout_wait  # type: ignore[assignment]
 
         # Patch is_pid_alive to return True.
         import ppsspp_dfx_mcp.core.proc as sm_mod
+
         monkeypatch.setattr(sm_mod, "is_pid_alive", lambda _pid: True)
 
         mgr = SteppingManager(transport, pid=99999)
@@ -694,7 +701,9 @@ class TestWithSteppingNoDoubleWrap:
         transport.set_state({"stepping": False})
 
         # Configure wait_for_state to raise ConnectionRefusedError.
-        async def _conn_refused_wait(predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50) -> dict[str, Any]:
+        async def _conn_refused_wait(
+            predicate: Any, timeout_ms: int = 3000, interval_ms: int = 50
+        ) -> dict[str, Any]:
             raise ConnectionRefusedError("WS not connected")
 
         transport.wait_for_state = _conn_refused_wait  # type: ignore[assignment]

@@ -26,13 +26,12 @@ import asyncio
 from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.core.game_state_observer import GameStateObserver
 from ppsspp_dfx_mcp.core.transport import WsTransport
 from ppsspp_dfx_mcp.errors import StepNoAdvanceError
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-
 
 # ---------- helpers ----------
 
@@ -80,9 +79,7 @@ class TestProductionOrderRace:
             assert observer.is_running()
 
             # Production order: consumer parks before the broadcast exists.
-            wait_task = asyncio.ensure_future(
-                observer.wait_for_step_broadcast(timeout_ms=1000)
-            )
+            wait_task = asyncio.ensure_future(observer.wait_for_step_broadcast(timeout_ms=1000))
             await asyncio.sleep(0.05)
             await transport.events.put(_advance_broadcast(0x111, 1.0))
 
@@ -185,9 +182,7 @@ class TestStepRoutingWithObserver:
         client = PpssppDebugClient(fake_transport, game_state_observer=observer)
 
         with pytest.raises(TimeoutError):
-            await client._confirm_step_completed(
-                timeout_ms=400, pre_pc=0x08804000, pre_ticks=100.0
-            )
+            await client._confirm_step_completed(timeout_ms=400, pre_pc=0x08804000, pre_ticks=100.0)
 
 
 class TestStepRoutingFallback:

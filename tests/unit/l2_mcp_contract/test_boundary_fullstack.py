@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import base64 as _b64
 import inspect
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.errors import ToolError
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 from ppsspp_dfx_mcp.tools import _common
@@ -57,9 +58,7 @@ def full_stack(
     ) -> AsyncIterator[PpssppDebugClient]:
         yield real_client
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
     return fake_transport
 
 
@@ -89,9 +88,7 @@ class TestFullStackStringCap:
         full_stack.set_response(
             "memory.read", {"base64": _b64.b64encode(b"ok\x00").decode("ascii")}
         )
-        await read_memory(
-            session_id="sess-1", action="read_string", address="0x09FE0000"
-        )
+        await read_memory(session_id="sess-1", action="read_string", address="0x09FE0000")
         size = full_stack.calls[-1][1]["size"]
         assert size == _common.DEFAULT_STRING_CAP == 4096
 
@@ -101,10 +98,9 @@ class TestFullStackScanClamp:
     async def test_huge_chunk_size_clamped_on_the_wire(self, full_stack):
         """W4 regression, full-stack variant: a 512MB chunk_size must never
         reach the wire — every memory.read stays ≤ 64KiB (+overlap)."""
+
         def _zero_page(**kw: Any) -> dict:
-            return {
-                "base64": _b64.b64encode(b"\x00" * kw["size"]).decode("ascii")
-            }
+            return {"base64": _b64.b64encode(b"\x00" * kw["size"]).decode("ascii")}
 
         full_stack.set_response("memory.read", _zero_page)
         result = await read_memory(
@@ -126,9 +122,7 @@ class TestFullStackScanClamp:
 
 class TestWriteGuardOrder:
     @pytest.mark.asyncio
-    async def test_protected_boundary_rejected_before_any_ws_traffic(
-        self, full_stack
-    ):
+    async def test_protected_boundary_rejected_before_any_ws_traffic(self, full_stack):
         """W2, full-stack variant: the granularity-aware protection guard
         fires BEFORE any transport call (fail-fast, zero side effects)."""
         with pytest.raises(ToolError, match="PROTECTED_ADDRESS|protected"):
@@ -138,9 +132,7 @@ class TestWriteGuardOrder:
                 data="0x11223344",
                 format="u32",
             )
-        assert full_stack.calls == [], (
-            "the protection check must not touch the transport"
-        )
+        assert full_stack.calls == [], "the protection check must not touch the transport"
 
 
 class TestConstantSingleSource:
@@ -176,7 +168,8 @@ class TestFullStackReconnectHandshake:
 
     @pytest.mark.asyncio
     async def test_tool_call_after_drop_reconnects_with_version_first(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         import asyncio
         import json as _json
@@ -185,7 +178,6 @@ class TestFullStackReconnectHandshake:
         from websockets.protocol import State
 
         from ppsspp_dfx_mcp.core.transport import WsTransport
-        from ppsspp_dfx_mcp.session import client_helper
 
         class _EchoSocket:
             def __init__(self, ledger: list[list[str]]) -> None:
@@ -201,8 +193,7 @@ class TestFullStackReconnectHandshake:
             async def send(self, data: str) -> None:
                 msg = _json.loads(data)
                 self.sent.append(data)
-                payload: dict[str, Any] = {
-                    "event": msg["event"], "ticket": msg["ticket"]}
+                payload: dict[str, Any] = {"event": msg["event"], "ticket": msg["ticket"]}
                 if msg["event"] == "memory.read_u32":
                     payload["value"] = 0x2A
                 await self._replies.put(_json.dumps(payload))
@@ -235,7 +226,8 @@ class TestFullStackReconnectHandshake:
             await t.connect()
             # First call succeeds on the original connection.
             r1 = await read_memory(
-                session_id="sess-1", action="read_u32",
+                session_id="sess-1",
+                action="read_u32",
                 address="0x08804000",
             )
             assert r1["value"] == 42  # 0x2A
@@ -247,9 +239,12 @@ class TestFullStackReconnectHandshake:
 
             r2 = await asyncio.wait_for(
                 read_memory(
-                    session_id="sess-1", action="read_u32",
+                    session_id="sess-1",
+                    action="read_u32",
                     address="0x08804000",
-                ), timeout=10.0)
+                ),
+                timeout=10.0,
+            )
             assert r2["value"] == 42
 
         conn1_events = [_json.loads(m)["event"] for m in sockets_running]

@@ -198,7 +198,9 @@ class TestRealSessionLifecycle:
     """
 
     async def test_start_returns_session_with_pid_and_ws_url(
-        self, real_session, iso_path,
+        self,
+        real_session,
+        iso_path,
     ):
         """session(action=start) returns session_id, pid>0, valid ws_url."""
         # real_session fixture already called start_session; verify its
@@ -210,8 +212,7 @@ class TestRealSessionLifecycle:
             f"pid should be >0 for real session, got {result.get('pid')}"
         )
         assert _WS_URL_PATTERN.match(result["ws_url"]), (
-            f"ws_url should match ws://127.0.0.1:<port>/debugger, "
-            f"got {result['ws_url']!r}"
+            f"ws_url should match ws://127.0.0.1:<port>/debugger, got {result['ws_url']!r}"
         )
 
     async def test_session_list_contains_active_session(self, real_session):
@@ -264,7 +265,8 @@ class TestRealSessionLifecycle:
         assert exc_info.value.code == "SESSION_NOT_FOUND"
 
     async def test_session_list_count_increments_with_sessions(
-        self, real_session,
+        self,
+        real_session,
     ):
         """session_list() count is >=1 when at least one session is active."""
         result = await session_list()

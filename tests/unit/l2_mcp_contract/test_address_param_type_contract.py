@@ -53,9 +53,7 @@ def _get_param_annotation(func, param_name: str):
     Raises AssertionError if the parameter doesn't exist.
     """
     sig = inspect.signature(func)
-    assert param_name in sig.parameters, (
-        f"{func.__name__} should have a `{param_name}` parameter"
-    )
+    assert param_name in sig.parameters, f"{func.__name__} should have a `{param_name}` parameter"
     # Resolve string annotations to actual type objects.
     # include_extras=True keeps Annotated[...] wrapper (needed to inspect
     # the inner type).

@@ -21,14 +21,14 @@ Components:
 
 from __future__ import annotations
 
-from .recording_transport import RecordingTransport
-from .replay_transport import ReplayTransport
 from .cassette import (
     CassetteRecord,
     RecordType,
     load_cassette,
     save_cassette,
 )
+from .recording_transport import RecordingTransport
+from .replay_transport import ReplayTransport
 
 __all__ = [
     "RecordingTransport",

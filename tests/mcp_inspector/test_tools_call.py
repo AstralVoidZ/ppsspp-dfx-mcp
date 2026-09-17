@@ -40,21 +40,15 @@ async def test_ppsspp_health_returns_ok(mcp_inspector):
     """
     result = await mcp_inspector.call_tool("ppsspp_health", {})
 
-    assert not result.is_error, (
-        f"ppsspp_health returned error: {result.content!r}"
-    )
+    assert not result.is_error, f"ppsspp_health returned error: {result.content!r}"
     # Result content is a list of TextContent. Parse the JSON payload.
     assert len(result.content) >= 1
     text_content = result.content[0]
     payload: dict[str, Any] = json.loads(text_content.text)
 
-    assert payload["status"] == "ok", (
-        f"expected status='ok', got {payload.get('status')!r}"
-    )
+    assert payload["status"] == "ok", f"expected status='ok', got {payload.get('status')!r}"
     # Sanity: tool_count should be >= 30 (Phase 1-5 static tools).
-    assert payload["tool_count"] >= 30, (
-        f"tool_count should be >=30, got {payload['tool_count']}"
-    )
+    assert payload["tool_count"] >= 30, f"tool_count should be >=30, got {payload['tool_count']}"
     assert "uptime_s" in payload
     assert "python_version" in payload
     assert "pydantic_version" in payload
@@ -87,9 +81,7 @@ async def test_session_start_then_read_memory_roundtrip(mcp_inspector):
         "ppsspp_session",
         {"action": "start", "iso_path": "fake.iso"},
     )
-    assert not start_result.is_error, (
-        f"ppsspp_session(start) failed: {start_result.content!r}"
-    )
+    assert not start_result.is_error, f"ppsspp_session(start) failed: {start_result.content!r}"
     start_payload = json.loads(start_result.content[0].text)
     session_id = start_payload["session_id"]
     assert session_id, "start_session returned empty session_id"
@@ -109,11 +101,7 @@ async def test_session_start_then_read_memory_roundtrip(mcp_inspector):
             "address": "0x08804000",
         },
     )
-    assert not read_result.is_error, (
-        f"ppsspp_read_memory failed: {read_result.content!r}"
-    )
+    assert not read_result.is_error, f"ppsspp_read_memory failed: {read_result.content!r}"
     read_payload = json.loads(read_result.content[0].text)
     # value field must be present (recorded fixture has it).
-    assert "value" in read_payload, (
-        f"read_memory response missing 'value' field: {read_payload!r}"
-    )
+    assert "value" in read_payload, f"read_memory response missing 'value' field: {read_payload!r}"

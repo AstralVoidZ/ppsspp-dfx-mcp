@@ -50,7 +50,7 @@ class ScriptEntryView(FrozenModel):
     @classmethod
     def from_entry(
         cls, entry: ScriptEntry, exposed_registered: bool | None = None
-    ) -> "ScriptEntryView":
+    ) -> ScriptEntryView:
         """Construct from a ScriptEntry domain model.
 
         `exposed_registered` carries the actual registration state (from
@@ -91,7 +91,7 @@ class ScriptListOutput(FrozenModel):
         entries: list[ScriptEntry],
         category: str | None,
         exposed_registered_names: set[str] | None = None,
-    ) -> "ScriptListOutput":
+    ) -> ScriptListOutput:
         """Build the list view.
 
         `exposed_registered_names` is the set of script names that are

@@ -56,8 +56,7 @@ class TestV001ReadStringSignature:
             "V001 fix requires encoding='utf-8' default."
         )
         assert params["encoding"].default == "utf-8", (
-            f"read_string `encoding` default should be 'utf-8', got "
-            f"{params['encoding'].default!r}"
+            f"read_string `encoding` default should be 'utf-8', got {params['encoding'].default!r}"
         )
 
     @pytest.mark.asyncio

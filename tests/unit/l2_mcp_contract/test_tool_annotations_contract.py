@@ -21,9 +21,6 @@ from __future__ import annotations
 
 import pytest
 
-from ppsspp_dfx_mcp import server as server_mod
-
-
 # ============================================================================
 # DESTRUCTIVE tools — destructiveHint=True, readOnlyHint=False
 # ============================================================================
@@ -61,9 +58,7 @@ class TestDestructiveAnnotations:
         """Every DESTRUCTIVE-annotated tool's description contains 'DESTRUCTIVE.'"""
         for name, desc, _ in tool_registry:
             if name in self._DESTRUCTIVE_TOOLS:
-                assert "DESTRUCTIVE." in desc, (
-                    f"{name}: expected 'DESTRUCTIVE.' in description"
-                )
+                assert "DESTRUCTIVE." in desc, f"{name}: expected 'DESTRUCTIVE.' in description"
 
 
 # ============================================================================
@@ -118,9 +113,7 @@ class TestReadOnlyAnnotations:
         """Every READ-ONLY-annotated tool's description contains 'READ-ONLY.'"""
         for name, desc, _ in tool_registry:
             if name in self._READ_ONLY_TOOLS:
-                assert "READ-ONLY." in desc, (
-                    f"{name}: expected 'READ-ONLY.' in description"
-                )
+                assert "READ-ONLY." in desc, f"{name}: expected 'READ-ONLY.' in description"
 
 
 # ============================================================================
@@ -155,9 +148,7 @@ class TestStateChangeAnnotations:
         "tool_name",
         sorted(_STATE_CHANGE_TOOLS | _MUTATING_TOOLS),
     )
-    def test_state_change_tools_have_read_only_hint_false(
-        self, annotations, tool_name
-    ):
+    def test_state_change_tools_have_read_only_hint_false(self, annotations, tool_name):
         """readOnlyHint=False for every STATE-CHANGE / MUTATING tool."""
         ann = annotations[tool_name]
         assert ann.read_only_hint is False, (
@@ -168,9 +159,7 @@ class TestStateChangeAnnotations:
         "tool_name",
         sorted(_STATE_CHANGE_TOOLS | _MUTATING_TOOLS),
     )
-    def test_state_change_tools_have_destructive_hint_false(
-        self, annotations, tool_name
-    ):
+    def test_state_change_tools_have_destructive_hint_false(self, annotations, tool_name):
         """destructiveHint=False for every STATE-CHANGE / MUTATING tool
         (they mutate but are not irreversible)."""
         ann = annotations[tool_name]
@@ -195,6 +184,4 @@ class TestBehaviorKeywordCoverage:
         """Every tool description must contain at least one of the 4 keywords."""
         for name, desc, _ in tool_registry:
             found = [kw for kw in self._ALL_KEYWORDS if kw in desc]
-            assert found, (
-                f"{name}: missing all 4 behavior keywords in description"
-            )
+            assert found, f"{name}: missing all 4 behavior keywords in description"

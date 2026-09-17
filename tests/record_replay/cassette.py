@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional
+from typing import Any, Literal
 
 RecordType = Literal["call", "fire_and_forget", "broadcast", "state_change"]
 
@@ -47,10 +48,10 @@ class CassetteRecord:
     type: RecordType
     event: str
     timestamp: float = field(default_factory=time.time)
-    params: Optional[dict[str, Any]] = None
-    response: Optional[dict[str, Any]] = None
-    message: Optional[dict[str, Any]] = None
-    state_delta: Optional[dict[str, Any]] = None
+    params: dict[str, Any] | None = None
+    response: dict[str, Any] | None = None
+    message: dict[str, Any] | None = None
+    state_delta: dict[str, Any] | None = None
 
     def to_json(self) -> str:
         """Serialize to a single-line JSON string (one cassette line)."""
@@ -70,7 +71,7 @@ class CassetteRecord:
         return json.dumps(payload, ensure_ascii=False)
 
     @classmethod
-    def from_json(cls, line: str) -> "CassetteRecord":
+    def from_json(cls, line: str) -> CassetteRecord:
         """Deserialize from a single JSON line.
 
         Raises:

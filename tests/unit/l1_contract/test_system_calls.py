@@ -26,9 +26,7 @@ class TestSystemContract:
     """L1 contract: system methods forward correct event + params."""
 
     @pytest.mark.asyncio
-    async def test_game_status_forwards_event(
-        self, client, transport
-    ):
+    async def test_game_status_forwards_event(self, client, transport):
         """L1 anchor: GameSubscriber.cpp (game.status).
 
         game_status() forwards to the `game.status` WS event with no
@@ -42,9 +40,7 @@ class TestSystemContract:
         assert transport.calls[-1][1] == {}
 
     @pytest.mark.asyncio
-    async def test_memory_map_forwards_event_and_passes_response(
-        self, client, transport
-    ):
+    async def test_memory_map_forwards_event_and_passes_response(self, client, transport):
         """L1 anchor: memory.mapping (no params; returns `ranges`).
 
         memory_map() forwards to the `memory.mapping` WS event with
@@ -62,11 +58,8 @@ class TestSystemContract:
         assert transport.calls[-1][1] == {}
         assert result == {"ranges": ranges_payload}
 
-
     @pytest.mark.asyncio
-    async def test_reset_no_break_forwards_empty_params(
-        self, client, transport
-    ):
+    async def test_reset_no_break_forwards_empty_params(self, client, transport):
         """L1 anchor: GameSubscriber.cpp:L26, L41-62 (game.reset).
 
         reset() with no args forwards to `game.reset` with no params.
@@ -79,9 +72,7 @@ class TestSystemContract:
         assert transport.calls[-1][1] == {}
 
     @pytest.mark.asyncio
-    async def test_reset_with_break_forwards_param(
-        self, client, transport
-    ):
+    async def test_reset_with_break_forwards_param(self, client, transport):
         """L1 anchor: GameSubscriber.cpp:L26, L41-62 (game.reset, break=True).
 
         reset(break_=True) forwards `break=True` to the `game.reset`

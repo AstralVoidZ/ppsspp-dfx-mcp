@@ -23,9 +23,7 @@ class TestInputContract:
     """L1 contract: input methods forward correct event + params."""
 
     @pytest.mark.asyncio
-    async def test_press_button_forwards_event_and_params(
-        self, client, transport
-    ):
+    async def test_press_button_forwards_event_and_params(self, client, transport):
         """L1 anchor: InputSubscriber.cpp:L93 (input.buttons.press).
 
         press_button("cross", duration=5) forwards the button name and
@@ -40,9 +38,7 @@ class TestInputContract:
         }
 
     @pytest.mark.asyncio
-    async def test_press_button_default_duration_is_1(
-        self, client, transport
-    ):
+    async def test_press_button_default_duration_is_1(self, client, transport):
         """L1 anchor: InputSubscriber.cpp:L93, L170-192 (default duration=1).
 
         press_button("circle") with no explicit duration forwards
@@ -58,9 +54,7 @@ class TestInputContract:
         }
 
     @pytest.mark.asyncio
-    async def test_hold_buttons_forwards_dict_param(
-        self, client, transport
-    ):
+    async def test_hold_buttons_forwards_dict_param(self, client, transport):
         """L1 anchor: InputSubscriber.cpp:L94 (input.buttons.send).
 
         hold_buttons({"cross": True, "circle": True}) forwards the
@@ -73,9 +67,7 @@ class TestInputContract:
         assert transport.calls[-1][1] == {"buttons": buttons}
 
     @pytest.mark.asyncio
-    async def test_send_analog_default_stick_is_left(
-        self, client, transport
-    ):
+    async def test_send_analog_default_stick_is_left(self, client, transport):
         """L1 anchor: InputSubscriber.cpp:L94, L242-256 (default stick="left").
 
         send_analog(0.5, -0.25) with no explicit stick forwards
@@ -92,9 +84,7 @@ class TestInputContract:
         }
 
     @pytest.mark.asyncio
-    async def test_send_analog_custom_stick_forwards(
-        self, client, transport
-    ):
+    async def test_send_analog_custom_stick_forwards(self, client, transport):
         """L1 anchor: InputSubscriber.cpp:L94, L242-256 (stick="right").
 
         send_analog(0.0, 1.0, stick="right") forwards the explicit

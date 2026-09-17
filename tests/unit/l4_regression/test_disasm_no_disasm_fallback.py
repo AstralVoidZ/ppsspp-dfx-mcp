@@ -75,12 +75,12 @@ class TestV012DisasmNoDisasmFallback:
         """
         src = inspect.getsource(PpssppDebugClient.disasm)
         assert 'resp.get("disasm"' not in src, (
-            "disasm must NOT contain a `resp.get(\"disasm\", ...)` "
+            'disasm must NOT contain a `resp.get("disasm", ...)` '
             "fallback — V012 fix was reverted. See "
             "DisasmSubscriber.cpp:L58, L300-380 (memory.disasm returns "
             "only the `lines` field, no `disasm` key)."
         )
         assert 'or resp.get("disasm")' not in src, (
-            "disasm must NOT contain an `or resp.get(\"disasm\")` "
+            'disasm must NOT contain an `or resp.get("disasm")` '
             "fallback pattern — V012 fix was reverted."
         )

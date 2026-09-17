@@ -70,9 +70,7 @@ def isolated_sessions_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> P
     def _fake_sessions_path() -> Path:
         return target
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.config.sessions_path", _fake_sessions_path
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.config.sessions_path", _fake_sessions_path)
     monkeypatch.setattr(
         "ppsspp_dfx_mcp.session.session_manager.sessions_path",
         _fake_sessions_path,

@@ -34,20 +34,19 @@ class _RecordingClient:
     def __init__(self) -> None:
         self.mem_adds: list[dict] = []
 
-    async def mem_bp_add(self, address, size, read=True, write=True,
-                         enabled=True, log=False, **kw):
-        self.mem_adds.append({"address": address, "size": size,
-                              "read": read, "write": write})
+    async def mem_bp_add(self, address, size, read=True, write=True, enabled=True, log=False, **kw):
+        self.mem_adds.append({"address": address, "size": size, "read": read, "write": write})
         return {}
 
     async def cpu_bp_list(self):
         return {"breakpoints": []}
 
     async def mem_bp_list(self):
-        return {"breakpoints": [
-            {"address": a["address"], "size": a["size"], "hits": 0}
-            for a in self.mem_adds
-        ]}
+        return {
+            "breakpoints": [
+                {"address": a["address"], "size": a["size"], "hits": 0} for a in self.mem_adds
+            ]
+        }
 
 
 class _ReplayClient:
@@ -76,7 +75,10 @@ async def test_mem_set_rejects_zero_size(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(bp_mod, "session_client", fake_sc)
     with pytest.raises(ToolError, match="invalid memcheck size 0"):
         await bp_mod.breakpoint(
-            session_id="s1", action="mem_set", address=SCRATCH, size=0,
+            session_id="s1",
+            action="mem_set",
+            address=SCRATCH,
+            size=0,
         )
     assert client.mem_adds == [], "reject must happen BEFORE the mem_bp_add"
 
@@ -94,7 +96,9 @@ async def test_mem_remove_rejects_negative_size(
     monkeypatch.setattr(bp_mod, "session_client", fake_sc)
     with pytest.raises(ToolError, match="invalid memcheck size -4"):
         await bp_mod.breakpoint(
-            session_id="s1", action="mem_remove", address=SCRATCH,
+            session_id="s1",
+            action="mem_remove",
+            address=SCRATCH,
             size=-4,
         )
 
@@ -113,7 +117,10 @@ async def test_mem_set_accepts_range_watch_size(
 
     monkeypatch.setattr(bp_mod, "session_client", fake_sc)
     result = await bp_mod.breakpoint(
-        session_id="s1", action="mem_set", address=SCRATCH, size=64,
+        session_id="s1",
+        action="mem_set",
+        address=SCRATCH,
+        size=64,
     )
     assert [a["size"] for a in client.mem_adds] == [64]
     assert result["action"] == "mem_set"
@@ -121,7 +128,8 @@ async def test_mem_set_accepts_range_watch_size(
 
 @pytest.mark.asyncio
 async def test_replay_save_rejects_empty_capture(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """F-02 fixed: an empty capture is rejected with [REPLAY_EMPTY]
     BEFORE any file is written."""
@@ -138,7 +146,9 @@ async def test_replay_save_rejects_empty_capture(
     monkeypatch.setattr(replay_mod, "resolve_output_path", fake_resolve)
     with pytest.raises(ToolError, match="no frames captured") as info:
         await replay_mod.replay(
-            session_id="s1", action="save", file_path="roundtrip.ppr",
+            session_id="s1",
+            action="save",
+            file_path="roundtrip.ppr",
         )
     assert "[REPLAY_EMPTY]" in str(info.value)
     assert client.flushes == 1

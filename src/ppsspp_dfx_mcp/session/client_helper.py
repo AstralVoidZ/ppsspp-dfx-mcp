@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -64,7 +64,8 @@ async def resolve_session_id(session_id: str | None) -> str:
     if not sessions:
         raise ArgsInvalid(
             "session_id is required — no active session; start one with "
-            'ppsspp_session(action="start", iso_path=...)')
+            'ppsspp_session(action="start", iso_path=...)'
+        )
     if len(sessions) > 1:
         ids = ", ".join(s.session_id for s in sessions)
         raise SessionAmbiguous(
@@ -110,9 +111,7 @@ def _build_fake_transport_for_session() -> Any:
             "`python -m ppsspp_dfx_mcp.scripts.record_fixtures` to produce one)"
         )
     if not Path(fdir).is_dir():
-        raise RuntimeError(
-            f"PPSSPP_DFX_FIXTURE_DIR points at non-existent dir: {fdir}"
-        )
+        raise RuntimeError(f"PPSSPP_DFX_FIXTURE_DIR points at non-existent dir: {fdir}")
 
     fake = FakeTransport()
     fake.set_state({"stepping": False})
@@ -228,9 +227,7 @@ async def session_client_with_transport(
     # behind a long wait_frames/batch_step call.
     session_lock = session_manager.get_session_manager().session_lock(session_id)
     try:
-        await asyncio.wait_for(
-            session_lock.acquire(), timeout=SESSION_BUSY_TIMEOUT_S
-        )
+        await asyncio.wait_for(session_lock.acquire(), timeout=SESSION_BUSY_TIMEOUT_S)
     except TimeoutError as e:
         # If the lock is held by a detached background batch, point
         # the caller at the status/cancel tools instead of a blind retry.
@@ -248,8 +245,7 @@ async def session_client_with_transport(
         raise SessionBusy(
             f"session {session_id} is busy with another tool call "
             f"(waited {SESSION_BUSY_TIMEOUT_S}s). PPSSPP debugging sessions "
-            f"serialize one tool call at a time — retry shortly."
-            + hint
+            f"serialize one tool call at a time — retry shortly." + hint
         ) from e
     try:
         async with _session_transport_context(sess, session_id) as (
@@ -298,7 +294,9 @@ async def _session_transport_context(
         # each other's resolvers.
         err_token = set_error_context(
             pid_resolver=(lambda s=sess: s.pid) if sess.pid is not None else None,
-            game_state_resolver=session_observer.get_state if session_observer is not None else None,
+            game_state_resolver=session_observer.get_state
+            if session_observer is not None
+            else None,
         )
         try:
             yield (
@@ -347,11 +345,9 @@ async def _session_transport_context(
         # No per-call ws_connected persistence — touch_session folds in
         # the live transport state instead. The per-call transport IS
         # closed here — this fallback path owns its lifecycle.
-        try:
+        # Best-effort close; do not mask the original exception.
+        with suppress(Exception):
             await transport.close()
-        except Exception:
-            # Best-effort close; do not mask the original exception.
-            pass
 
 
 @asynccontextmanager

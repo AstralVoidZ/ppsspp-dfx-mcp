@@ -50,8 +50,7 @@ class ReplayResponse(FrozenModel):
     size: int = Field(
         default=0,
         description=(
-            "Recording size in bytes from `replay.flush`. 0 when the "
-            "action does not return a size."
+            "Recording size in bytes from `replay.flush`. 0 when the action does not return a size."
         ),
     )
     base64: str = Field(
@@ -85,7 +84,7 @@ class ReplayResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: ReplayResult) -> "ReplayResponse":
+    def from_result(cls, result: ReplayResult) -> ReplayResponse:
         return cls(
             action=result.action,
             executing=result.executing,

@@ -36,7 +36,6 @@ from ppsspp_dfx_mcp.errors import (
     to_tool_error,
 )
 
-
 # ============================================================================
 # to_tool_error translation
 # ============================================================================
@@ -159,6 +158,4 @@ class TestSubclassCodeContract:
     def test_subclass_isinstance_of_tool_error(self):
         """Every business subclass must be a subclass of ToolError."""
         for cls, _ in self._EXPECTED_CODES:
-            assert issubclass(cls, ToolError), (
-                f"{cls.__name__} must subclass ToolError"
-            )
+            assert issubclass(cls, ToolError), f"{cls.__name__} must subclass ToolError"

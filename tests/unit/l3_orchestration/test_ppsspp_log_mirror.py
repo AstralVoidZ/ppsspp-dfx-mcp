@@ -64,6 +64,7 @@ def test_mirror_handler_stops_appending_past_cap(tmp_path):
 def test_attach_idempotent(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "output_dir", lambda: tmp_path)
     from ppsspp_dfx_mcp.logging import PPSSPP_LOG_LOGGER_NAME as _N
+
     logger = logging.getLogger(_N)
     before = len(logger.handlers)
     path1 = attach_ppsspp_log_mirror()
@@ -83,9 +84,7 @@ def test_attach_idempotent(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_analyze_log_default_reads_mirror(tmp_path, monkeypatch, mirror_target):
     """Default path (log_path=None) reads the mirrored file when present."""
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.analyze.output_dir", lambda: tmp_path
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.analyze.output_dir", lambda: tmp_path)
     _emit_ppsspp_log("ERROR HLE: bad syscall")
     _emit_ppsspp_log("INFO everything fine")
     _emit_ppsspp_log("ERROR gpu: timeout")
@@ -100,9 +99,7 @@ async def test_analyze_log_default_reads_mirror(tmp_path, monkeypatch, mirror_ta
 @pytest.mark.asyncio
 async def test_analyze_log_default_missing_file(tmp_path, monkeypatch):
     """No mirror file yet → explicit empty result naming the mirror path."""
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.analyze.output_dir", lambda: tmp_path
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.analyze.output_dir", lambda: tmp_path)
     result = await analyze_log(log_path=None, filter=None, session_id=None)
     assert result["count"] == 0
     assert result["matches"] == []

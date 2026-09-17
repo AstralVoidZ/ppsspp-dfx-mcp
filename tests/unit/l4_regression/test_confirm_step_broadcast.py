@@ -29,13 +29,15 @@ def _push_stepping_broadcast(
     pc: int = 0x08804000,
 ) -> None:
     """Push a cpu.stepping broadcast onto the transport's events queue."""
-    transport.push_broadcast({
-        "event": "cpu.stepping",
-        "pc": pc,
-        "ticks": 12345.0,
-        "reason": reason,
-        "relatedAddress": 0,
-    })
+    transport.push_broadcast(
+        {
+            "event": "cpu.stepping",
+            "pc": pc,
+            "ticks": 12345.0,
+            "reason": reason,
+            "relatedAddress": 0,
+        }
+    )
 
 
 class TestV004ConfirmStepBroadcast:
@@ -93,8 +95,7 @@ class TestV004ConfirmStepBroadcast:
         # Verify all 5 required fields are present.
         for field in ("event", "pc", "ticks", "reason", "relatedAddress"):
             assert field in result, (
-                f"missing field '{field}' in broadcast dict — see "
-                "SteppingBroadcaster.cpp:L25-44."
+                f"missing field '{field}' in broadcast dict — see SteppingBroadcaster.cpp:L25-44."
             )
 
     @pytest.mark.asyncio
@@ -135,12 +136,9 @@ class TestV004ConfirmStepBroadcast:
             }
         )
         await client._confirm_step_completed()
-        forwarded_timeout = transport.wait_for_broadcast.await_args.kwargs.get(
-            "timeout_ms"
-        )
+        forwarded_timeout = transport.wait_for_broadcast.await_args.kwargs.get("timeout_ms")
         assert forwarded_timeout == 5000, (
-            f"wait_for_broadcast must receive default timeout_ms=5000, "
-            f"got {forwarded_timeout!r}."
+            f"wait_for_broadcast must receive default timeout_ms=5000, got {forwarded_timeout!r}."
         )
 
     @pytest.mark.asyncio
@@ -158,9 +156,7 @@ class TestV004ConfirmStepBroadcast:
             }
         )
         # Should not raise — interval_ms is accepted for API compat.
-        await client._confirm_step_completed(
-            timeout_ms=500, interval_ms=50
-        )
+        await client._confirm_step_completed(timeout_ms=500, interval_ms=50)
         assert transport.wait_for_broadcast.await_count == 1
 
     @pytest.mark.asyncio
@@ -173,15 +169,9 @@ class TestV004ConfirmStepBroadcast:
         B.2 spec §2.4.3 design requires the broadcast path to fall back
         to the legacy `wait_for_state` poll when broadcast times out.
         """
-        transport.wait_for_broadcast = AsyncMock(
-            side_effect=TimeoutError("broadcast timeout")
-        )
-        transport.wait_for_state = AsyncMock(
-            return_value={"stepping": True}
-        )
-        await client._confirm_step_completed(
-            timeout_ms=100, interval_ms=10
-        )
+        transport.wait_for_broadcast = AsyncMock(side_effect=TimeoutError("broadcast timeout"))
+        transport.wait_for_state = AsyncMock(return_value={"stepping": True})
+        await client._confirm_step_completed(timeout_ms=100, interval_ms=10)
         # Both paths must be tried: broadcast first, then legacy fallback.
         assert transport.wait_for_broadcast.await_count == 1, (
             "Broadcast mode must be attempted first."
@@ -205,9 +195,7 @@ class TestV004ConfirmStepBroadcast:
                 "relatedAddress": 0,
             }
         )
-        transport.wait_for_state = AsyncMock(
-            return_value={"stepping": True}
-        )
+        transport.wait_for_state = AsyncMock(return_value={"stepping": True})
         await client._confirm_step_completed(timeout_ms=500)
         assert transport.wait_for_broadcast.await_count == 1
         assert transport.wait_for_state.await_count == 0, (
@@ -259,9 +247,7 @@ class TestV004AllStepMethodsUseBroadcast:
         assert transport.fire_and_forget_calls[-1][0] == "cpu.stepOver"
 
     @pytest.mark.asyncio
-    async def test_step_out_uses_broadcast(
-        self, client: PpssppDebugClient, transport: Any
-    ) -> None:
+    async def test_step_out_uses_broadcast(self, client: PpssppDebugClient, transport: Any) -> None:
         transport.wait_for_broadcast = AsyncMock(
             return_value={
                 "event": "cpu.stepping",
@@ -293,14 +279,10 @@ class TestV004AllStepMethodsUseBroadcast:
         await client.run_until(0x08804000, timeout_ms=500)
         assert transport.wait_for_broadcast.await_count == 1
         assert transport.fire_and_forget_calls[-1][0] == "cpu.runUntil"
-        assert transport.fire_and_forget_calls[-1][1] == {
-            "address": 0x08804000
-        }
+        assert transport.fire_and_forget_calls[-1][1] == {"address": 0x08804000}
 
     @pytest.mark.asyncio
-    async def test_next_hle_uses_broadcast(
-        self, client: PpssppDebugClient, transport: Any
-    ) -> None:
+    async def test_next_hle_uses_broadcast(self, client: PpssppDebugClient, transport: Any) -> None:
         transport.wait_for_broadcast = AsyncMock(
             return_value={
                 "event": "cpu.stepping",
@@ -323,16 +305,12 @@ class TestV004WaitForBroadcastInvariants:
     """
 
     @pytest.mark.asyncio
-    async def test_no_message_loss_on_success(
-        self, transport: Any
-    ) -> None:
+    async def test_no_message_loss_on_success(self, transport: Any) -> None:
         """I1 anchor: non-matching messages are requeued after success."""
         # Push 1 non-matching + 1 matching broadcast.
         transport.push_broadcast({"event": "other", "data": 1})
         transport.push_broadcast({"event": "cpu.stepping", "pc": 0})
-        msg = await transport.wait_for_broadcast(
-            "cpu.stepping", timeout_ms=500
-        )
+        msg = await transport.wait_for_broadcast("cpu.stepping", timeout_ms=500)
         assert msg["event"] == "cpu.stepping"
         # The non-matching message must still be in the queue.
         assert transport.events.qsize() == 1
@@ -340,17 +318,13 @@ class TestV004WaitForBroadcastInvariants:
         assert leftover["event"] == "other"
 
     @pytest.mark.asyncio
-    async def test_timeout_preserves_backlog(
-        self, transport: Any
-    ) -> None:
+    async def test_timeout_preserves_backlog(self, transport: Any) -> None:
         """I2 anchor: timeout requeues all backlog messages in FIFO order."""
         transport.push_broadcast({"event": "other", "data": "A"})
         transport.push_broadcast({"event": "other", "data": "B"})
         transport.push_broadcast({"event": "other", "data": "C"})
         with pytest.raises(TimeoutError):
-            await transport.wait_for_broadcast(
-                "cpu.stepping", timeout_ms=50
-            )
+            await transport.wait_for_broadcast("cpu.stepping", timeout_ms=50)
         # All 3 non-matching messages must be requeued in order.
         assert transport.events.qsize() == 3
         a = transport.events.get_nowait()
@@ -359,23 +333,17 @@ class TestV004WaitForBroadcastInvariants:
         assert (a["data"], b["data"], c["data"]) == ("A", "B", "C")
 
     @pytest.mark.asyncio
-    async def test_filter_none_matches_all(
-        self, transport: Any
-    ) -> None:
+    async def test_filter_none_matches_all(self, transport: Any) -> None:
         """I3 anchor: filter=None matches all messages with event == target."""
         transport.push_broadcast({"event": "cpu.stepping", "pc": 1})
         transport.push_broadcast({"event": "cpu.stepping", "pc": 2})
-        msg = await transport.wait_for_broadcast(
-            "cpu.stepping", timeout_ms=500
-        )
+        msg = await transport.wait_for_broadcast("cpu.stepping", timeout_ms=500)
         assert msg["pc"] == 1, "filter=None returns the first match"
         # The second match must still be in the queue.
         assert transport.events.qsize() == 1
 
     @pytest.mark.asyncio
-    async def test_filter_predicate_selects_match(
-        self, transport: Any
-    ) -> None:
+    async def test_filter_predicate_selects_match(self, transport: Any) -> None:
         """I3 anchor: filter predicate selects among same-event broadcasts."""
         transport.push_broadcast({"event": "cpu.stepping", "reason": "stepInto"})
         transport.push_broadcast({"event": "cpu.stepping", "reason": "breakpoint"})
@@ -391,19 +359,13 @@ class TestV004WaitForBroadcastInvariants:
         assert leftover["reason"] == "stepInto"
 
     @pytest.mark.asyncio
-    async def test_backlog_order_preserved_on_timeout(
-        self, transport: Any
-    ) -> None:
+    async def test_backlog_order_preserved_on_timeout(self, transport: Any) -> None:
         """I5 anchor: requeued backlog preserves original FIFO order."""
-        msgs = [
-            {"event": "other", "i": i} for i in range(5)
-        ]
+        msgs = [{"event": "other", "i": i} for i in range(5)]
         for m in msgs:
             transport.push_broadcast(m)
         with pytest.raises(TimeoutError):
-            await transport.wait_for_broadcast(
-                "cpu.stepping", timeout_ms=50
-            )
+            await transport.wait_for_broadcast("cpu.stepping", timeout_ms=50)
         requeued = []
         while not transport.events.empty():
             requeued.append(transport.events.get_nowait())

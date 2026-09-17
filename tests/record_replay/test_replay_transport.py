@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -24,7 +23,6 @@ from record_replay.replay_transport import (
     CassetteExhaustedError,
     ReplayTransport,
 )
-
 
 # ---------- Helper: build a cassette from records and load it ----------
 
@@ -69,14 +67,18 @@ class TestReplayCall:
         """Multiple calls replay in the order they were recorded."""
         records = [
             CassetteRecord(
-                type="call", event="memory.read_u32",
+                type="call",
+                event="memory.read_u32",
                 params={"address": 0x08804000},
-                response={"value": 1}, timestamp=1.0,
+                response={"value": 1},
+                timestamp=1.0,
             ),
             CassetteRecord(
-                type="call", event="memory.read_u32",
+                type="call",
+                event="memory.read_u32",
                 params={"address": 0x08804004},
-                response={"value": 2}, timestamp=2.0,
+                response={"value": 2},
+                timestamp=2.0,
             ),
         ]
         replay = _build_replay(records)
@@ -97,7 +99,8 @@ class TestReplayCall:
         """
         records = [
             CassetteRecord(
-                type="call", event="memory.read_u32",
+                type="call",
+                event="memory.read_u32",
                 params={"address": 0x08804000},  # recorded address
                 response={"value": 0xDEADBEEF},
                 timestamp=1.0,
@@ -114,8 +117,11 @@ class TestReplayCall:
         """When no call record matches the event, CassetteExhaustedError is raised."""
         records = [
             CassetteRecord(
-                type="call", event="memory.read_u32",
-                params={}, response={"value": 1}, timestamp=1.0,
+                type="call",
+                event="memory.read_u32",
+                params={},
+                response={"value": 1},
+                timestamp=1.0,
             ),
         ]
         replay = _build_replay(records)
@@ -183,14 +189,27 @@ class TestReplayFireAndForgetStateMerge:
     async def test_multiple_state_changes_accumulate(self):
         """Multiple fire_and_forget state changes accumulate via merge."""
         records = [
-            CassetteRecord(type="fire_and_forget", event="cpu.stepping",
-                           params={"step": "into"}, timestamp=1.0),
-            CassetteRecord(type="state_change", event="cpu.stepping",
-                           state_delta={"stepping": True}, timestamp=1.1),
-            CassetteRecord(type="fire_and_forget", event="cpu.stepping",
-                           params={"step": "resume"}, timestamp=2.0),
-            CassetteRecord(type="state_change", event="cpu.stepping",
-                           state_delta={"stepping": False}, timestamp=2.1),
+            CassetteRecord(
+                type="fire_and_forget", event="cpu.stepping", params={"step": "into"}, timestamp=1.0
+            ),
+            CassetteRecord(
+                type="state_change",
+                event="cpu.stepping",
+                state_delta={"stepping": True},
+                timestamp=1.1,
+            ),
+            CassetteRecord(
+                type="fire_and_forget",
+                event="cpu.stepping",
+                params={"step": "resume"},
+                timestamp=2.0,
+            ),
+            CassetteRecord(
+                type="state_change",
+                event="cpu.stepping",
+                state_delta={"stepping": False},
+                timestamp=2.1,
+            ),
         ]
         replay = _build_replay(records)
         replay.set_state({"stepping": False, "pc": 0x08804000})
@@ -207,8 +226,9 @@ class TestReplayFireAndForgetStateMerge:
     async def test_no_state_change_record_leaves_state_untouched(self):
         """If there's no paired state_change record, state is untouched."""
         records = [
-            CassetteRecord(type="fire_and_forget", event="cpu.stepping",
-                           params={"step": "into"}, timestamp=1.0),
+            CassetteRecord(
+                type="fire_and_forget", event="cpu.stepping", params={"step": "into"}, timestamp=1.0
+            ),
             # NO state_change record paired.
         ]
         replay = _build_replay(records)
@@ -240,8 +260,10 @@ class TestReplayBroadcast:
         broadcast_msg = {"event": "cpu.stepping", "stepping": True}
         records = [
             CassetteRecord(
-                type="broadcast", event="cpu.stepping",
-                message=broadcast_msg, timestamp=1.0,
+                type="broadcast",
+                event="cpu.stepping",
+                message=broadcast_msg,
+                timestamp=1.0,
             ),
         ]
         replay = _build_replay(records)
@@ -255,11 +277,14 @@ class TestReplayBroadcast:
         """Non-matching broadcasts are requeued for other consumers."""
         records = [
             CassetteRecord(
-                type="broadcast", event="other.event",
-                message={"event": "other.event"}, timestamp=1.0,
+                type="broadcast",
+                event="other.event",
+                message={"event": "other.event"},
+                timestamp=1.0,
             ),
             CassetteRecord(
-                type="broadcast", event="cpu.stepping",
+                type="broadcast",
+                event="cpu.stepping",
                 message={"event": "cpu.stepping", "stepping": True},
                 timestamp=2.0,
             ),
@@ -288,12 +313,14 @@ class TestReplayBroadcast:
         """Optional filter predicate is applied to broadcast messages."""
         records = [
             CassetteRecord(
-                type="broadcast", event="cpu.stepping",
+                type="broadcast",
+                event="cpu.stepping",
                 message={"event": "cpu.stepping", "stepping": True, "pc": 1},
                 timestamp=1.0,
             ),
             CassetteRecord(
-                type="broadcast", event="cpu.stepping",
+                type="broadcast",
+                event="cpu.stepping",
                 message={"event": "cpu.stepping", "stepping": True, "pc": 2},
                 timestamp=2.0,
             ),

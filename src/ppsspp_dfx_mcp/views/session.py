@@ -23,13 +23,9 @@ class SessionResponse(FrozenModel):
     # ws_url is exposed intentionally: agents may need to know which
     # host:port the debugger is listening on (e.g. to attach an external
     # tool) without re-reading project config.
-    ws_url: str = Field(
-        description="WebSocket URL (ws://host:port/debugger)."
-    )
+    ws_url: str = Field(description="WebSocket URL (ws://host:port/debugger).")
     created_at: str = Field(description="ISO 8601 timestamp of session creation.")
-    last_active_at: str = Field(
-        description="ISO 8601 timestamp of last tool call."
-    )
+    last_active_at: str = Field(description="ISO 8601 timestamp of last tool call.")
     exec_count: int = Field(
         default=0,
         description="Number of tool calls made against this session.",
@@ -63,7 +59,7 @@ class SessionResponse(FrozenModel):
     )
 
     @classmethod
-    def from_session(cls, sess: Session) -> "SessionResponse":
+    def from_session(cls, sess: Session) -> SessionResponse:
         """Construct from a Session domain model.
 
         Datetime fields (created_at, last_active_at) are serialized to ISO
@@ -85,7 +81,7 @@ class SessionResponse(FrozenModel):
         )
 
     @classmethod
-    def from_domain(cls, data: Any) -> "SessionResponse":
+    def from_domain(cls, data: Any) -> SessionResponse:
         """Override to accept Session dataclass or dict."""
         if isinstance(data, Session):
             return cls.from_session(data)
@@ -104,7 +100,7 @@ class SessionListResponse(FrozenModel):
     count: int = Field(default=0, description="Number of sessions.")
 
     @classmethod
-    def from_sessions(cls, sessions: list[Session]) -> "SessionListResponse":
+    def from_sessions(cls, sessions: list[Session]) -> SessionListResponse:
         return cls(
             sessions=[SessionResponse.from_session(s) for s in sessions],
             count=len(sessions),
@@ -129,8 +125,7 @@ class WaitReadyResponse(FrozenModel):
     )
     probe_value: str | None = Field(
         default=None,
-        description="u32 read at probe_addr once ready, hex string "
-        "(None in fake mode).",
+        description="u32 read at probe_addr once ready, hex string (None in fake mode).",
     )
     note: str | None = Field(
         default=None,
@@ -138,7 +133,7 @@ class WaitReadyResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: WaitReadyResult) -> "WaitReadyResponse":
+    def from_result(cls, result: WaitReadyResult) -> WaitReadyResponse:
         probe_value: str | None = None
         if result.probe_value is not None:
             probe_value = f"0x{result.probe_value:08X}"

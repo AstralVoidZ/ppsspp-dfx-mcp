@@ -110,8 +110,7 @@ class TestParseAddressInvalid:
         with pytest.raises(ToolError) as exc_info:
             parse_address(s)
         assert exc_info.value.code == "ADDR_INVALID", (
-            f"parse_address({s!r}) should raise AddrInvalid "
-            f"({reason})"
+            f"parse_address({s!r}) should raise AddrInvalid ({reason})"
         )
 
     @pytest.mark.parametrize("invalid", [None, [], {}, 1.5, object()])
@@ -128,8 +127,7 @@ class TestParseAddressInvalid:
         msg = str(exc_info.value)
         # Either mentions '0x' prefix requirement or hex format
         assert "0x" in msg or "hex" in msg.lower(), (
-            f"Error message should mention '0x' prefix or hex format; "
-            f"got: {msg!r}"
+            f"Error message should mention '0x' prefix or hex format; got: {msg!r}"
         )
 
     def test_error_message_includes_param_name(self):
@@ -137,8 +135,7 @@ class TestParseAddressInvalid:
         with pytest.raises(ToolError) as exc_info:
             parse_address("0xZZ")
         assert "address" in str(exc_info.value).lower(), (
-            f"parse_address error should mention 'address' param name; "
-            f"got: {exc_info.value!s}"
+            f"parse_address error should mention 'address' param name; got: {exc_info.value!s}"
         )
 
 
@@ -176,8 +173,7 @@ class TestParseValue:
             parse_value("0xZZ")
         msg = str(exc_info.value).lower()
         assert "value" in msg, (
-            f"parse_value error should mention 'value' param name; "
-            f"got: {exc_info.value!s}"
+            f"parse_value error should mention 'value' param name; got: {exc_info.value!s}"
         )
 
 
@@ -244,9 +240,7 @@ class TestFormatAddress:
     def test_uppercase_hex(self):
         """Hex digits A-F must be uppercase (matches IDA/PPSSPP convention)."""
         result = format_address(0xABCDEF12)
-        assert result == "0xABCDEF12", (
-            f"expected uppercase '0xABCDEF12', got {result!r}"
-        )
+        assert result == "0xABCDEF12", f"expected uppercase '0xABCDEF12', got {result!r}"
 
     @pytest.mark.parametrize("value", [-1, -2, 0x100000000, -0x80000000])
     def test_masks_to_32_bits(self, value):
@@ -257,9 +251,7 @@ class TestFormatAddress:
         """
         result = format_address(value)
         expected = f"0x{value & 0xFFFFFFFF:08X}"
-        assert result == expected, (
-            f"format_address({value}) = {result!r}, expected {expected!r}"
-        )
+        assert result == expected, f"format_address({value}) = {result!r}, expected {expected!r}"
 
     def test_inverse_of_parse_address(self):
         """Round-trip: parse_address(format_address(n)) == n for 0 ≤ n ≤ 0xFFFFFFFF."""
@@ -303,8 +295,7 @@ class TestRoundTripWithDebugClient:
     def test_parse_returns_int(self, s, expected_int):
         result = parse_address(s)
         assert isinstance(result, int), (
-            f"parse_address must return int (DebugClient expects int); "
-            f"got {type(result).__name__}"
+            f"parse_address must return int (DebugClient expects int); got {type(result).__name__}"
         )
         assert result == expected_int
 

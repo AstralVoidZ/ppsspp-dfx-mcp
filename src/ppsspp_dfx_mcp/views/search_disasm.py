@@ -26,7 +26,7 @@ def _format_disasm_line(entry: dict[str, Any]) -> str:
     try:
         addr_int = int(addr) if not isinstance(addr, int) else addr
         addr_str = f"0x{addr_int:08X}"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         addr_str = str(addr)
     text = entry.get("text")
     if not text:
@@ -39,7 +39,9 @@ def _format_disasm_line(entry: dict[str, Any]) -> str:
 class SearchDisasmResponse(FrozenModel):
     """Response view for ppsspp_search_disasm."""
 
-    address: str = Field(description="Starting address for the search, hex string (e.g. '0x08804000').")
+    address: str = Field(
+        description="Starting address for the search, hex string (e.g. '0x08804000')."
+    )
     match: str = Field(description="Case-insensitive substring matched.")
     end: str = Field(
         default="0x0",
@@ -52,13 +54,12 @@ class SearchDisasmResponse(FrozenModel):
     text: str = Field(
         default="",
         description=(
-            "Unified multi-line text representation. Each line is "
-            "'0x{ADDR:08X}: {text}'."
+            "Unified multi-line text representation. Each line is '0x{ADDR:08X}: {text}'."
         ),
     )
 
     @classmethod
-    def from_result(cls, result: SearchDisasmResult) -> "SearchDisasmResponse":
+    def from_result(cls, result: SearchDisasmResult) -> SearchDisasmResponse:
         lines = [_format_disasm_line(entry) for entry in result.results]
         return cls(
             address=format_address(result.address),

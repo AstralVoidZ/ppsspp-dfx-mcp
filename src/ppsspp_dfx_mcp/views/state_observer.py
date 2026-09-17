@@ -22,11 +22,13 @@ class ProbeObservationView(FrozenModel):
     name: str = Field(description="Probe name")
     address: str = Field(description="Address read, hex string (e.g. '0x08804000')")
     size: int = Field(description="Read width in bytes (1/2/4)")
-    value: str = Field(default="0x00000000", description="Raw unsigned value read, hex string (e.g. '0x00000001')")
+    value: str = Field(
+        default="0x00000000", description="Raw unsigned value read, hex string (e.g. '0x00000001')"
+    )
     error: str = Field(default="", description="Empty on success; error message on failure")
 
     @classmethod
-    def from_result(cls, obs: ProbeObservation) -> "ProbeObservationView":
+    def from_result(cls, obs: ProbeObservation) -> ProbeObservationView:
         return cls(
             name=obs.name,
             address=format_address(obs.address),
@@ -45,7 +47,7 @@ class StateProbeView(FrozenModel):
     description: str = Field(default="", description="Human-readable note")
 
     @classmethod
-    def from_probe(cls, probe: StateProbe) -> "StateProbeView":
+    def from_probe(cls, probe: StateProbe) -> StateProbeView:
         return cls(
             name=probe.name,
             address=format_address(probe.address),
@@ -82,25 +84,19 @@ class StateObserverResponse(FrozenModel):
     success_count: int = Field(
         default=0, description="Successful observations (action=observe only)"
     )
-    failure_count: int = Field(
-        default=0, description="Failed observations (action=observe only)"
-    )
-    data: dict[str, Any] | None = Field(
-        default=None, description="Raw PPSSPP echo (reserved)"
-    )
+    failure_count: int = Field(default=0, description="Failed observations (action=observe only)")
+    data: dict[str, Any] | None = Field(default=None, description="Raw PPSSPP echo (reserved)")
 
     @classmethod
-    def from_register(cls, result: RegisterResult) -> "StateObserverResponse":
+    def from_register(cls, result: RegisterResult) -> StateObserverResponse:
         return cls(
             action=result.action,
-            registered=StateProbeView.from_probe(result.registered)
-            if result.registered
-            else None,
+            registered=StateProbeView.from_probe(result.registered) if result.registered else None,
             count=result.count,
         )
 
     @classmethod
-    def from_list(cls, result: RegisterResult) -> "StateObserverResponse":
+    def from_list(cls, result: RegisterResult) -> StateObserverResponse:
         return cls(
             action=result.action,
             probes=[StateProbeView.from_probe(p) for p in result.probes],
@@ -108,19 +104,17 @@ class StateObserverResponse(FrozenModel):
         )
 
     @classmethod
-    def from_clear(cls, result: RegisterResult) -> "StateObserverResponse":
+    def from_clear(cls, result: RegisterResult) -> StateObserverResponse:
         return cls(
             action=result.action,
             count=result.count,
         )
 
     @classmethod
-    def from_observe(cls, result: ObservationResult) -> "StateObserverResponse":
+    def from_observe(cls, result: ObservationResult) -> StateObserverResponse:
         return cls(
             action=result.action,
-            observations=[
-                ProbeObservationView.from_result(o) for o in result.observations
-            ],
+            observations=[ProbeObservationView.from_result(o) for o in result.observations],
             count=result.count,
             success_count=result.success_count,
             failure_count=result.failure_count,

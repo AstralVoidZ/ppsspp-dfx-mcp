@@ -30,14 +30,11 @@ Non-determinism handling:
 
 from __future__ import annotations
 
-import asyncio
-import time
-from typing import Any
+import contextlib
 
 import pytest
 
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-
 
 # ============================================================================
 # Phase 1 — service & connectivity
@@ -55,31 +52,23 @@ class TestRealPpssppConnectivity:
         We verify by issuing a `version` call and checking the response.
         """
         resp = await real_transport.call("version")
-        assert resp.get("name") == "PPSSPP", (
-            f"expected name='PPSSPP', got {resp.get('name')!r}"
-        )
+        assert resp.get("name") == "PPSSPP", f"expected name='PPSSPP', got {resp.get('name')!r}"
         version_str = resp.get("version", "")
         assert version_str, f"version field is empty: {resp!r}"
         # PPSSPP version strings look like "v1.20.4-605-gf0c28c6744".
-        assert version_str.startswith("v"), (
-            f"version should start with 'v', got {version_str!r}"
-        )
+        assert version_str.startswith("v"), f"version should start with 'v', got {version_str!r}"
 
     async def test_cpu_status_returns_stepping_field(self, real_transport):
         """cpu.status response contains `stepping` boolean."""
         resp = await real_transport.call("cpu.status")
-        assert "stepping" in resp, (
-            f"cpu.status missing 'stepping' field: {resp!r}"
-        )
+        assert "stepping" in resp, f"cpu.status missing 'stepping' field: {resp!r}"
         assert isinstance(resp["stepping"], bool)
 
     async def test_game_status_returns_title(self, real_transport):
         """game.status response contains a non-empty game title."""
         resp = await real_transport.call("game.status")
         game = resp.get("game")
-        assert isinstance(game, dict), (
-            f"game.status 'game' field should be a dict: {resp!r}"
-        )
+        assert isinstance(game, dict), f"game.status 'game' field should be a dict: {resp!r}"
         title = game.get("title", "")
         assert title, f"game title is empty: {resp!r}"
 
@@ -99,7 +88,8 @@ class TestRealPpssppMemory:
     """Memory read/write round-trip against the live PPSSPP process."""
 
     async def test_read_u32_returns_nonzero_at_top_prx_base(
-        self, real_transport,
+        self,
+        real_transport,
     ):
         """read_u32 at top.prx base address returns a non-zero value.
 
@@ -121,9 +111,7 @@ class TestRealPpssppMemory:
         """
         client = PpssppDebugClient(real_transport)
         data = await client.read_bytes(_TOP_PRX_BASE, 16)
-        assert len(data) == 16, (
-            f"expected 16 bytes, got {len(data)}: {data!r}"
-        )
+        assert len(data) == 16, f"expected 16 bytes, got {len(data)}: {data!r}"
         # All-zero bytes would indicate an unmapped address; top.prx
         # base must be mapped and contain real code.
         assert data != b"\x00" * 16, (
@@ -144,15 +132,12 @@ class TestRealPpssppMemory:
             await client.write_u32(test_addr, 0xDEADBEEF)
             read_back = await client.read_u32(test_addr)
             assert read_back == 0xDEADBEEF, (
-                f"write_u32 round-trip failed: wrote 0xDEADBEEF, "
-                f"read back {read_back:#x}"
+                f"write_u32 round-trip failed: wrote 0xDEADBEEF, read back {read_back:#x}"
             )
         finally:
             # Restore original value.
-            try:
+            with contextlib.suppress(Exception):
                 await client.write_u32(test_addr, original)
-            except Exception:
-                pass
 
 
 @pytest.mark.real_ppsspp
@@ -163,14 +148,10 @@ class TestRealPpssppDisasm:
         """disasm returns exactly `count` instruction entries."""
         client = PpssppDebugClient(real_transport)
         lines = await client.disasm(_TOP_PRX_BASE, count=5)
-        assert len(lines) == 5, (
-            f"expected 5 disasm lines, got {len(lines)}: {lines!r}"
-        )
+        assert len(lines) == 5, f"expected 5 disasm lines, got {len(lines)}: {lines!r}"
         # Each line must have a `text` field (assembled by DebugClient).
         for i, line in enumerate(lines):
-            assert "text" in line, (
-                f"line {i} missing 'text' field: {line!r}"
-            )
+            assert "text" in line, f"line {i} missing 'text' field: {line!r}"
             assert isinstance(line["text"], str)
             assert line["text"], f"line {i} has empty text: {line!r}"
 
@@ -188,29 +169,25 @@ class TestRealPpssppStepping:
         client = PpssppDebugClient(real_transport)
         # Capture initial state.
         initial = await real_transport.call("cpu.status")
-        initial_stepping = initial.get("stepping", False)
+        _initial_stepping = initial.get("stepping", False)
 
         try:
             # Pause.
             await client.pause()
             paused = await real_transport.call("cpu.status")
             assert paused.get("stepping") is True, (
-                f"after pause(), cpu.status.stepping should be True, "
-                f"got {paused!r}"
+                f"after pause(), cpu.status.stepping should be True, got {paused!r}"
             )
             # Resume.
             await client.resume()
             resumed = await real_transport.call("cpu.status")
             assert resumed.get("stepping") is False, (
-                f"after resume(), cpu.status.stepping should be False, "
-                f"got {resumed!r}"
+                f"after resume(), cpu.status.stepping should be False, got {resumed!r}"
             )
         finally:
             # Always leave the CPU running (clean state for next test).
-            try:
+            with contextlib.suppress(Exception):
                 await client.resume()
-            except Exception:
-                pass
 
     async def test_get_pc_returns_address_in_psp_range(self, real_transport):
         """get_pc returns a PC in the valid PSP user-memory range.
@@ -226,14 +203,11 @@ class TestRealPpssppStepping:
             # PC may be 0 if CPU is in an unusual state (e.g. just-booted
             # HLE thread); accept 0 OR a value in the PSP code range.
             assert pc == 0 or 0x08800000 <= pc < 0x0C000000, (
-                f"PC {pc:#x} is outside the valid PSP code range "
-                f"(0x08800000-0x0C000000)"
+                f"PC {pc:#x} is outside the valid PSP code range (0x08800000-0x0C000000)"
             )
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 await client.resume()
-            except Exception:
-                pass
 
 
 @pytest.mark.real_ppsspp
@@ -246,38 +220,34 @@ class TestRealPpssppBreakpoint:
 
     async def test_breakpoint_add_list_remove_round_trip(self, real_transport):
         """set/list/remove breakpoint cycle works end-to-end."""
-        client = PpssppDebugClient(real_transport)
+        _client = PpssppDebugClient(real_transport)
         test_addr = _TOP_PRX_BASE + 0x200  # arbitrary code address
 
         try:
             # Add a code breakpoint.
             await real_transport.call(
-                "cpu.breakpoint.add", address=test_addr, type="code",
+                "cpu.breakpoint.add",
+                address=test_addr,
+                type="code",
             )
             # List breakpoints — should contain our test_addr.
             listed = await real_transport.call("cpu.breakpoint.list")
             bps = listed.get("breakpoints", [])
             addrs = [bp.get("address") for bp in bps]
-            assert test_addr in addrs, (
-                f"breakpoint at {test_addr:#x} not in list: {bps!r}"
-            )
+            assert test_addr in addrs, f"breakpoint at {test_addr:#x} not in list: {bps!r}"
         finally:
             # Always remove the breakpoint (best-effort).
-            try:
+            with contextlib.suppress(Exception):
                 await real_transport.call(
-                    "cpu.breakpoint.remove", address=test_addr,
+                    "cpu.breakpoint.remove",
+                    address=test_addr,
                 )
-            except Exception:
-                pass
 
         # After removal, breakpoint should no longer be in the list.
         listed_after = await real_transport.call("cpu.breakpoint.list")
-        addrs_after = [
-            bp.get("address") for bp in listed_after.get("breakpoints", [])
-        ]
+        addrs_after = [bp.get("address") for bp in listed_after.get("breakpoints", [])]
         assert test_addr not in addrs_after, (
-            f"breakpoint at {test_addr:#x} still in list after removal: "
-            f"{listed_after!r}"
+            f"breakpoint at {test_addr:#x} still in list after removal: {listed_after!r}"
         )
 
 
@@ -295,11 +265,8 @@ class TestRealPpssppMemoryMap:
         client = PpssppDebugClient(real_transport)
         resp = await client.memory_map()
         ranges = resp.get("ranges", [])
-        assert isinstance(ranges, list), (
-            f"memory_map 'ranges' should be a list: {resp!r}"
-        )
+        assert isinstance(ranges, list), f"memory_map 'ranges' should be a list: {resp!r}"
         assert len(ranges) > 0, "memory_map returned no ranges"
-
 
 
 # ============================================================================
@@ -313,7 +280,7 @@ class TestRealPpssppGpu:
 
     async def test_gpu_stats_returns_non_negative_fps(self, real_transport):
         """gpu_stats returns fps >= 0 (game may be paused)."""
-        client = PpssppDebugClient(real_transport)
+        _client = PpssppDebugClient(real_transport)
         try:
             resp = await real_transport.call("gpu.getStats")
         except Exception as e:

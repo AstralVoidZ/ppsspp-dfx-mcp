@@ -15,6 +15,7 @@ Usage:
 Addresses may carry a `0x` prefix or be bare hex (e.g. 126DBC); decimal
 input is rejected — the bare-string-is-decimal trap this skill warns about.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -58,12 +59,20 @@ def parse_addr(text: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Offline IDA offset <-> PPSSPP runtime address conversion.")
+        description="Offline IDA offset <-> PPSSPP runtime address conversion."
+    )
     parser.add_argument("addresses", nargs="+", help="hex addresses (0x-prefixed or bare hex)")
-    parser.add_argument("--to", choices=("runtime", "ida"), default="runtime",
-                        help="direction of the input addresses (default: runtime)")
-    parser.add_argument("--base", type=lambda s: int(s, 0),
-                        help="load base; default: top_base.ppsspp from .ppsspp-dfx/config/addresses.yaml")
+    parser.add_argument(
+        "--to",
+        choices=("runtime", "ida"),
+        default="runtime",
+        help="direction of the input addresses (default: runtime)",
+    )
+    parser.add_argument(
+        "--base",
+        type=lambda s: int(s, 0),
+        help="load base; default: top_base.ppsspp from .ppsspp-dfx/config/addresses.yaml",
+    )
     args = parser.parse_args()
 
     base = args.base
@@ -72,7 +81,8 @@ def main() -> int:
         if base is None:
             parser.error(
                 f"no base given and {MARKER} (top_base.ppsspp) not found from CWD; "
-                "pass --base 0x... explicitly")
+                "pass --base 0x... explicitly"
+            )
     direction = -1 if args.to == "ida" else 1
 
     print(f"# base=0x{base:08X} direction=input {args.to}")
@@ -86,7 +96,9 @@ def main() -> int:
             continue
         result = value + direction * base
         if not 0 <= result <= 0xFFFFFFFF:
-            print(f"0x{value:08X} -> 0x{result & 0xFFFFFFFF:08X}  # WARNING: wrapped (input outside base range)")
+            print(
+                f"0x{value:08X} -> 0x{result & 0xFFFFFFFF:08X}  # WARNING: wrapped (input outside base range)"
+            )
         else:
             print(f"0x{value:08X} -> 0x{result:08X}")
     return status

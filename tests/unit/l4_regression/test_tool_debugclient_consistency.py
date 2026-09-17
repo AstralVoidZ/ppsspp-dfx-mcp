@@ -17,12 +17,8 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
-
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 from ppsspp_dfx_mcp.tools.screenshot import dump_texture
-from ppsspp_dfx_mcp.tools.screenshot import dump_texture
-
 
 # ============================================================================
 # dump_texture ↔ dump_texture: 参数一致
@@ -36,12 +32,8 @@ class TestToolDebugClientDumpTextureConsistency:
         """L4 anchor: 两者都有 `level` 参数。"""
         async_sig = inspect.signature(dump_texture)
         tool_sig = inspect.signature(dump_texture)
-        assert "level" in async_sig.parameters, (
-            "dump_texture 必须有 `level` 参数。"
-        )
-        assert "level" in tool_sig.parameters, (
-            "dump_texture 工具必须有 `level` 参数。"
-        )
+        assert "level" in async_sig.parameters, "dump_texture 必须有 `level` 参数。"
+        assert "level" in tool_sig.parameters, "dump_texture 工具必须有 `level` 参数。"
 
     def test_neither_has_address_param(self):
         """L4 anchor: 两者都没有 `address` 参数（P-01 回归）。
@@ -52,12 +44,10 @@ class TestToolDebugClientDumpTextureConsistency:
         async_sig = inspect.signature(dump_texture)
         tool_sig = inspect.signature(dump_texture)
         assert "address" not in async_sig.parameters, (
-            "dump_texture 不应有 `address` 参数 — "
-            "PPSSPP 不支持按地址捕获纹理。P-01 回归。"
+            "dump_texture 不应有 `address` 参数 — PPSSPP 不支持按地址捕获纹理。P-01 回归。"
         )
         assert "address" not in tool_sig.parameters, (
-            "dump_texture 工具不应有 `address` 参数 — "
-            "PPSSPP 不支持按地址捕获纹理。P-01 回归。"
+            "dump_texture 工具不应有 `address` 参数 — PPSSPP 不支持按地址捕获纹理。P-01 回归。"
         )
 
     def test_debugclient_param_sets_match(self):
@@ -104,9 +94,7 @@ class TestToolDebugClientReadStringConsistency:
         """
         sig = inspect.signature(PpssppDebugClient.read_string)
         params = set(sig.parameters.keys()) - {"self"}
-        assert "address" in params, (
-            "DebugClient.read_string 必须有 `address` 参数。"
-        )
+        assert "address" in params, "DebugClient.read_string 必须有 `address` 参数。"
         assert "encoding" in params, (
             "DebugClient.read_string 必须有 `encoding` 参数 "
             "（默认 'utf-8'，转发到 WS 事件 `type`）。"
@@ -140,9 +128,7 @@ class TestToolDebugClientFuncRemoveConsistency:
         """L4 anchor: DebugClient.func_remove 有 address 参数（required）。"""
         sig = inspect.signature(PpssppDebugClient.func_remove)
         params = sig.parameters
-        assert "address" in params, (
-            "DebugClient.func_remove 必须有 `address` 参数。"
-        )
+        assert "address" in params, "DebugClient.func_remove 必须有 `address` 参数。"
         assert params["address"].default is inspect.Parameter.empty, (
             "DebugClient.func_remove `address` 应为必填参数（无默认值）。"
         )

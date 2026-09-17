@@ -8,6 +8,28 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint:
+    name: ruff (check + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      # 全库零豁免执法（规则见 pyproject [tool.ruff]，ignore 仅 E501），
+      # 防止 2026-09 清债前"声明了规则但从不执行"的存量债再次累积。
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format --check
+        run: ruff format --check .
+
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
@@ -40,14 +62,18 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: test
+    needs: [lint, test]
     runs-on: ubuntu-latest
     if: ${{ always() }}
     steps:
-      - name: Verify all matrix legs passed
+      - name: Verify all jobs passed
         run: |
+          if [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "lint did not succeed: ${{ needs.lint.result }}"
+            exit 1
+          fi
           if [ "${{ needs.test.result }}" != "success" ]; then
             echo "matrix did not fully succeed: ${{ needs.test.result }}"
             exit 1
           fi
-          echo "all matrix legs passed"
+          echo "all jobs passed"

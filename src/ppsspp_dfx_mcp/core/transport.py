@@ -13,10 +13,12 @@ Thread safety: single-coroutine use. Do not share across coroutines.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import websockets
 from websockets.protocol import State
@@ -53,7 +55,7 @@ class WsTransport:
         self.host = host
         self.port = port
         self.verbose = verbose
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.ws: websockets.WebSocketClientProtocol | None = None
         self._ticket_counter = 0
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._events_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -61,7 +63,7 @@ class WsTransport:
         # evidence (reason/relatedAddress presence differs across dev
         # builds).
         self.version_info: dict[str, Any] | None = None
-        self._recv_task: Optional[asyncio.Task[None]] = None
+        self._recv_task: asyncio.Task[None] | None = None
         # Serialize concurrent auto-reconnect attempts.
         self._reconnect_lock = asyncio.Lock()
         # When verbose=True, elevate this module's logger to DEBUG so
@@ -117,7 +119,7 @@ class WsTransport:
             open_timeout=10,
             close_timeout=5,
             ping_interval=20,  # seconds between WS-layer pings
-            ping_timeout=10,   # seconds to wait for pong before disconnecting
+            ping_timeout=10,  # seconds to wait for pong before disconnecting
             max_size=64 * 1024 * 1024,  # 64MB (screenshots can be large)
         )
         selected = self.ws.subprotocol
@@ -170,8 +172,7 @@ class WsTransport:
                 await self.send_version()
             except Exception as e:
                 raise RuntimeError(
-                    f"WebSocket not connected and reconnect to {self.url} "
-                    f"failed: {e}"
+                    f"WebSocket not connected and reconnect to {self.url} failed: {e}"
                 ) from e
             logger.info("WS reconnect succeeded (%s)", self.url)
 
@@ -187,10 +188,8 @@ class WsTransport:
         """
         if self._recv_task:
             self._recv_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._recv_task
-            except asyncio.CancelledError:
-                pass
             self._recv_task = None
         # Fail all pending futures before closing the WebSocket — once
         # the recv loop is gone, nothing will ever resolve them.
@@ -211,7 +210,7 @@ class WsTransport:
         while self.ws and self.ws.state == State.OPEN:
             try:
                 raw = await asyncio.wait_for(self.ws.recv(), timeout=0.5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             except websockets.ConnectionClosed:
                 # PPSSPP disconnected — fail all pending futures so
@@ -224,9 +223,7 @@ class WsTransport:
                 self._pending.clear()
                 for fut in pending:
                     if not fut.done():
-                        fut.set_exception(
-                            ConnectionError("PPSSPP WebSocket disconnected")
-                        )
+                        fut.set_exception(ConnectionError("PPSSPP WebSocket disconnected"))
                 break
             try:
                 data = json.loads(raw)
@@ -237,10 +234,12 @@ class WsTransport:
                 if ticket and ticket in self._pending:
                     fut = self._pending.pop(ticket)
                     if data.get("event") == "error":
-                        fut.set_exception(RuntimeError(
-                            f"PPSSPP error: {data.get('message', 'unknown')} "
-                            f"(level={data.get('level')})"
-                        ))
+                        fut.set_exception(
+                            RuntimeError(
+                                f"PPSSPP error: {data.get('message', 'unknown')} "
+                                f"(level={data.get('level')})"
+                            )
+                        )
                     else:
                         fut.set_result(data)
                 else:
@@ -257,14 +256,13 @@ class WsTransport:
                 # poison message and keep draining.
                 logger.warning(
                     "recv_loop: dropping malformed WS message (%s): %r",
-                    e, raw[:200] if isinstance(raw, (str, bytes)) else raw,
+                    e,
+                    raw[:200] if isinstance(raw, (str, bytes)) else raw,
                 )
 
     # ---------- Three call semantics ----------
 
-    async def call(
-        self, event: str, timeout: float = 5.0, **params: Any
-    ) -> dict[str, Any]:
+    async def call(self, event: str, timeout: float = 5.0, **params: Any) -> dict[str, Any]:
         """Send event with ticket and await the matching ticket response.
 
         Raises:
@@ -296,7 +294,7 @@ class WsTransport:
 
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending.pop(ticket, None)
             raise
 
@@ -360,7 +358,7 @@ class WsTransport:
         self,
         event: str,
         timeout_ms: int = 5000,
-        filter: Optional[Callable[[dict[str, Any]], bool]] = None,
+        filter: Callable[[dict[str, Any]], bool] | None = None,
     ) -> dict[str, Any]:
         """Wait for a ticketless broadcast event from the `events` queue.
 
@@ -408,18 +406,13 @@ class WsTransport:
                         f"no matching '{event}' broadcast"
                     )
                 try:
-                    msg = await asyncio.wait_for(
-                        self._events_queue.get(), timeout=remaining_s
-                    )
-                except asyncio.TimeoutError:
+                    msg = await asyncio.wait_for(self._events_queue.get(), timeout=remaining_s)
+                except TimeoutError:
                     raise TimeoutError(
                         f"wait_for_broadcast timeout ({timeout_ms}ms) — "
                         f"no matching '{event}' broadcast"
-                    )
-                if (
-                    msg.get("event") == event
-                    and (filter is None or filter(msg))
-                ):
+                    ) from None
+                if msg.get("event") == event and (filter is None or filter(msg)):
                     return msg
                 backlog.append(msg)
         finally:
@@ -461,7 +454,7 @@ class WsTransport:
             )
             self.version_info = dict(resp)
             return resp
-        except (asyncio.TimeoutError, RuntimeError, ConnectionError):
+        except TimeoutError, RuntimeError, ConnectionError:
             # Fallback: poll events queue for a version broadcast.
             pass
 
@@ -469,7 +462,7 @@ class WsTransport:
         while time.monotonic() - start < 5.0:
             try:
                 msg = await asyncio.wait_for(self._events_queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             if msg.get("event") == "version":
                 self.version_info = dict(msg)

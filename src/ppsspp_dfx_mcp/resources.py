@@ -24,8 +24,8 @@ from mcp.server.mcpserver.exceptions import ResourceError
 
 from ppsspp_dfx_mcp.errors import to_tool_error
 from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.session.client_helper import session_client_with_transport
 from ppsspp_dfx_mcp.session import session_manager
+from ppsspp_dfx_mcp.session.client_helper import session_client_with_transport
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +41,7 @@ async def _require_single_session() -> str:
     sessions = await session_manager.list_sessions()
     if not sessions:
         raise ResourceError(
-            "no active PPSSPP session — start one with "
-            "ppsspp_session(action=start, iso_path=...)"
+            "no active PPSSPP session — start one with ppsspp_session(action=start, iso_path=...)"
         )
     if len(sessions) > 1:
         raise ResourceError(
@@ -72,9 +71,7 @@ async def game_state() -> dict[str, Any]:
     except Exception as e:
         raise to_tool_error(e) from e
     sess = await session_manager.get_session_state(session_id)
-    return {"session_id": session_id,
-            "restored": bool(sess.extra.get("restored")),
-            "game": status}
+    return {"session_id": session_id, "restored": bool(sess.extra.get("restored")), "game": status}
 
 
 @mcp.resource(
@@ -96,6 +93,8 @@ async def registers() -> dict[str, Any]:
     except Exception as e:
         raise to_tool_error(e) from e
     sess = await session_manager.get_session_state(session_id)
-    return {"session_id": session_id,
-            "restored": bool(sess.extra.get("restored")),
-            "registers": regs}
+    return {
+        "session_id": session_id,
+        "restored": bool(sess.extra.get("restored")),
+        "registers": regs,
+    }

@@ -31,27 +31,50 @@ import pytest
 # the server registration — when you add a tool, append it here. The
 # test asserts ALL of these are present (subset check, not strict
 # equality, so dynamic script tools don't break it).
-EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset({
-    # Phase 1 (3)
-    "ppsspp_health", "ppsspp_session", "ppsspp_session_list",
-    # Phase 2 (16)
-    "ppsspp_smoke_test", "ppsspp_screenshot", "ppsspp_dump_texture",
-    "ppsspp_read_memory", "ppsspp_write_memory", "ppsspp_disassemble",
-    "ppsspp_breakpoint", "ppsspp_step", "ppsspp_query", "ppsspp_get_pc",
-    "ppsspp_press_button", "ppsspp_hold_buttons", "ppsspp_send_analog",
-    "ppsspp_wait_frames", "ppsspp_analyze_log", "ppsspp_convert_address",
-    # Phase 3 (3)
-    "ppsspp_list_scripts", "ppsspp_run_script", "ppsspp_reload_scripts",
-    # Phase 4 (5)
-    "ppsspp_write_register", "ppsspp_evaluate", "ppsspp_assemble",
-    "ppsspp_search_disasm", "ppsspp_memory_map",
-    # Phase 5 (3)
-    "ppsspp_gpu_stats", "ppsspp_gpu_record", "ppsspp_memory_info_search",
-    # Phase 6 (1, OpenSpec add-replay-tools)
-    "ppsspp_replay",
-    # Phase 7 (2, OpenSpec add-replay-tools P2)
-    "ppsspp_state_observer", "ppsspp_batch_step",
-})
+EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset(
+    {
+        # Phase 1 (3)
+        "ppsspp_health",
+        "ppsspp_session",
+        "ppsspp_session_list",
+        # Phase 2 (16)
+        "ppsspp_smoke_test",
+        "ppsspp_screenshot",
+        "ppsspp_dump_texture",
+        "ppsspp_read_memory",
+        "ppsspp_write_memory",
+        "ppsspp_disassemble",
+        "ppsspp_breakpoint",
+        "ppsspp_step",
+        "ppsspp_query",
+        "ppsspp_get_pc",
+        "ppsspp_press_button",
+        "ppsspp_hold_buttons",
+        "ppsspp_send_analog",
+        "ppsspp_wait_frames",
+        "ppsspp_analyze_log",
+        "ppsspp_convert_address",
+        # Phase 3 (3)
+        "ppsspp_list_scripts",
+        "ppsspp_run_script",
+        "ppsspp_reload_scripts",
+        # Phase 4 (5)
+        "ppsspp_write_register",
+        "ppsspp_evaluate",
+        "ppsspp_assemble",
+        "ppsspp_search_disasm",
+        "ppsspp_memory_map",
+        # Phase 5 (3)
+        "ppsspp_gpu_stats",
+        "ppsspp_gpu_record",
+        "ppsspp_memory_info_search",
+        # Phase 6 (1, OpenSpec add-replay-tools)
+        "ppsspp_replay",
+        # Phase 7 (2, OpenSpec add-replay-tools P2)
+        "ppsspp_state_observer",
+        "ppsspp_batch_step",
+    }
+)
 
 # All tests share the session-scoped mcp_inspector fixture, so they
 # MUST run on the session-scoped event loop (loop_scope="session").
@@ -91,9 +114,7 @@ async def test_list_tools_includes_all_static_tools(mcp_inspector):
     tool_names = {t.name for t in result.tools}
 
     missing = EXPECTED_STATIC_TOOLS - tool_names
-    assert not missing, (
-        f"{len(missing)} static tools missing: {sorted(missing)}"
-    )
+    assert not missing, f"{len(missing)} static tools missing: {sorted(missing)}"
 
 
 @_ASYNC
@@ -117,6 +138,5 @@ async def test_list_tools_health_has_read_only_annotation(mcp_inspector):
         "ppsspp_health has no annotations (expected readOnlyHint=True)"
     )
     assert health.annotations.read_only_hint is True, (
-        f"ppsspp_health.read_only_hint should be True, got "
-        f"{health.annotations.read_only_hint}"
+        f"ppsspp_health.read_only_hint should be True, got {health.annotations.read_only_hint}"
     )

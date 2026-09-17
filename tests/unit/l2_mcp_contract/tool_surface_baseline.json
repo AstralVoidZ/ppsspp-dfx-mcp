@@ -29,8 +29,8 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Assemble MIPS instruction(s) and write the resulting bytes to memory.\n    \n    USAGE: session_id + address + code ('\n' or ';' separated — PPSSPP assembles one line per call so the tool loops; armips-style ';' comments are NOT supported here).\n    \n    BEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true. A partial write is reported with an error directing you to disassemble and inspect.\n    \n    RETURNS: {address, code, bytes_written, response, text}.",
-   "description_chars": 490,
+   "description": "PURPOSE: Assemble MIPS instruction(s) and write the resulting bytes to memory.\n\n    USAGE: session_id + address + code ('\n' or ';' separated — PPSSPP assembles one line per call so the tool loops; armips-style ';' comments are NOT supported here).\n\n    BEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true. A partial write is reported with an error directing you to disassemble and inspect.\n\n    RETURNS: {address, code, bytes_written, response, text}.",
+   "description_chars": 478,
    "description_words": 69,
    "input_schema_chars": 983,
    "input_schema_properties": [
@@ -832,6 +832,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 21864,
+ "total_description_chars": 21852,
  "total_input_schema_chars": 39032
 }

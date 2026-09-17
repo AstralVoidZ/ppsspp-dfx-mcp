@@ -18,19 +18,38 @@ from evals.gates import evaluate, extract_error_code, resolve_value
 # Fixture dir with one known fixture (tmp_path per test)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def fixtures_dir(tmp_path: Path) -> Path:
     d = tmp_path / "fixtures"
     d.mkdir()
-    (d / "cpu.status.json").write_text(json.dumps({
-        "type": "call",
-        "records": [{"params": {}, "response": {"pc": 143585524}}],
-    }), encoding="utf-8")
-    (d / "memory.read.json").write_text(json.dumps({
-        "type": "call",
-        "records": [{"params": {}, "response": {
-            "base64": base64.b64encode(bytes([0xC0, 0xFF, 0xBD, 0x19, 0x98])).decode()}}],
-    }), encoding="utf-8")
+    (d / "cpu.status.json").write_text(
+        json.dumps(
+            {
+                "type": "call",
+                "records": [{"params": {}, "response": {"pc": 143585524}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (d / "memory.read.json").write_text(
+        json.dumps(
+            {
+                "type": "call",
+                "records": [
+                    {
+                        "params": {},
+                        "response": {
+                            "base64": base64.b64encode(
+                                bytes([0xC0, 0xFF, 0xBD, 0x19, 0x98])
+                            ).decode()
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     return d
 
 
@@ -38,15 +57,16 @@ def _run(*calls: dict, final_answer: str = "") -> dict:
     return {"tool_calls": list(calls), "final_answer": final_answer}
 
 
-def _call(name: str, args: dict | None = None, *, is_error: bool = False,
-          error_code: str | None = None) -> dict:
-    return {"name": name, "args": args or {}, "is_error": is_error,
-            "error_code": error_code}
+def _call(
+    name: str, args: dict | None = None, *, is_error: bool = False, error_code: str | None = None
+) -> dict:
+    return {"name": name, "args": args or {}, "is_error": is_error, "error_code": error_code}
 
 
 # ---------------------------------------------------------------------------
 # first_tool / no_tool
 # ---------------------------------------------------------------------------
+
 
 def test_first_tool_pass_and_fail():
     sc = {"expected_first_tools": ["ppsspp_get_pc"], "gates": [{"type": "first_tool"}]}
@@ -72,6 +92,7 @@ def test_no_tool_pass_and_fail():
 # params
 # ---------------------------------------------------------------------------
 
+
 def test_params_omitted_exact_len():
     sc = {
         "param_expectations": [
@@ -90,8 +111,10 @@ def test_params_omitted_exact_len():
 
     # exact fails case-sensitively equal but case-insensitively OK for hex
     hexcase = _run(_call("ppsspp_read_memory", {"action": "read_u32", "address": "0x08804000"}))
-    sc_hex_only = {"param_expectations": sc["param_expectations"][:3],
-                   "gates": [{"type": "params"}]}
+    sc_hex_only = {
+        "param_expectations": sc["param_expectations"][:3],
+        "gates": [{"type": "params"}],
+    }
     assert evaluate(sc_hex_only, hexcase, None)["success"] is True
 
     # omitted violated
@@ -123,14 +146,18 @@ def test_params_conditional_skip_when_tool_unused():
 # sequence
 # ---------------------------------------------------------------------------
 
+
 def test_sequence_subsequence():
-    sc = {"gates": [{"type": "sequence"}],
-          "expected_sequence": ["ppsspp_read_memory", "ppsspp_disassemble"]}
-    ok = evaluate(sc, _run(_call("ppsspp_get_pc"),
-                           _call("ppsspp_read_memory"),
-                           _call("ppsspp_disassemble")), None)
-    bad_order = evaluate(sc, _run(_call("ppsspp_disassemble"),
-                                  _call("ppsspp_read_memory")), None)
+    sc = {
+        "gates": [{"type": "sequence"}],
+        "expected_sequence": ["ppsspp_read_memory", "ppsspp_disassemble"],
+    }
+    ok = evaluate(
+        sc,
+        _run(_call("ppsspp_get_pc"), _call("ppsspp_read_memory"), _call("ppsspp_disassemble")),
+        None,
+    )
+    bad_order = evaluate(sc, _run(_call("ppsspp_disassemble"), _call("ppsspp_read_memory")), None)
     missing = evaluate(sc, _run(_call("ppsspp_read_memory")), None)
     assert ok["success"] is True
     assert bad_order["success"] is False
@@ -141,13 +168,30 @@ def test_sequence_subsequence():
 # answer_contains (literal + from_fixture + normalization)
 # ---------------------------------------------------------------------------
 
+
 def test_answer_contains_fixture_hex_and_base64(fixtures_dir: Path):
     sc = {
-        "gates": [{"type": "answer_contains", "mode": "any", "values": [
-            {"from_fixture": {"file": "cpu.status.json", "path": "records.0.response.pc",
-                              "transform": "hex"}},
-            {"from_fixture": {"file": "memory.read.json", "path": "records.0.response.base64"}},
-        ]}],
+        "gates": [
+            {
+                "type": "answer_contains",
+                "mode": "any",
+                "values": [
+                    {
+                        "from_fixture": {
+                            "file": "cpu.status.json",
+                            "path": "records.0.response.pc",
+                            "transform": "hex",
+                        }
+                    },
+                    {
+                        "from_fixture": {
+                            "file": "memory.read.json",
+                            "path": "records.0.response.base64",
+                        }
+                    },
+                ],
+            }
+        ],
     }
     # pc=143585524 → hex 088EF0F4; agent may write 0x088EF0F4
     assert evaluate(sc, _run(final_answer="PC = 0x088EF0F4"), fixtures_dir)["success"] is True
@@ -159,11 +203,22 @@ def test_answer_contains_fixture_hex_and_base64(fixtures_dir: Path):
 
 def test_answer_contains_all_mode_and_cjk(fixtures_dir: Path):
     sc = {
-        "gates": [{"type": "answer_contains", "mode": "all", "values": [
-            {"from_fixture": {"file": "cpu.status.json", "path": "records.0.response.pc",
-                              "transform": "hex"}},
-            "CPUCore",
-        ]}],
+        "gates": [
+            {
+                "type": "answer_contains",
+                "mode": "all",
+                "values": [
+                    {
+                        "from_fixture": {
+                            "file": "cpu.status.json",
+                            "path": "records.0.response.pc",
+                            "transform": "hex",
+                        }
+                    },
+                    "CPUCore",
+                ],
+            }
+        ],
     }
     ok = evaluate(sc, _run(final_answer="原因是 CPUCore=1，PC=0x088EF0F4"), fixtures_dir)
     miss = evaluate(sc, _run(final_answer="PC=0x088EF0F4 但没提原因"), fixtures_dir)
@@ -172,9 +227,16 @@ def test_answer_contains_all_mode_and_cjk(fixtures_dir: Path):
 
 
 def test_resolve_value_hex_format(fixtures_dir: Path):
-    v = resolve_value({"from_fixture": {"file": "cpu.status.json",
-                                        "path": "records.0.response.pc",
-                                        "transform": "hex"}}, fixtures_dir)
+    v = resolve_value(
+        {
+            "from_fixture": {
+                "file": "cpu.status.json",
+                "path": "records.0.response.pc",
+                "transform": "hex",
+            }
+        },
+        fixtures_dir,
+    )
     assert v == "088EF0F4"
     with pytest.raises(FileNotFoundError):
         resolve_value({"from_fixture": {"file": "nope.json", "path": "x"}}, fixtures_dir)
@@ -184,52 +246,101 @@ def test_resolve_value_hex_format(fixtures_dir: Path):
 # recovery
 # ---------------------------------------------------------------------------
 
+
 def test_recovery_fix_within_gap():
-    sc = {"gates": [{"type": "recovery", "error_code": "PROTECTED_ADDRESS",
-                     "then": {"tool": "ppsspp_write_memory", "with_params": {"force": True}},
-                     "max_gap": 4}]}
-    ok = evaluate(sc, _run(
-        _call("ppsspp_write_memory", {"address": "0x08804500"}, is_error=True,
-              error_code="PROTECTED_ADDRESS"),
-        _call("ppsspp_write_memory", {"address": "0x08804500", "force": True}),
-    ), None)
+    sc = {
+        "gates": [
+            {
+                "type": "recovery",
+                "error_code": "PROTECTED_ADDRESS",
+                "then": {"tool": "ppsspp_write_memory", "with_params": {"force": True}},
+                "max_gap": 4,
+            }
+        ]
+    }
+    ok = evaluate(
+        sc,
+        _run(
+            _call(
+                "ppsspp_write_memory",
+                {"address": "0x08804500"},
+                is_error=True,
+                error_code="PROTECTED_ADDRESS",
+            ),
+            _call("ppsspp_write_memory", {"address": "0x08804500", "force": True}),
+        ),
+        None,
+    )
     assert ok["success"] is True
 
 
 def test_recovery_no_fix_fails():
-    sc = {"gates": [{"type": "recovery", "error_code": "PROTECTED_ADDRESS",
-                     "then": {"tool": "ppsspp_write_memory", "with_params": {"force": True}},
-                     "max_gap": 4}]}
-    bad = evaluate(sc, _run(
-        _call("ppsspp_write_memory", {"address": "0x08804500"}, is_error=True,
-              error_code="PROTECTED_ADDRESS"),
-        _call("ppsspp_get_pc"),
-        _call("ppsspp_get_pc"),
-        _call("ppsspp_get_pc"),
-        _call("ppsspp_get_pc"),
-    ), None)
+    sc = {
+        "gates": [
+            {
+                "type": "recovery",
+                "error_code": "PROTECTED_ADDRESS",
+                "then": {"tool": "ppsspp_write_memory", "with_params": {"force": True}},
+                "max_gap": 4,
+            }
+        ]
+    }
+    bad = evaluate(
+        sc,
+        _run(
+            _call(
+                "ppsspp_write_memory",
+                {"address": "0x08804500"},
+                is_error=True,
+                error_code="PROTECTED_ADDRESS",
+            ),
+            _call("ppsspp_get_pc"),
+            _call("ppsspp_get_pc"),
+            _call("ppsspp_get_pc"),
+            _call("ppsspp_get_pc"),
+        ),
+        None,
+    )
     assert bad["success"] is False
 
 
 def test_recovery_conditional_pass_and_any_param():
-    sc = {"gates": [{"type": "recovery", "error_code": "CPU_NOT_STARTED",
-                     "then": {"tool": "ppsspp_session", "with_params": {"action": "wait_ready"}}}]}
+    sc = {
+        "gates": [
+            {
+                "type": "recovery",
+                "error_code": "CPU_NOT_STARTED",
+                "then": {"tool": "ppsspp_session", "with_params": {"action": "wait_ready"}},
+            }
+        ]
+    }
     # no error at all → conditional pass
     assert evaluate(sc, _run(_call("ppsspp_get_pc")), None)["success"] is True
     # *any* semantics: param present with any value
-    sc2 = {"gates": [{"type": "recovery", "error_code": "SESSION_AMBIGUOUS",
-                      "then": {"tool": "ppsspp_read_memory",
-                               "with_params": {"session_id": "*any*"}}}]}
-    ok2 = evaluate(sc2, _run(
-        _call("ppsspp_read_memory", {}, is_error=True, error_code="SESSION_AMBIGUOUS"),
-        _call("ppsspp_read_memory", {"session_id": "some-uuid"}),
-    ), None)
+    sc2 = {
+        "gates": [
+            {
+                "type": "recovery",
+                "error_code": "SESSION_AMBIGUOUS",
+                "then": {"tool": "ppsspp_read_memory", "with_params": {"session_id": "*any*"}},
+            }
+        ]
+    }
+    ok2 = evaluate(
+        sc2,
+        _run(
+            _call("ppsspp_read_memory", {}, is_error=True, error_code="SESSION_AMBIGUOUS"),
+            _call("ppsspp_read_memory", {"session_id": "some-uuid"}),
+        ),
+        None,
+    )
     assert ok2["success"] is True
 
 
 # ---------------------------------------------------------------------------
 # tool_used / final_call_ok / boot_order
 # ---------------------------------------------------------------------------
+
 
 def test_tool_used_and_final_call_ok():
     sc = {"gates": [{"type": "tool_used", "name": "ppsspp_batch_status"}]}
@@ -238,8 +349,10 @@ def test_tool_used_and_final_call_ok():
 
     sc2 = {"gates": [{"type": "final_call_ok"}]}
     ok = evaluate(sc2, _run(_call("ppsspp_get_pc"), _call("ppsspp_read_memory")), None)
-    bad = evaluate(sc2, _run(_call("ppsspp_get_pc"),
-                             _call("ppsspp_read_memory", is_error=True, error_code="X")))
+    bad = evaluate(
+        sc2,
+        _run(_call("ppsspp_get_pc"), _call("ppsspp_read_memory", is_error=True, error_code="X")),
+    )
     assert ok["success"] is True
     assert bad["success"] is False
     assert evaluate(sc2, _run(), None)["success"] is False
@@ -247,14 +360,22 @@ def test_tool_used_and_final_call_ok():
 
 def test_boot_order():
     sc = {"pre_state": {"sessions": 0}, "gates": [{"type": "boot_order"}]}
-    ok = evaluate(sc, _run(
-        _call("ppsspp_session", {"action": "start", "iso_path": "x.iso"}),
-        _call("ppsspp_get_pc"),
-    ), None)
-    early_read = evaluate(sc, _run(
-        _call("ppsspp_read_memory", {"address": "0x08804000"}),
-        _call("ppsspp_session", {"action": "start", "iso_path": "x.iso"}),
-    ), None)
+    ok = evaluate(
+        sc,
+        _run(
+            _call("ppsspp_session", {"action": "start", "iso_path": "x.iso"}),
+            _call("ppsspp_get_pc"),
+        ),
+        None,
+    )
+    early_read = evaluate(
+        sc,
+        _run(
+            _call("ppsspp_read_memory", {"address": "0x08804000"}),
+            _call("ppsspp_session", {"action": "start", "iso_path": "x.iso"}),
+        ),
+        None,
+    )
     no_session = evaluate(sc, _run(_call("ppsspp_get_pc")), None)
     assert ok["success"] is True
     assert early_read["success"] is False
@@ -267,6 +388,7 @@ def test_boot_order():
 # ---------------------------------------------------------------------------
 # misc
 # ---------------------------------------------------------------------------
+
 
 def test_extract_error_code():
     assert extract_error_code("[PROTECTED_ADDRESS] write blocked") == "PROTECTED_ADDRESS"
@@ -285,23 +407,62 @@ def test_unknown_gate_type_fails_closed():
 # result_field (real-mode structural gate)
 # ---------------------------------------------------------------------------
 
+
 def test_result_field_screenshot_nonempty():
-    sc = {"gates": [{"type": "result_field", "tool": "ppsspp_screenshot",
-                     "field": "size_bytes", "gt": 0}]}
-    ok = evaluate(sc, {"tool_calls": [{"name": "ppsspp_screenshot", "args": {},
-                                       "result_preview": '{"mode": "auto", "size_bytes": 152064, "width": 480}'}]},
-                  None)
+    sc = {
+        "gates": [
+            {"type": "result_field", "tool": "ppsspp_screenshot", "field": "size_bytes", "gt": 0}
+        ]
+    }
+    ok = evaluate(
+        sc,
+        {
+            "tool_calls": [
+                {
+                    "name": "ppsspp_screenshot",
+                    "args": {},
+                    "result_preview": '{"mode": "auto", "size_bytes": 152064, "width": 480}',
+                }
+            ]
+        },
+        None,
+    )
     assert ok["success"] is True
 
 
 def test_result_field_zero_and_missing():
-    sc = {"gates": [{"type": "result_field", "tool": "ppsspp_screenshot",
-                     "field": "size_bytes", "gt": 0}]}
-    zero = evaluate(sc, {"tool_calls": [{"name": "ppsspp_screenshot", "args": {},
-                                         "result_preview": '{"size_bytes": 0, "empty": true}'}]}, None)
+    sc = {
+        "gates": [
+            {"type": "result_field", "tool": "ppsspp_screenshot", "field": "size_bytes", "gt": 0}
+        ]
+    }
+    zero = evaluate(
+        sc,
+        {
+            "tool_calls": [
+                {
+                    "name": "ppsspp_screenshot",
+                    "args": {},
+                    "result_preview": '{"size_bytes": 0, "empty": true}',
+                }
+            ]
+        },
+        None,
+    )
     not_called = evaluate(sc, {"tool_calls": [{"name": "ppsspp_get_pc", "args": {}}]}, None)
-    truncated = evaluate(sc, {"tool_calls": [{"name": "ppsspp_screenshot", "args": {},
-                                              "result_preview": '{"file_path": "", "size_bytes": 152064, "wi'}]}, None)
+    truncated = evaluate(
+        sc,
+        {
+            "tool_calls": [
+                {
+                    "name": "ppsspp_screenshot",
+                    "args": {},
+                    "result_preview": '{"file_path": "", "size_bytes": 152064, "wi',
+                }
+            ]
+        },
+        None,
+    )
     assert zero["success"] is False
     assert not_called["success"] is False
     assert truncated["success"] is True  # regex fallback on truncated JSON
@@ -311,10 +472,36 @@ def test_file_saved(tmp_path):
     saved = tmp_path / "shot.png"
     saved.write_bytes(b"\x89PNG fake")
     sc = {"gates": [{"type": "file_saved", "tool": "ppsspp_screenshot"}]}
-    ok = evaluate(sc, {"tool_calls": [{"name": "ppsspp_screenshot", "args": {},
-                                       "result_preview": '{"file_path": "%s", "size_bytes": 9}' % str(saved).replace("\\", "\\\\")}]}, None)
-    missing = evaluate(sc, {"tool_calls": [{"name": "ppsspp_screenshot", "args": {},
-                                            "result_preview": '{"file_path": "%s"}' % str(tmp_path / "nope.png").replace("\\", "\\\\")}]}, None)
+    ok = evaluate(
+        sc,
+        {
+            "tool_calls": [
+                {
+                    "name": "ppsspp_screenshot",
+                    "args": {},
+                    "result_preview": '{{"file_path": "{}", "size_bytes": 9}}'.format(
+                        str(saved).replace("\\", "\\\\")
+                    ),
+                }
+            ]
+        },
+        None,
+    )
+    missing = evaluate(
+        sc,
+        {
+            "tool_calls": [
+                {
+                    "name": "ppsspp_screenshot",
+                    "args": {},
+                    "result_preview": '{{"file_path": "{}"}}'.format(
+                        str(tmp_path / "nope.png").replace("\\", "\\\\")
+                    ),
+                }
+            ]
+        },
+        None,
+    )
     nocall = evaluate(sc, {"tool_calls": [{"name": "ppsspp_get_pc", "args": {}}]}, None)
     assert ok["success"] is True
     assert missing["success"] is False

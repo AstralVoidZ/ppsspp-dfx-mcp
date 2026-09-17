@@ -20,7 +20,7 @@ class ButtonPressResponse(FrozenModel):
     duration: int = Field(description="Press duration in frames.")
 
     @classmethod
-    def from_result(cls, result: ButtonPressResult) -> "ButtonPressResponse":
+    def from_result(cls, result: ButtonPressResult) -> ButtonPressResponse:
         return cls(button=result.button, duration=result.duration)
 
 
@@ -32,7 +32,7 @@ class HoldButtonsResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: HoldButtonsResult) -> "HoldButtonsResponse":
+    def from_result(cls, result: HoldButtonsResult) -> HoldButtonsResponse:
         return cls(buttons=result.buttons)
 
 
@@ -43,7 +43,7 @@ class SendAnalogResponse(FrozenModel):
     y: int = Field(description="Y coordinate in [0, 255] (128 = center).")
 
     @classmethod
-    def from_result(cls, result: SendAnalogResult) -> "SendAnalogResponse":
+    def from_result(cls, result: SendAnalogResult) -> SendAnalogResponse:
         return cls(x=result.x, y=result.y)
 
 
@@ -54,5 +54,5 @@ class WaitFramesResponse(FrozenModel):
     elapsed_s: float = Field(description="Wall-clock seconds elapsed.")
 
     @classmethod
-    def from_result(cls, result: WaitFramesResult) -> "WaitFramesResponse":
+    def from_result(cls, result: WaitFramesResult) -> WaitFramesResponse:
         return cls(frames=result.frames, elapsed_s=result.elapsed_s)

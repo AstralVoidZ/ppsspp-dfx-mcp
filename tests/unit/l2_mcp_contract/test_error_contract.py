@@ -33,38 +33,49 @@ ERROR_MATRIX: list[tuple[str, dict, str]] = [
     ("ppsspp_session", {"action": "get"}, "session_id is required when action=get"),
     ("ppsspp_session", {"action": "stop"}, "session_id is required when action=stop"),
     ("ppsspp_session", {"action": "start"}, "iso_path is required when action=start"),
-    ("ppsspp_session", {"action": "get", "session_id": "sess_missing"},
-     "session not found"),
-    ("ppsspp_session", {"action": "start", "iso_path": "Z:/definitely/not/real.iso"},
-     "ISO file not found"),
+    ("ppsspp_session", {"action": "get", "session_id": "sess_missing"}, "session not found"),
+    (
+        "ppsspp_session",
+        {"action": "start", "iso_path": "Z:/definitely/not/real.iso"},
+        "ISO file not found",
+    ),
     # ── memory ───────────────────────────────────────────────────────────
     # Schema Literal rejects unknown actions before the tool runs — the
     # client sees the pydantic literal_error text (R2 pins enum agreement).
-    ("ppsspp_read_memory", {"action": "read_u64", "address": "0x08804000"},
-     "Input should be"),
-    ("ppsspp_read_memory", {"action": "read_bytes", "address": "0x08804000",
-                            "size": 4, "session_id": "sess_missing"},
-     "session not found"),
+    ("ppsspp_read_memory", {"action": "read_u64", "address": "0x08804000"}, "Input should be"),
+    (
+        "ppsspp_read_memory",
+        {"action": "read_bytes", "address": "0x08804000", "size": 4, "session_id": "sess_missing"},
+        "session not found",
+    ),
     # ── aggregate actions (schema-Literal ↔ runtime enum agreement) ─────
-    ("ppsspp_query", {"action": "teleport", "session_id": "sess_missing"},
-     "Input should be"),
-    ("ppsspp_query", {"action": "register", "session_id": "sess_missing"},
-     "requires a register name"),
-    ("ppsspp_step", {"action": "warp", "session_id": "sess_missing"},
-     "Input should be"),
-    ("ppsspp_breakpoint", {"action": "explode", "session_id": "sess_missing"},
-     "Input should be"),
-    ("ppsspp_replay", {"action": "rewind", "session_id": "sess_missing"},
-     "Input should be"),
-    ("ppsspp_state_observer", {"action": "teleport", "session_id": "sess_missing"},
-     "Input should be"),
+    ("ppsspp_query", {"action": "teleport", "session_id": "sess_missing"}, "Input should be"),
+    (
+        "ppsspp_query",
+        {"action": "register", "session_id": "sess_missing"},
+        "requires a register name",
+    ),
+    ("ppsspp_step", {"action": "warp", "session_id": "sess_missing"}, "Input should be"),
+    ("ppsspp_breakpoint", {"action": "explode", "session_id": "sess_missing"}, "Input should be"),
+    ("ppsspp_replay", {"action": "rewind", "session_id": "sess_missing"}, "Input should be"),
+    (
+        "ppsspp_state_observer",
+        {"action": "teleport", "session_id": "sess_missing"},
+        "Input should be",
+    ),
     # ── address / input validation ───────────────────────────────────────
-    ("ppsspp_convert_address", {"address": "zzz", "mode": "auto"},
-     "not a valid decimal or hex string"),
+    (
+        "ppsspp_convert_address",
+        {"address": "zzz", "mode": "auto"},
+        "not a valid decimal or hex string",
+    ),
     # ── config lookups (F-11: must fail loudly, not return empty) ───────
     ("ppsspp_list_addresses", {"section": "no_such_section"}, "unknown section"),
-    ("ppsspp_memory_info_search", {"match": "", "session_id": "sess_missing"},
-     "match must be a non-empty substring"),
+    (
+        "ppsspp_memory_info_search",
+        {"match": "", "session_id": "sess_missing"},
+        "match must be a non-empty substring",
+    ),
 ]
 
 

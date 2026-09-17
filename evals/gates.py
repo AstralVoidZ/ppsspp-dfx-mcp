@@ -58,6 +58,7 @@ _READ_CLASS_TOOLS = {
 # Fixture / value resolution
 # --------------------------------------------------------------------------
 
+
 def _load_fixture(fixtures_dir: Path, file: str) -> dict[str, Any]:
     path = fixtures_dir / file
     if not path.is_file():
@@ -118,6 +119,7 @@ def _match_in_answer(answer: str, expected: Any) -> bool:
 # Param expectation matching
 # --------------------------------------------------------------------------
 
+
 def _param_ok(args: dict[str, Any], param: str, expect: Any) -> tuple[bool, str]:
     if expect == "omitted":
         if param in args and args[param] is not None:
@@ -137,7 +139,10 @@ def _param_ok(args: dict[str, Any], param: str, expect: Any) -> tuple[bool, str]
     if isinstance(expect, dict) and "len" in expect:
         got = args.get(param)
         ok = isinstance(got, (list, dict)) and len(got) == expect["len"]
-        return ok, f"len {expect['len']}, got {type(got).__name__}({len(got) if isinstance(got, (list, dict)) else '?'})"
+        return (
+            ok,
+            f"len {expect['len']}, got {type(got).__name__}({len(got) if isinstance(got, (list, dict)) else '?'})",
+        )
     raise ValueError(f"unknown expect spec: {expect!r}")
 
 
@@ -160,6 +165,7 @@ def _then_call_matches(call: dict[str, Any], then: dict[str, Any]) -> bool:
 # --------------------------------------------------------------------------
 # Gate implementations — each returns (passed, detail)
 # --------------------------------------------------------------------------
+
 
 def _real_calls(run: dict) -> list[dict[str, Any]]:
     """Tool calls excluding B2 pseudo tools (skill_read) — order gates
@@ -285,6 +291,7 @@ def _gate_boot_order(scenario: dict, run: dict) -> tuple[bool, str]:
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
+
 
 def _gate_file_saved(scenario: dict, run: dict, spec: dict) -> tuple[bool, str]:
     """Real-mode structural gate: the tool call's result_preview must carry

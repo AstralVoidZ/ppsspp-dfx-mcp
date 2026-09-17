@@ -36,11 +36,13 @@ class TestBatchStepsDiscriminatedUnion:
         items = schema["properties"]["steps"]["items"]
         disc = items.get("discriminator", {})
         assert disc.get("propertyName") == "type", (
-            "batch steps must be a discriminated union on 'type' — "
-            "untyped dict list regression"
+            "batch steps must be a discriminated union on 'type' — untyped dict list regression"
         )
         assert set(disc.get("mapping", {})) == {
-            "press", "wait", "state_probe", "screenshot",
+            "press",
+            "wait",
+            "state_probe",
+            "screenshot",
         }
 
     async def test_step_defs_have_typed_fields(self) -> None:
@@ -77,6 +79,5 @@ class TestBreakpointSizeSemantics:
         schema = await _tool_schema("ppsspp_breakpoint")
         desc = schema["properties"]["size"]["description"]
         assert "1/2/4" in desc and "range" in desc, (
-            "breakpoint size description must document fixed-width vs "
-            "range-watch semantics"
+            "breakpoint size description must document fixed-width vs range-watch semantics"
         )

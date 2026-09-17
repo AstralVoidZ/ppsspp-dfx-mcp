@@ -20,8 +20,8 @@ PPSSPP semantics:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -66,14 +66,10 @@ class TestHoldButtonsReleaseAll:
         assert set(sent.keys()) == set(_PPSSPP_ALL_BUTTONS), (
             "release-all must enumerate every PPSSPP buttonLookup name"
         )
-        assert all(v is False for v in sent.values()), (
-            "release-all must set every button to False"
-        )
+        assert all(v is False for v in sent.values()), "release-all must set every button to False"
 
     @pytest.mark.asyncio
-    async def test_named_buttons_send_true(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_named_buttons_send_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = AsyncMock()
         monkeypatch.setattr(
             "ppsspp_dfx_mcp.tools.input.session_client",
@@ -89,12 +85,31 @@ class TestHoldButtonsReleaseAll:
         """The release-all table must cover exactly the PPSSPP buttonLookup
         names (InputSubscriber.cpp:27-53) — no more, no fewer."""
         expected = {
-            "cross", "circle", "triangle", "square",
-            "up", "down", "left", "right",
-            "start", "select", "home", "screen", "note",
-            "ltrigger", "rtrigger", "hold", "wlan", "remote_hold",
-            "vol_up", "vol_down", "disc", "memstick",
-            "forward", "back", "playpause",
+            "cross",
+            "circle",
+            "triangle",
+            "square",
+            "up",
+            "down",
+            "left",
+            "right",
+            "start",
+            "select",
+            "home",
+            "screen",
+            "note",
+            "ltrigger",
+            "rtrigger",
+            "hold",
+            "wlan",
+            "remote_hold",
+            "vol_up",
+            "vol_down",
+            "disc",
+            "memstick",
+            "forward",
+            "back",
+            "playpause",
         }
         assert set(_PPSSPP_ALL_BUTTONS) == expected
 
@@ -118,9 +133,7 @@ class TestPressButtonTimeout:
         assert _press_button_timeout(1200) == pytest.approx(32.0)
 
     @pytest.mark.asyncio
-    async def test_tool_passes_duration_through(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_tool_passes_duration_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = AsyncMock()
         monkeypatch.setattr(
             "ppsspp_dfx_mcp.tools.input.session_client",
@@ -144,9 +157,7 @@ def _mock_breakpoint_session(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     async def _cm(session_id: str) -> AsyncIterator[AsyncMock]:
         yield mock_client
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.breakpoint.session_client", _cm
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.breakpoint.session_client", _cm)
     return mock_client
 
 
@@ -154,22 +165,31 @@ class TestMemRemoveResolvesActualSize:
     """mem_remove must remove with the memcheck's recorded size."""
 
     @pytest.mark.asyncio
-    async def test_uses_recorded_size_from_list(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_uses_recorded_size_from_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = _mock_breakpoint_session(monkeypatch)
         # A 16-byte watch exists at the address; the tool is called with the
         # default size=4, which would not match on the PPSSPP side.
         mock_client.mem_bp_list.return_value = {
             "breakpoints": [
-                {"address": 0x08A0D000, "size": 16, "read": True,
-                 "write": True, "change": False, "enabled": True, "log": False,
-                 "hits": 0, "condition": None, "logFormat": None, "symbol": None},
+                {
+                    "address": 0x08A0D000,
+                    "size": 16,
+                    "read": True,
+                    "write": True,
+                    "change": False,
+                    "enabled": True,
+                    "log": False,
+                    "hits": 0,
+                    "condition": None,
+                    "logFormat": None,
+                    "symbol": None,
+                },
             ],
         }
 
         await breakpoint(
-            session_id="sess-1", action="mem_remove",
+            session_id="sess-1",
+            action="mem_remove",
             address="0x08A0D000",  # size defaults to 4
         )
 
@@ -187,7 +207,8 @@ class TestMemRemoveResolvesActualSize:
 
         with pytest.raises(BreakpointError, match="no memory breakpoint"):
             await breakpoint(
-                session_id="sess-1", action="mem_remove",
+                session_id="sess-1",
+                action="mem_remove",
                 address="0x08A0D000",
             )
         mock_client.mem_bp_remove.assert_not_awaited()
@@ -204,7 +225,9 @@ class TestMemRemoveResolvesActualSize:
 
         with pytest.raises(BreakpointError, match="no memory breakpoint"):
             await breakpoint(
-                session_id="sess-1", action="mem_remove",
-                address="0x08A0D000", size=16,
+                session_id="sess-1",
+                action="mem_remove",
+                address="0x08A0D000",
+                size=16,
             )
         mock_client.mem_bp_remove.assert_not_awaited()

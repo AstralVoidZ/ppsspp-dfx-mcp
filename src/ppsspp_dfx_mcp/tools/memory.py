@@ -107,7 +107,9 @@ _DISASM_KEEP_FIELDS = ("address", "text", "name", "params")
 # default 4096)
 @mcp.tool(
     name="ppsspp_read_memory",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def read_memory(
@@ -209,8 +211,7 @@ async def read_memory(
         Field(
             default="0x0",
             description=(
-                "Scan start address, inclusive (scan only), hex string "
-                "(same format as `address`)."
+                "Scan start address, inclusive (scan only), hex string (same format as `address`)."
             ),
         ),
     ] = "0x0",
@@ -219,8 +220,7 @@ async def read_memory(
         Field(
             default="0x0",
             description=(
-                "Scan end address, exclusive (scan only), hex string "
-                "(same format as `address`)."
+                "Scan end address, exclusive (scan only), hex string (same format as `address`)."
             ),
         ),
     ] = "0x0",
@@ -228,9 +228,7 @@ async def read_memory(
         int,
         Field(
             default=100,
-            description=(
-                "Maximum number of matches to return (scan only, default 100)."
-            ),
+            description=("Maximum number of matches to return (scan only, default 100)."),
         ),
     ] = 100,
     chunk_size: Annotated[
@@ -248,32 +246,28 @@ async def read_memory(
         str | None,
         Field(
             description=(
-                "Active session ID; omit to auto-resolve when exactly "
-                "one session is active."
+                "Active session ID; omit to auto-resolve when exactly one session is active."
             ),
         ),
     ] = None,
 ) -> MemoryReadOutput:
     """PURPOSE: Read memory (read_bytes / read_u32 / read_string) or scan a region for a byte pattern.
-    
+
     USAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); scan takes pattern (hex/ascii, ≤4096B) + start_addr/end_addr (≤256MiB) + chunk_size.
-    
+
     BEHAVIOR: READ-ONLY. Unreadable scan blocks are skipped silently. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).
-    
+
     RETURNS: {action, address, value, size, text, file} — value is the match list for scan. read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/)."""
     session_id = await resolve_session_id(session_id)
     if action not in _READ_ACTIONS:
-        raise ArgsInvalid(
-            f"invalid action={action!r}; expected one of {_READ_ACTIONS}")
+        raise ArgsInvalid(f"invalid action={action!r}; expected one of {_READ_ACTIONS}")
     address_int = parse_address(address)
     start_addr_int = parse_address(start_addr)
     end_addr_int = parse_address(end_addr)
     # read_bytes/read_u32/read_string require a non-zero address; scan uses
     # start_addr/end_addr instead (address is ignored).
     if action != "scan" and address_int <= 0:
-        raise ArgsInvalid(
-            f"address must be > 0 for action={action!r}"
-        )
+        raise ArgsInvalid(f"address must be > 0 for action={action!r}")
     if action == "scan":
         # Validate the scan envelope BEFORE opening the session —
         # pure input checks belong in the fail-fast section, not inside
@@ -281,14 +275,16 @@ async def read_memory(
         if start_addr_int >= end_addr_int:
             raise ArgsInvalid(
                 f"start_addr (0x{start_addr_int:08X}) must be < end_addr "
-                f"(0x{end_addr_int:08X}) for scan action")
+                f"(0x{end_addr_int:08X}) for scan action"
+            )
         if end_addr_int - start_addr_int > MAX_SCAN_RANGE_BYTES:
             raise ArgsInvalid(
                 f"scan range too large: 0x{start_addr_int:08X}-"
                 f"0x{end_addr_int:08X} "
                 f"({end_addr_int - start_addr_int} bytes; cap 256 MiB). "
                 "Narrow start_addr/end_addr — unreadable regions are "
-                "skipped per-chunk, which costs one WS round-trip each.")
+                "skipped per-chunk, which costs one WS round-trip each."
+            )
 
     # G1 file-mode locals — only populated for read_bytes + output="file"
     file_bin_path = ""
@@ -311,7 +307,8 @@ async def read_memory(
                     raise ArgsInvalid(
                         f"size ({size}) exceeds the single-read cap "
                         f"({_MAX_READ_BYTES} bytes); split the request into "
-                        f"multiple read_bytes calls")
+                        f"multiple read_bytes calls"
+                    )
                 raw = await client.read_bytes(address=address_int, size=size)
                 result = MemoryReadResult(
                     action=action, address=address_int, value=list(raw), size=len(raw)
@@ -338,9 +335,7 @@ async def read_memory(
                     )
             elif action == "read_u32":
                 val = await client.read_u32(address=address_int)
-                result = MemoryReadResult(
-                    action=action, address=address_int, value=val, size=4
-                )
+                result = MemoryReadResult(action=action, address=address_int, value=val, size=4)
             elif action == "read_string":
                 # Never call PPSSPP memory.readString —
                 # it strnlens to the end of valid memory with no length
@@ -350,8 +345,7 @@ async def read_memory(
                 # Default (max_len<=0) stays 4096 as documented;
                 # explicit values are honored up to 65536 (the client's
                 # old hard 4096 re-clamp is gone).
-                cap = (DEFAULT_STRING_CAP if max_len <= 0
-                       else min(max_len, MAX_SINGLE_READ_BYTES))
+                cap = DEFAULT_STRING_CAP if max_len <= 0 else min(max_len, MAX_SINGLE_READ_BYTES)
                 val = await client.read_string(address=address_int, max_length=cap)
                 byte_count = len(val.encode("utf-8", errors="replace"))
                 # Client and tool caps are both 65536 (the client
@@ -368,15 +362,11 @@ async def read_memory(
                 )
             else:  # scan
                 if not pattern:
-                    raise ArgsInvalid(
-                        "pattern is required for scan action"
-                    )
+                    raise ArgsInvalid("pattern is required for scan action")
                 if max_results <= 0:
-                    raise ArgsInvalid(
-                        f"max_results must be > 0 (got {max_results})")
+                    raise ArgsInvalid(f"max_results must be > 0 (got {max_results})")
                 if chunk_size <= 0:
-                    raise ArgsInvalid(
-                        f"chunk_size must be > 0 (got {chunk_size})")
+                    raise ArgsInvalid(f"chunk_size must be > 0 (got {chunk_size})")
                 # Clamp chunk_size to the 64 KiB single-read cap —
                 # scan issues one memory.read per chunk (chunk+overlap), so
                 # an unclamped chunk bypassed the F-6 read_bytes cap, and
@@ -402,7 +392,8 @@ async def read_memory(
                         f"cap is {MAX_SCAN_PATTERN_BYTES} bytes (each scan "
                         f"chunk reads chunk_size + len(pattern) - 1 bytes "
                         f"in one request). Narrow the pattern or scan for "
-                        f"a shorter signature.")
+                        f"a shorter signature."
+                    )
                 matches = await client.scan_memory(
                     pattern=pattern_bytes,
                     start=start_addr_int,
@@ -426,9 +417,7 @@ async def read_memory(
         # int-array channel at roughly half the characters — drop it.
         view = view.model_copy(update={"value": None})
     elif action == "read_bytes" and output == "file":
-        view = view.model_copy(
-            update={"value": None, "text": file_summary, "file": file_bin_path}
-        )
+        view = view.model_copy(update={"value": None, "text": file_summary, "file": file_bin_path})
     return view.model_dump(mode="json")
 
 
@@ -447,7 +436,9 @@ async def read_memory(
 # or write to protected address without force=True.
 @mcp.tool(
     name="ppsspp_write_memory",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def write_memory(
@@ -458,9 +449,7 @@ async def write_memory(
     address: Annotated[
         str,
         Field(
-            description=(
-                "Target address, as a hex string (e.g. '0x08804000')."
-            ),
+            description=("Target address, as a hex string (e.g. '0x08804000')."),
         ),
     ],
     data: Annotated[
@@ -500,11 +489,11 @@ async def write_memory(
     ] = False,
 ) -> MemoryWriteOutput:
     """PURPOSE: Write u8/u16/u32 or raw bytes to memory.
-    
+
     USAGE: session_id + address ('0x' hex) + data + format ('u8'|'u16'|'u32'|'bytes'; bytes accepts hex or base64).
-    
+
     BEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true (PROTECTED_ADDRESS).
-    
+
     RETURNS: {address, format, bytes_written, value, text}."""
     # Check protected code-section ranges.
     # For bytes format, decode data first so we can check the full range
@@ -546,8 +535,7 @@ async def write_memory(
         if not decoded_bytes:
             # An empty payload would pass every check and return
             # "success" having written nothing — fail loudly instead.
-            raise ArgsInvalid(
-                "data decodes to zero bytes for format='bytes'; nothing to write")
+            raise ArgsInvalid("data decodes to zero bytes for format='bytes'; nothing to write")
     try:
         async with session_client(session_id) as client:
             if format in ("u8", "u16", "u32"):
@@ -607,17 +595,16 @@ async def write_memory(
 # ToolError: on session lookup failure or WS failure.
 @mcp.tool(
     name="ppsspp_disassemble",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def disassemble(
     address: Annotated[
         str,
         Field(
-            description=(
-                "Starting address for disassembly, as a hex string "
-                "(e.g. '0x08804000')."
-            ),
+            description=("Starting address for disassembly, as a hex string (e.g. '0x08804000')."),
         ),
     ],
     count: Annotated[
@@ -634,8 +621,7 @@ async def disassemble(
         str | None,
         Field(
             description=(
-                "Active session ID; omit to auto-resolve when exactly "
-                "one session is active."
+                "Active session ID; omit to auto-resolve when exactly one session is active."
             ),
         ),
     ] = None,
@@ -661,9 +647,7 @@ async def disassemble(
                 "count": count,
             },
         )
-        result = DisassemblyResult(
-            address=address_int, count=0, instructions=[]
-        )
+        result = DisassemblyResult(address=address_int, count=0, instructions=[])
         return DisassemblyResponse.from_result(result).model_dump(mode="json")
 
     # Cap count to prevent oversized responses.
@@ -744,9 +728,7 @@ def _decode_bytes_input(data: int | str) -> bytes:
     try:
         return base64.b64decode(s, validate=True)
     except Exception as e:
-        raise ArgsInvalid(
-            f"could not decode data as hex or base64: {e}"
-        ) from e
+        raise ArgsInvalid(f"could not decode data as hex or base64: {e}") from e
 
 
 def _decode_hex_pattern(pattern: str) -> bytes:
@@ -764,13 +746,9 @@ def _decode_hex_pattern(pattern: str) -> bytes:
     if s.lower().startswith("0x"):
         s = s[2:]
     if not s:
-        raise ArgsInvalid(
-            "pattern is empty after stripping 0x prefix"
-        )
+        raise ArgsInvalid("pattern is empty after stripping 0x prefix")
     if len(s) % 2 != 0:
-        raise ArgsInvalid(
-            f"pattern must have even length (got {len(s)} chars: {s!r})")
+        raise ArgsInvalid(f"pattern must have even length (got {len(s)} chars: {s!r})")
     if not all(c in "0123456789abcdefABCDEF" for c in s):
-        raise ArgsInvalid(
-            f"pattern must be valid hex (got non-hex chars in {s!r})")
+        raise ArgsInvalid(f"pattern must be valid hex (got non-hex chars in {s!r})")
     return bytes.fromhex(s)

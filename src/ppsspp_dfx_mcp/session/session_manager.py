@@ -18,7 +18,7 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,12 +32,11 @@ from ppsspp_dfx_mcp.config import (
 from ppsspp_dfx_mcp.core import proc
 from ppsspp_dfx_mcp.core.launcher import PpssppLauncher, _force_kill_pid
 from ppsspp_dfx_mcp.errors import (
+    BootTimeout,
     IsoNotFound,
     PortConflict,
     SessionExpired,
     SessionNotFound,
-    ToolError,
-    BootTimeout,
 )
 from ppsspp_dfx_mcp.models.session import Session
 
@@ -47,6 +46,8 @@ if TYPE_CHECKING:
     # is lazily imported in start_session.
     from ppsspp_dfx_mcp.core.game_state_observer import GameStateObserver
     from ppsspp_dfx_mcp.core.transport import WsTransport
+import contextlib
+
 from ppsspp_dfx_mcp.session.safe_boot import (
     DEFAULT_PROBE_ADDR,
     probe_cpu_ready,
@@ -62,11 +63,19 @@ IDLE_GC_INTERVAL_S = 60
 # Fields that _load_sessions passes to Session(). Unknown keys in
 # sessions.json (e.g. "launcher" from a manual edit or future version)
 # are silently dropped instead of causing TypeError.
-_SESSION_FIELDS = frozenset({
-    "session_id", "iso_path", "pid", "ws_url",
-    "created_at", "last_active_at", "exec_count",
-    "ws_connected", "extra",
-})
+_SESSION_FIELDS = frozenset(
+    {
+        "session_id",
+        "iso_path",
+        "pid",
+        "ws_url",
+        "created_at",
+        "last_active_at",
+        "exec_count",
+        "ws_connected",
+        "extra",
+    }
+)
 
 log = logging.getLogger(__name__)
 
@@ -83,10 +92,10 @@ def _parse_dt(value: Any) -> datetime:
     if isinstance(value, str):
         try:
             dt = datetime.fromisoformat(value)
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         except ValueError:
             pass
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _load_sessions() -> dict[str, Session]:
@@ -101,7 +110,9 @@ def _load_sessions() -> dict[str, Session]:
         log.warning("sessions.json malformed, starting fresh: %s", e)
         return {}
     if not isinstance(data, dict):
-        log.warning("sessions.json root is not a dict (got %r); starting fresh", type(data).__name__)
+        log.warning(
+            "sessions.json root is not a dict (got %r); starting fresh", type(data).__name__
+        )
         return {}
     result: dict[str, Session] = {}
     for sid, sess_dict in data.items():
@@ -118,9 +129,7 @@ def _load_sessions() -> dict[str, Session]:
                 # sessions.json, NOT created by start_session in this
                 # process. Resources/tools surface the flag so agents can
                 # tell a restored session from a fresh one.
-                sess = dataclasses.replace(
-                    sess, extra={**sess.extra, "restored": True}
-                )
+                sess = dataclasses.replace(sess, extra={**sess.extra, "restored": True})
                 result[sid] = sess
             except TypeError:
                 continue
@@ -203,17 +212,13 @@ def _pid_name_is_ppsspp(pid: int) -> bool | None:
 
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-            )
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
                 return None  # cannot even open — let liveness decide
             try:
                 size = ctypes.c_ulong(512)
                 buf = ctypes.create_unicode_buffer(512)
-                ok = kernel32.QueryFullProcessImageNameW(
-                    handle, 0, buf, ctypes.byref(size)
-                )
+                ok = kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
                 if not ok:
                     return None
                 return Path(buf.value).name.lower().startswith("ppsspp")
@@ -223,8 +228,11 @@ def _pid_name_is_ppsspp(pid: int) -> bool | None:
             return None
     try:
         comm = (
-            Path("/proc") / str(pid) / "comm"
-        ).read_text(encoding="utf-8", errors="replace").strip().lower()
+            (Path("/proc") / str(pid) / "comm")
+            .read_text(encoding="utf-8", errors="replace")
+            .strip()
+            .lower()
+        )
         return comm.startswith("ppsspp") if comm else None
     except OSError:
         return None
@@ -251,9 +259,9 @@ def _kill_stale_pid_safe(pid: int) -> None:
 def _idle_seconds(sess: Session) -> float:
     """Compute seconds since last_active_at."""
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return (now - sess.last_active_at).total_seconds()
-    except (TypeError, ArithmeticError):
+    except TypeError, ArithmeticError:
         return float("inf")
 
 
@@ -447,26 +455,36 @@ class SessionManager:
 
         if not resilient:
             return await self._start_once(
-                session_id, iso, gate=False, ready_timeout_s=0.0,
-                probe_addr=probe_addr, attempt=0,
+                session_id,
+                iso,
+                gate=False,
+                ready_timeout_s=0.0,
+                probe_addr=probe_addr,
+                attempt=0,
             )
 
         # ── Resilient boot: heal-and-relaunch, stable session id ──
         attempts = max(0, int(max_restarts)) + 1
-        last_wedge: "_BootWedge | None" = None
+        last_wedge: _BootWedge | None = None
         quarantined: Path | None = None
         for attempt in range(attempts):
             try:
                 return await self._start_once(
-                    session_id, iso, gate=True,
+                    session_id,
+                    iso,
+                    gate=True,
                     ready_timeout_s=ready_timeout_s,
-                    probe_addr=probe_addr, attempt=attempt,
+                    probe_addr=probe_addr,
+                    attempt=attempt,
                 )
             except _BootWedge as e:
                 last_wedge = e
                 log.warning(
-                    "wedge heal: launch attempt %d/%d failed for session "
-                    "%s: %s", attempt + 1, attempts, session_id, e,
+                    "wedge heal: launch attempt %d/%d failed for session %s: %s",
+                    attempt + 1,
+                    attempts,
+                    session_id,
+                    e,
                 )
                 launcher_exe = await self._teardown_wedged_attempt(session_id)
                 if boot_heal_quarantine_gpu_blacklist() and launcher_exe:
@@ -573,9 +591,7 @@ class SessionManager:
         try:
             ws_connected = await _probe_ws_connection(ws_url)
         except Exception as e:
-            log.warning(
-                "N-07 probe: unexpected exception (best-effort, swallowed): %s", e
-            )
+            log.warning("N-07 probe: unexpected exception (best-effort, swallowed): %s", e)
             ws_connected = False
         if ws_connected:
             async with self._lock:
@@ -626,9 +642,7 @@ class SessionManager:
                     cur = sessions.get(session_id)
                     if cur is not None:
                         extra = dict(cur.extra)
-                        extra["ppsspp_version"] = _version_fingerprint(
-                            transport
-                        )
+                        extra["ppsspp_version"] = _version_fingerprint(transport)
                         sess = dataclasses.replace(cur, extra=extra)
                         sessions[session_id] = sess
                         await _save_sessions_async(sessions)
@@ -637,36 +651,29 @@ class SessionManager:
             except Exception as e:
                 log.warning(
                     "session-level transport establishment failed for "
-                    "%s (best-effort, swallowed): %s", session_id, e
+                    "%s (best-effort, swallowed): %s",
+                    session_id,
+                    e,
                 )
                 # Clean up partially-established state using the local
                 # variables: if connect() failed
                 # before `self._transports[session_id] = transport`,
                 # the local `transport` is still set and needs close.
                 if observer is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         await observer.stop()
-                    except Exception:
-                        pass
                 # Pop from dict if assigned (idempotent if never set).
                 obs = self._observers.pop(session_id, None)
                 if obs is not None and obs is not observer:
-                    try:
+                    with contextlib.suppress(Exception):
                         await obs.stop()
-                    except Exception:
-                        pass
                 if transport is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         await transport.close()
-                    except Exception:
-                        pass
                 transp = self._transports.pop(session_id, None)
                 if transp is not None and transp is not transport:
-                    try:
+                    with contextlib.suppress(Exception):
                         await transp.close()
-                    except Exception:
-                        pass
-
 
         if gate:
             # Resilient-start readiness gate: wedge evidence here raises
@@ -675,9 +682,7 @@ class SessionManager:
             # The gate folds recovered/ppsspp_version into the persisted
             # record; the caller must return the UPDATED snapshot, not
             # the pre-gate object.
-            updated = await self._gate_boot(
-                session_id, ready_timeout_s, probe_addr, attempt
-            )
+            updated = await self._gate_boot(session_id, ready_timeout_s, probe_addr, attempt)
             if updated is not None:
                 sess = updated
         return sess
@@ -688,7 +693,7 @@ class SessionManager:
         ready_timeout_s: float,
         probe_addr: int,
         attempt: int,
-    ) -> "Session | None":
+    ) -> Session | None:
         """Resilient-start readiness gate (raises _BootWedge on wedges).
 
         Wedge evidence, in decisiveness order: the PPSSPP process died
@@ -710,14 +715,12 @@ class SessionManager:
                 transport,
                 probe_addr=probe_addr,
                 budget_s=ready_timeout_s,
-                alive_check=(
-                    lambda s=sess: s.pid is None or proc.is_pid_alive(s.pid)
-                ),
+                alive_check=(lambda s=sess: s.pid is None or proc.is_pid_alive(s.pid)),
             )
         except BootTimeout as e:
             raise _BootWedge(str(e)) from e
         boot_s = time.monotonic() - started
-        updated: "Session | None" = None
+        updated: Session | None = None
         async with self._lock:
             sessions = await _load_sessions_async()
             cur = sessions.get(session_id)
@@ -729,9 +732,11 @@ class SessionManager:
                 sessions[session_id] = updated
                 await _save_sessions_async(sessions)
         log.info(
-            "boot: session %s CPU ready in %.1fs (launch attempt %d, "
-            "recovered=%d)",
-            session_id, boot_s, attempt + 1, attempt,
+            "boot: session %s CPU ready in %.1fs (launch attempt %d, recovered=%d)",
+            session_id,
+            boot_s,
+            attempt + 1,
+            attempt,
         )
         return updated
 
@@ -754,15 +759,11 @@ class SessionManager:
             observer = self._observers.pop(session_id, None)
             self._session_locks.pop(session_id, None)
         if transport is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await transport.close()
-            except Exception:
-                pass
         if observer is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await observer.stop()
-            except Exception:
-                pass
         exe_path: Path | None = getattr(launcher, "exe_path", None)
         if launcher is not None:
             try:
@@ -854,10 +855,8 @@ class SessionManager:
             # stale sessions.json entries from a previous run. The kill
             # is refused when the PID now belongs to a non-PPSSPP image
             # (OS PID reuse).
-            try:
+            with contextlib.suppress(Exception):
                 await asyncio.to_thread(_kill_stale_pid_safe, sess_snapshot.pid)
-            except Exception:
-                pass
 
         # Phase 3: brief lock to update sessions.json.
         async with self._lock:
@@ -971,9 +970,7 @@ class SessionManager:
             await _save_sessions_async(sessions)
             return touched
 
-    async def update_ws_connected(
-        self, session_id: str, connected: bool
-    ) -> None:
+    async def update_ws_connected(self, session_id: str, connected: bool) -> None:
         """Update ws_connected flag and persist.
 
         Called by session_client_with_transport after a successful
@@ -1000,7 +997,7 @@ class SessionManager:
         """
         sessions = await _load_sessions_async()
         alive: list[Session] = []
-        for sid, sess in sessions.items():
+        for _sid, sess in sessions.items():
             if sess.pid is not None and not proc.is_pid_alive(sess.pid):
                 continue
             if _idle_seconds(sess) > IDLE_GC_THRESHOLD_S:
@@ -1064,29 +1061,21 @@ class SessionManager:
             # stop_session phase 1.5) — best-effort, outside the lock.
             observer = expired_observers.get(sid)
             if observer is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await observer.stop()
-                except Exception:
-                    pass
             transport = expired_transports.get(sid)
             if transport is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await transport.close()
-                except Exception:
-                    pass
             launcher = expired_launchers[sid]
             if launcher is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await asyncio.to_thread(launcher.stop)
-                except Exception:
-                    pass
             else:
                 pid = expired_pids[sid]
                 if pid is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         await asyncio.to_thread(_kill_stale_pid_safe, pid)
-                    except Exception:
-                        pass
             stopped_ids.append(sid)
 
         # Phase 3: brief lock to update sessions.json.
@@ -1230,9 +1219,10 @@ def _extract_port_from_ws_url(ws_url: str) -> int | None:
     Uses urllib.parse for correct IPv6 literal handling.
     """
     from urllib.parse import urlparse
+
     try:
         return urlparse(ws_url).port
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 
@@ -1282,7 +1272,7 @@ async def _probe_ws_connection(ws_url: str) -> bool:
         url = urlparse(ws_url)
         host = url.hostname or "127.0.0.1"
         port = url.port or 12345
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         log.warning("N-07 probe: malformed ws_url %r", ws_url)
         return False
 
@@ -1296,15 +1286,16 @@ async def _probe_ws_connection(ws_url: str) -> bool:
         # let the first tool call's session_client_with_transport retry.
         log.debug(
             "N-07 probe: WS not ready for %s (host=%s port=%s): %s",
-            ws_url, host, port, e,
+            ws_url,
+            host,
+            port,
+            e,
         )
         return False
     finally:
-        try:
+        # Best-effort close; do not mask the original result.
+        with contextlib.suppress(Exception):
             await transport.close()
-        except Exception:
-            # Best-effort close; do not mask the original result.
-            pass
     return True
 
 

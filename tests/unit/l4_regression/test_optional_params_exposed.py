@@ -37,7 +37,6 @@ import pytest
 
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
-
 # ============================================================================
 # cpu_bp_add: log / logFormat
 # ============================================================================
@@ -68,8 +67,7 @@ class TestV017CpuBpAddLogParams:
         assert transport.calls[-1][0] == "cpu.breakpoint.add"
         params = transport.calls[-1][1]
         assert params["log"] is True, (
-            "log=True must be forwarded as `log: True` — see "
-            "BreakpointSubscriber.cpp:L136-144."
+            "log=True must be forwarded as `log: True` — see BreakpointSubscriber.cpp:L136-144."
         )
         assert params["logFormat"] == "hit @ {pc}", (
             "log_format must be forwarded as `logFormat` (camelCase) — "
@@ -81,9 +79,7 @@ class TestV017CpuBpAddLogParams:
         """L1 anchor: default cpu_bp_add() does NOT send log / logFormat."""
         await client.cpu_bp_add(address=0x08804000)
         params = transport.calls[-1][1]
-        assert "log" not in params, (
-            "Default log=None must NOT be forwarded (false-omission)."
-        )
+        assert "log" not in params, "Default log=None must NOT be forwarded (false-omission)."
         assert "logFormat" not in params, (
             "Default log_format=None must NOT be forwarded (false-omission)."
         )
@@ -115,8 +111,7 @@ class TestV017FuncAddSize:
         assert transport.calls[-1][0] == "hle.func.add"
         params = transport.calls[-1][1]
         assert params["size"] == 0x100, (
-            "size=0x100 must be forwarded as `size: 0x100` — see "
-            "HLESubscriber.cpp:L240-307."
+            "size=0x100 must be forwarded as `size: 0x100` — see HLESubscriber.cpp:L240-307."
         )
 
     @pytest.mark.asyncio
@@ -124,9 +119,7 @@ class TestV017FuncAddSize:
         """L1 anchor: default func_add() does NOT send size."""
         await client.func_add(name="my_func")
         params = transport.calls[-1][1]
-        assert "size" not in params, (
-            "Default size=None must NOT be forwarded (false-omission)."
-        )
+        assert "size" not in params, "Default size=None must NOT be forwarded (false-omission)."
 
 
 # ============================================================================
@@ -151,14 +144,11 @@ class TestV017FuncScanRemove:
     @pytest.mark.asyncio
     async def test_func_scan_forwards_remove(self, client, transport):
         """L1 anchor: func_scan(remove=True) forwards remove=True to hle.func.scan."""
-        await client.func_scan(
-            address=0x08804000, size=0x1000, remove=True
-        )
+        await client.func_scan(address=0x08804000, size=0x1000, remove=True)
         assert transport.calls[-1][0] == "hle.func.scan"
         params = transport.calls[-1][1]
         assert params["remove"] is True, (
-            "remove=True must be forwarded as `remove: True` — see "
-            "HLESubscriber.cpp:L483-511."
+            "remove=True must be forwarded as `remove: True` — see HLESubscriber.cpp:L483-511."
         )
 
     @pytest.mark.asyncio
@@ -166,9 +156,7 @@ class TestV017FuncScanRemove:
         """L1 anchor: default func_scan() does NOT send remove."""
         await client.func_scan(address=0x08804000, size=0x1000)
         params = transport.calls[-1][1]
-        assert "remove" not in params, (
-            "Default remove=None must NOT be forwarded (false-omission)."
-        )
+        assert "remove" not in params, "Default remove=None must NOT be forwarded (false-omission)."
 
 
 # ============================================================================
@@ -210,9 +198,7 @@ class TestV017ResetBreak:
         """L1 anchor: default reset() does NOT send break."""
         await client.reset()
         params = transport.calls[-1][1]
-        assert "break" not in params, (
-            "Default break_=None must NOT be forwarded (false-omission)."
-        )
+        assert "break" not in params, "Default break_=None must NOT be forwarded (false-omission)."
 
 
 # ============================================================================
@@ -235,9 +221,7 @@ class TestV017RenderBufferParams:
             f"{method_name} must have `alpha` param — if this fails, V017 "
             "fix was reverted. See GPUBufferSubscriber.cpp:L33-36, L226-260."
         )
-        assert "stackWidth" in sig.parameters, (
-            f"{method_name} must have `stackWidth` param."
-        )
+        assert "stackWidth" in sig.parameters, f"{method_name} must have `stackWidth` param."
         assert sig.parameters["alpha"].default is False, (
             f"{method_name} `alpha` should default to False."
         )
@@ -246,9 +230,7 @@ class TestV017RenderBufferParams:
         )
 
     @pytest.mark.asyncio
-    async def test_render_color_forwards_alpha_stackWidth(
-        self, client, transport
-    ):
+    async def test_render_color_forwards_alpha_stackWidth(self, client, transport):
         """L1 anchor: render_color(alpha=True, stackWidth=64) forwarded."""
         await client.render_color(alpha=True, stackWidth=64)
         assert transport.calls[-1][0] == "gpu.buffer.renderColor"
@@ -267,8 +249,6 @@ class TestV017RenderBufferParams:
         params = transport.calls[-1][1]
         assert params["alpha"] is False
         assert params["stackWidth"] == 0
-
-
 
 
 # ============================================================================

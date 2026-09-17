@@ -172,9 +172,9 @@ class TestCandidatesExcludeNonRuntimeValues:
         assert result is not None
         for value in result.values:
             n = int(value, 16)
-            assert any(
-                lo <= n < hi for lo, hi in completions._RUNTIME_BANDS
-            ), f"{value} 不在任何运行时地址带内"
+            assert any(lo <= n < hi for lo, hi in completions._RUNTIME_BANDS), (
+                f"{value} 不在任何运行时地址带内"
+            )
 
     async def test_known_runtime_addresses_present(self):
         """确定在带内的代表性地址应出现（防止过滤过严导致补全全空）。"""

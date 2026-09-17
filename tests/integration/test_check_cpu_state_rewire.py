@@ -143,13 +143,13 @@ class TestDecisionMatrix:
         gpu = AsyncMock(return_value={"fps": 30.0, "vblanks_per_second": 59.9})
         pc = AsyncMock(return_value={"pc": "0x088EF0F4", "trust_level": "high"})
         mem = AsyncMock(return_value={"value": 3})
-        with patch(_GPU_PROBE, gpu), \
-             patch(_GET_PC, pc), \
-             patch(_READ_MEM, mem), \
-             patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}):
-            result = await run_script(
-                name="check_cpu_state", input={}, session_id="sess-1"
-            )
+        with (
+            patch(_GPU_PROBE, gpu),
+            patch(_GET_PC, pc),
+            patch(_READ_MEM, mem),
+            patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}),
+        ):
+            result = await run_script(name="check_cpu_state", input={}, session_id="sess-1")
 
         output = result["output"]
         assert output["status"] == "ok"
@@ -169,13 +169,13 @@ class TestDecisionMatrix:
         gpu = AsyncMock(side_effect=_gpu_error(stepping0=True, stepping1=True))
         pc = AsyncMock(return_value={"pc": "0x088EF0F8", "trust_level": "high"})
         mem = AsyncMock(return_value={"value": 0})
-        with patch(_GPU_PROBE, gpu), \
-             patch(_GET_PC, pc), \
-             patch(_READ_MEM, mem), \
-             patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}):
-            result = await run_script(
-                name="check_cpu_state", input={}, session_id="sess-1"
-            )
+        with (
+            patch(_GPU_PROBE, gpu),
+            patch(_GET_PC, pc),
+            patch(_READ_MEM, mem),
+            patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}),
+        ):
+            result = await run_script(name="check_cpu_state", input={}, session_id="sess-1")
 
         output = result["output"]
         assert output["cpu_state"] == "paused"
@@ -188,13 +188,13 @@ class TestDecisionMatrix:
         _inject_manifest(tmp_path)
         gpu = AsyncMock(side_effect=_gpu_error(stepping0=False, stepping1=False))
         pc = AsyncMock(return_value={"pc": "0x088EF0F4", "trust_level": "high"})
-        with patch(_GPU_PROBE, gpu), \
-             patch(_GET_PC, pc), \
-             patch(_READ_MEM, AsyncMock(return_value={"value": 0})), \
-             patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}):
-            result = await run_script(
-                name="check_cpu_state", input={}, session_id="sess-1"
-            )
+        with (
+            patch(_GPU_PROBE, gpu),
+            patch(_GET_PC, pc),
+            patch(_READ_MEM, AsyncMock(return_value={"value": 0})),
+            patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}),
+        ):
+            result = await run_script(name="check_cpu_state", input={}, session_id="sess-1")
 
         output = result["output"]
         assert output["cpu_state"] == "freeze_suspected"
@@ -205,13 +205,13 @@ class TestDecisionMatrix:
         """fps present but vblanks ~0 → freeze_suspected on the running path."""
         _inject_manifest(tmp_path)
         gpu = AsyncMock(return_value={"fps": 0.0, "vblanks_per_second": 0.0})
-        with patch(_GPU_PROBE, gpu), \
-             patch(_GET_PC, AsyncMock(return_value={"pc": "0x088EF0F4"})), \
-             patch(_READ_MEM, AsyncMock(return_value={"value": 0})), \
-             patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}):
-            result = await run_script(
-                name="check_cpu_state", input={}, session_id="sess-1"
-            )
+        with (
+            patch(_GPU_PROBE, gpu),
+            patch(_GET_PC, AsyncMock(return_value={"pc": "0x088EF0F4"})),
+            patch(_READ_MEM, AsyncMock(return_value={"value": 0})),
+            patch(_ADDRESSES, return_value={"game_mode_addr": _GAME_MODE_ADDR}),
+        ):
+            result = await run_script(name="check_cpu_state", input={}, session_id="sess-1")
 
         output = result["output"]
         assert output["cpu_state"] == "freeze_suspected"
@@ -229,13 +229,13 @@ class TestDegradedFacts:
         _inject_manifest(tmp_path)
         gpu = AsyncMock(return_value={"fps": 30.0, "vblanks_per_second": 59.9})
         mem = AsyncMock(side_effect=AssertionError("read_memory must not be called"))
-        with patch(_GPU_PROBE, gpu), \
-             patch(_GET_PC, AsyncMock(return_value={"pc": "0x088EF0F4"})), \
-             patch(_READ_MEM, mem), \
-             patch(_ADDRESSES, return_value={}):
-            result = await run_script(
-                name="check_cpu_state", input={}, session_id="sess-1"
-            )
+        with (
+            patch(_GPU_PROBE, gpu),
+            patch(_GET_PC, AsyncMock(return_value={"pc": "0x088EF0F4"})),
+            patch(_READ_MEM, mem),
+            patch(_ADDRESSES, return_value={}),
+        ):
+            result = await run_script(name="check_cpu_state", input={}, session_id="sess-1")
 
         output = result["output"]
         assert output["cpu_state"] == "running"

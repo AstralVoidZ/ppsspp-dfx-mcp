@@ -60,7 +60,7 @@ BACKGROUND_BUDGET_S = 3600.0
 FINISHED_JOB_RETENTION = 32
 
 # Heuristic per-step wall-clock costs (seconds) for the budget gate.
-_PRESS_OVERHEAD_S = 0.1   # WS ticket RTT per press
+_PRESS_OVERHEAD_S = 0.1  # WS ticket RTT per press
 _PROBE_PER_SAMPLE_S = 0.25
 _SCREENSHOT_S = 1.0
 
@@ -93,14 +93,11 @@ def estimate_batch_seconds(steps: list[dict[str, Any]]) -> float:
             frames = step.get("frames", 0)
             interval = step.get("interval")
             per_frame = (
-                interval if isinstance(interval, (int, float)) and interval > 0
+                interval
+                if isinstance(interval, (int, float)) and interval > 0
                 else DEFAULT_FRAME_INTERVAL_S
             )
-            total += (
-                frames * per_frame
-                if isinstance(frames, (int, float)) and frames >= 0
-                else 0.0
-            )
+            total += frames * per_frame if isinstance(frames, (int, float)) and frames >= 0 else 0.0
         elif stype == "state_probe":
             samples = step.get("samples", 1)
             total += (
@@ -184,7 +181,8 @@ class BatchJobRegistry:
         return batch_id
 
     async def _run(
-        self, job: BatchJob,
+        self,
+        job: BatchJob,
         runner: Callable[[BatchJob], Awaitable[dict[str, Any]]],
     ) -> None:
         job.status = "running"
@@ -236,9 +234,7 @@ class BatchJobRegistry:
         if job is None:
             raise KeyError(batch_id)
         if job.status in ("completed", "failed", "cancelled"):
-            raise RuntimeError(
-                f"batch {batch_id} already {job.status}; nothing to cancel"
-            )
+            raise RuntimeError(f"batch {batch_id} already {job.status}; nothing to cancel")
         assert job.task is not None  # set synchronously by submit()
         job.task.cancel()
         if job.status == "queued":

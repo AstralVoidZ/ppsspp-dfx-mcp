@@ -90,58 +90,70 @@ class TestPPRFileValidation:
     def test_wrong_ppr_format_version_raises(self):
         """R-15: unsupported ppr_format_version raises ValueError."""
         with pytest.raises(ValueError, match="unsupported .ppr format version"):
-            PPRFile.from_dict({
-                "ppr_format_version": 99,
-                "version": 1,
-                "base64": "x",
-                "base_rtc": 0,
-            })
+            PPRFile.from_dict(
+                {
+                    "ppr_format_version": 99,
+                    "version": 1,
+                    "base64": "x",
+                    "base_rtc": 0,
+                }
+            )
 
     def test_missing_version_raises(self):
         """R-16: missing 'version' raises ValueError."""
         with pytest.raises(ValueError, match="missing required field 'version'"):
-            PPRFile.from_dict({
-                "ppr_format_version": 1,
-                "base64": "x",
-                "base_rtc": 0,
-            })
+            PPRFile.from_dict(
+                {
+                    "ppr_format_version": 1,
+                    "base64": "x",
+                    "base_rtc": 0,
+                }
+            )
 
     def test_missing_base64_raises(self):
         """R-17: missing 'base64' raises ValueError."""
         with pytest.raises(ValueError, match="missing required field 'base64'"):
-            PPRFile.from_dict({
-                "ppr_format_version": 1,
-                "version": 1,
-                "base_rtc": 0,
-            })
+            PPRFile.from_dict(
+                {
+                    "ppr_format_version": 1,
+                    "version": 1,
+                    "base_rtc": 0,
+                }
+            )
 
     def test_missing_base_rtc_raises(self):
         """R-18: missing 'base_rtc' raises ValueError."""
         with pytest.raises(ValueError, match="missing required field 'base_rtc'"):
-            PPRFile.from_dict({
-                "ppr_format_version": 1,
-                "version": 1,
-                "base64": "x",
-            })
+            PPRFile.from_dict(
+                {
+                    "ppr_format_version": 1,
+                    "version": 1,
+                    "base64": "x",
+                }
+            )
 
     def test_optional_recorded_at_defaults_to_zero(self):
         """R-19: recorded_at defaults to 0.0 when absent."""
-        ppr = PPRFile.from_dict({
-            "ppr_format_version": 1,
-            "version": 1,
-            "base64": "x",
-            "base_rtc": 0,
-        })
+        ppr = PPRFile.from_dict(
+            {
+                "ppr_format_version": 1,
+                "version": 1,
+                "base64": "x",
+                "base_rtc": 0,
+            }
+        )
         assert ppr.recorded_at == 0.0
 
     def test_optional_session_note_defaults_to_empty(self):
         """R-20: session_note defaults to '' when absent."""
-        ppr = PPRFile.from_dict({
-            "ppr_format_version": 1,
-            "version": 1,
-            "base64": "x",
-            "base_rtc": 0,
-        })
+        ppr = PPRFile.from_dict(
+            {
+                "ppr_format_version": 1,
+                "version": 1,
+                "base64": "x",
+                "base_rtc": 0,
+            }
+        )
         assert ppr.session_note == ""
 
 
@@ -196,9 +208,7 @@ class TestSaveAction:
     """save action composes flush + time_get + file write."""
 
     @pytest.mark.asyncio
-    async def test_save_writes_ppr_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_save_writes_ppr_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """R-21: save writes a valid .ppr file to file_path."""
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
@@ -248,12 +258,16 @@ class TestSaveAction:
         mock.replay_flush.assert_awaited_once()
         mock.replay_time_get.assert_awaited_once()
         # Order: flush must come before time_get.
-        flush_call_order = mock.method_calls.index(
-            ("replay_flush", (), {})
-        ) if ("replay_flush", (), {}) in mock.method_calls else -1
-        time_get_call_order = mock.method_calls.index(
-            ("replay_time_get", (), {})
-        ) if ("replay_time_get", (), {}) in mock.method_calls else -1
+        flush_call_order = (
+            mock.method_calls.index(("replay_flush", (), {}))
+            if ("replay_flush", (), {}) in mock.method_calls
+            else -1
+        )
+        time_get_call_order = (
+            mock.method_calls.index(("replay_time_get", (), {}))
+            if ("replay_time_get", (), {}) in mock.method_calls
+            else -1
+        )
         # Both must be present and flush before time_get.
         assert flush_call_order >= 0
         assert time_get_call_order >= 0
@@ -270,7 +284,6 @@ class TestSaveAction:
         missing replays directory is created on first save.
         """
         import shutil
-
 
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
@@ -436,7 +449,7 @@ class TestSaveLoadRoundTrip:
         )
         _patch_session_client(monkeypatch, save_mock)
 
-        ppr_path = resolve_output_path("replays", "round_trip.ppr")
+        _ppr_path = resolve_output_path("replays", "round_trip.ppr")
         save_result = await replay(
             session_id="sess-1",
             action="save",
@@ -481,7 +494,7 @@ class TestSaveLoadRoundTrip:
         )
         _patch_session_client(monkeypatch, save_mock)
 
-        ppr_path = resolve_output_path("replays", "spike.ppr")
+        _ppr_path = resolve_output_path("replays", "spike.ppr")
         await replay(
             session_id="sess-1",
             action="save",
@@ -511,9 +524,7 @@ class TestLoadErrors:
     """load action surfaces file/schema errors as ToolError."""
 
     @pytest.mark.asyncio
-    async def test_load_missing_file_raises(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_load_missing_file_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """R-31: load non-existent file raises ToolError code=ARGS_INVALID."""
         mock = _make_mock_client()
         _patch_session_client(monkeypatch, mock)
@@ -529,9 +540,7 @@ class TestLoadErrors:
         mock.replay_execute.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_load_invalid_json_raises(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_load_invalid_json_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """R-32: load invalid JSON raises ToolError with parse error."""
         bad = resolve_output_path("replays", "bad.ppr")
         bad.write_text("not json {{{", encoding="utf-8")
@@ -575,12 +584,14 @@ class TestLoadErrors:
         """R-34: load .ppr with future format version raises."""
         bad = resolve_output_path("replays", "future.ppr")
         bad.write_text(
-            json.dumps({
-                "ppr_format_version": 99,
-                "version": 1,
-                "base64": "x",
-                "base_rtc": 0,
-            }),
+            json.dumps(
+                {
+                    "ppr_format_version": 99,
+                    "version": 1,
+                    "base64": "x",
+                    "base_rtc": 0,
+                }
+            ),
             encoding="utf-8",
         )
         mock = _make_mock_client()

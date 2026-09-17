@@ -26,18 +26,13 @@ composition; parse tested separately), _discover_listening_port_for_pid
 
 from __future__ import annotations
 
-import socket
 import subprocess
-import sys
 from pathlib import Path
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ppsspp_dfx_mcp.core import launcher as launcher_mod
 from ppsspp_dfx_mcp.core.launcher import (
-    DEFAULT_WS_PORT,
     PpssppLauncher,
     _default_ppsspp_exe_name,
     _parse_lsof_posix,
@@ -47,7 +42,6 @@ from ppsspp_dfx_mcp.core.launcher import (
     _write_appendconfig_ini,
 )
 from ppsspp_dfx_mcp.errors import IsoNotFound, PpssppNotFound
-
 
 # ============================================================================
 # Module-level helpers
@@ -124,9 +118,7 @@ class TestParseNetstatWindows:
     """_parse_netstat_windows extracts listening ports for a PID."""
 
     def test_normal_line_parsed(self):
-        output = (
-            "  TCP    127.0.0.1:11242     0.0.0.0:0     LISTENING     12345\n"
-        )
+        output = "  TCP    127.0.0.1:11242     0.0.0.0:0     LISTENING     12345\n"
         ports = _parse_netstat_windows(output, 12345)
         assert ports == [11242]
 
@@ -139,16 +131,12 @@ class TestParseNetstatWindows:
         assert ports == [11242, 11243]
 
     def test_non_listening_skipped(self):
-        output = (
-            "  TCP    127.0.0.1:11242     10.0.0.1:80    ESTABLISHED   12345\n"
-        )
+        output = "  TCP    127.0.0.1:11242     10.0.0.1:80    ESTABLISHED   12345\n"
         ports = _parse_netstat_windows(output, 12345)
         assert ports == []
 
     def test_non_target_pid_skipped(self):
-        output = (
-            "  TCP    127.0.0.1:11242     0.0.0.0:0     LISTENING     99999\n"
-        )
+        output = "  TCP    127.0.0.1:11242     0.0.0.0:0     LISTENING     99999\n"
         ports = _parse_netstat_windows(output, 12345)
         assert ports == []
 
@@ -170,25 +158,17 @@ class TestParseSsOrNetstatPosix:
     """_parse_ss_or_netstat_posix extracts listening ports for a PID."""
 
     def test_ss_format_parsed(self):
-        output = (
-            "LISTEN 0  4096  127.0.0.1:9490  0.0.0.0:*  "
-            'users:(("ppsspp",pid=12345,fd=10))\n'
-        )
+        output = 'LISTEN 0  4096  127.0.0.1:9490  0.0.0.0:*  users:(("ppsspp",pid=12345,fd=10))\n'
         ports = _parse_ss_or_netstat_posix(output, 12345)
         assert ports == [9490]
 
     def test_netstat_format_parsed(self):
-        output = (
-            "tcp  0  0  127.0.0.1:9490  0.0.0.0:*  LISTEN  12345/ppsspp\n"
-        )
+        output = "tcp  0  0  127.0.0.1:9490  0.0.0.0:*  LISTEN  12345/ppsspp\n"
         ports = _parse_ss_or_netstat_posix(output, 12345)
         assert ports == [9490]
 
     def test_non_target_pid_skipped(self):
-        output = (
-            "LISTEN 0  4096  127.0.0.1:9490  0.0.0.0:*  "
-            'users:(("ppsspp",pid=99999,fd=10))\n'
-        )
+        output = 'LISTEN 0  4096  127.0.0.1:9490  0.0.0.0:*  users:(("ppsspp",pid=99999,fd=10))\n'
         ports = _parse_ss_or_netstat_posix(output, 12345)
         assert ports == []
 
@@ -215,10 +195,7 @@ class TestParseLsofPosix:
         assert _parse_lsof_posix("") == []
 
     def test_malformed_line_skipped(self):
-        output = (
-            "COMMAND   PID    USER  NODE  NAME\n"
-            "short\n"
-        )
+        output = "COMMAND   PID    USER  NODE  NAME\nshort\n"
         assert _parse_lsof_posix(output) == []
 
 
@@ -247,10 +224,13 @@ class TestInit:
         assert launcher.exe_path == exe
 
     def test_config_none_uses_platform_default(self):
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.ppsspp_exe_path",
-            return_value=None,
-        ), patch("sys.platform", "win32"):
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.ppsspp_exe_path",
+                return_value=None,
+            ),
+            patch("sys.platform", "win32"),
+        ):
             launcher = PpssppLauncher()
         assert launcher.exe_path == Path("PPSSPPWindows64.exe")
 
@@ -310,14 +290,16 @@ class TestStart:
         fake_proc.pid = 99999
         fake_proc.poll.return_value = None
 
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
-            return_value=fake_proc,
-        ) as mock_popen, patch.object(
-            launcher, "_wait_for_port", return_value=True
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
-            return_value=tmp_path / "fake.ini",
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ) as mock_popen,
+            patch.object(launcher, "_wait_for_port", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=tmp_path / "fake.ini",
+            ),
         ):
             result = await launcher.start(iso)
 
@@ -341,18 +323,21 @@ class TestStart:
         fake_proc.pid = 99999
         fake_proc.poll.return_value = None
 
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
-            return_value=fake_proc,
-        ), patch.object(
-            launcher, "_wait_for_port", return_value=True
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
-            return_value=tmp_path / "fake.ini",
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._pick_free_port",
-            return_value=23456,
-        ) as mock_pick:
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ),
+            patch.object(launcher, "_wait_for_port", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=tmp_path / "fake.ini",
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._pick_free_port",
+                return_value=23456,
+            ) as mock_pick,
+        ):
             await launcher.start(iso)
 
         mock_pick.assert_called_once()
@@ -369,17 +354,18 @@ class TestStart:
         fake_proc.pid = 99999
         fake_proc.poll.return_value = None
 
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
-            return_value=fake_proc,
-        ), patch.object(
-            launcher, "_wait_for_port", return_value=True
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
-            return_value=tmp_path / "fake.ini",
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._pick_free_port"
-        ) as mock_pick:
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ),
+            patch.object(launcher, "_wait_for_port", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=tmp_path / "fake.ini",
+            ),
+            patch("ppsspp_dfx_mcp.core.launcher._pick_free_port") as mock_pick,
+        ):
             await launcher.start(iso)
 
         mock_pick.assert_not_called()
@@ -396,14 +382,16 @@ class TestStart:
         fake_proc.pid = 99999
         fake_proc.poll.return_value = None
 
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
-            return_value=fake_proc,
-        ) as mock_popen, patch.object(
-            launcher, "_wait_for_port", return_value=True
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
-            return_value=tmp_path / "fake.ini",
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ) as mock_popen,
+            patch.object(launcher, "_wait_for_port", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=tmp_path / "fake.ini",
+            ),
         ):
             await launcher.start(iso, extra_args=["--loadstate=/tmp/state.sav"])
 
@@ -424,14 +412,16 @@ class TestStart:
         fake_proc.pid = 99999
         fake_proc.poll.return_value = None
 
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
-            return_value=fake_proc,
-        ), patch.object(
-            launcher, "_wait_for_port", return_value=True
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
-            return_value=tmp_path / "fake.ini",
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ),
+            patch.object(launcher, "_wait_for_port", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=tmp_path / "fake.ini",
+            ),
         ):
             await launcher.start(iso)
 
@@ -449,14 +439,16 @@ class TestStart:
         fake_proc.pid = 99999
         fake_proc.poll.return_value = None
 
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
-            return_value=fake_proc,
-        ), patch.object(
-            launcher, "_wait_for_port", return_value=True
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
-            return_value=fake_ini,
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ),
+            patch.object(launcher, "_wait_for_port", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=fake_ini,
+            ),
         ):
             await launcher.start(iso)
 
@@ -473,14 +465,16 @@ class TestStart:
         fake_proc.pid = 99999
         fake_proc.poll.return_value = None
 
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
-            return_value=fake_proc,
-        ), patch.object(
-            launcher, "_wait_for_port"
-        ) as mock_wait, patch(
-            "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
-            return_value=tmp_path / "fake.ini",
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ),
+            patch.object(launcher, "_wait_for_port") as mock_wait,
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=tmp_path / "fake.ini",
+            ),
         ):
             await launcher.start(iso, wait_seconds=0)
 
@@ -516,13 +510,13 @@ class TestWaitForPort:
         launcher._proc = MagicMock(spec=subprocess.Popen)
         launcher._proc.poll.return_value = 0  # exited
         # Phase 1 loop runs once: _is_port_listening=False, then poll()=0 → return False.
-        with patch.object(
-            launcher, "_is_port_listening", return_value=False
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.time",
-            side_effect=[0.0, 0.1, 0.2],  # deadline=1.0; loop enters once
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.sleep"
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=False),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.time.time",
+                side_effect=[0.0, 0.1, 0.2],  # deadline=1.0; loop enters once
+            ),
+            patch("ppsspp_dfx_mcp.core.launcher.time.sleep"),
         ):
             assert launcher._wait_for_port(timeout=2.0) is False
 
@@ -534,16 +528,17 @@ class TestWaitForPort:
         # Phase 1 deadline expires immediately (time.time: 0.0 then 2.0 > 1.0),
         # so the while loop body never runs. Phase 2 discovers port 54321,
         # updates ws_port, then final _is_port_listening returns True.
-        with patch.object(
-            launcher, "_is_port_listening", return_value=True
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.time",
-            side_effect=[0.0, 2.0],
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.sleep"
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid",
-            return_value=54321,
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.time.time",
+                side_effect=[0.0, 2.0],
+            ),
+            patch("ppsspp_dfx_mcp.core.launcher.time.sleep"),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid",
+                return_value=54321,
+            ),
         ):
             assert launcher._wait_for_port(timeout=2.0) is True
         assert launcher.ws_port == 54321
@@ -554,16 +549,17 @@ class TestWaitForPort:
         launcher._proc.pid = 99999
         launcher._proc.poll.return_value = None
         # Phase 1 deadline expires immediately; Phase 2 discovers nothing.
-        with patch.object(
-            launcher, "_is_port_listening", return_value=False
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.time",
-            side_effect=[0.0, 2.0],
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.sleep"
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid",
-            return_value=None,
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=False),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.time.time",
+                side_effect=[0.0, 2.0],
+            ),
+            patch("ppsspp_dfx_mcp.core.launcher.time.sleep"),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid",
+                return_value=None,
+            ),
         ):
             assert launcher._wait_for_port(timeout=2.0) is False
 
@@ -573,16 +569,15 @@ class TestWaitForPort:
         launcher._proc.pid = 0
         launcher._proc.poll.return_value = None
         # Phase 1 deadline expires immediately; Phase 2 pid<=0 short-circuits.
-        with patch.object(
-            launcher, "_is_port_listening", return_value=False
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.time",
-            side_effect=[0.0, 2.0],
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher.time.sleep"
-        ), patch(
-            "ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid"
-        ) as mock_discover:
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=False),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.time.time",
+                side_effect=[0.0, 2.0],
+            ),
+            patch("ppsspp_dfx_mcp.core.launcher.time.sleep"),
+            patch("ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid") as mock_discover,
+        ):
             assert launcher._wait_for_port(timeout=2.0) is False
         mock_discover.assert_not_called()
 
@@ -675,9 +670,7 @@ class TestStop:
             subprocess.TimeoutExpired(cmd="x", timeout=2),
         ]
         launcher._proc = fake_proc
-        with patch(
-            "ppsspp_dfx_mcp.core.launcher._force_kill_pid"
-        ) as mock_force:
+        with patch("ppsspp_dfx_mcp.core.launcher._force_kill_pid") as mock_force:
             launcher.stop()
         mock_force.assert_called_once_with(99999)
         assert launcher._proc is None

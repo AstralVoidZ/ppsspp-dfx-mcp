@@ -28,8 +28,7 @@ async def test_call_unknown_tool_returns_error(mcp_inspector):
     result = await mcp_inspector.call_tool("ppsspp_nonexistent_tool", {})
 
     assert result.is_error, (
-        "expected isError=True for unknown tool, got success — "
-        f"content={result.content!r}"
+        f"expected isError=True for unknown tool, got success — content={result.content!r}"
     )
 
 
@@ -61,6 +60,5 @@ async def test_call_known_tool_does_not_set_isError(mcp_inspector):
     result = await mcp_inspector.call_tool("ppsspp_health", {})
 
     assert not result.is_error, (
-        f"ppsspp_health should not be an error, but got isError=True. "
-        f"content={result.content!r}"
+        f"ppsspp_health should not be an error, but got isError=True. content={result.content!r}"
     )

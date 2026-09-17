@@ -9,8 +9,8 @@ test_output_governance_batch3.TestQueryTopNTruncation).
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -20,9 +20,7 @@ from ppsspp_dfx_mcp.tools.query import query
 pytestmark = pytest.mark.asyncio
 
 
-def _mock_func_list(
-    monkeypatch: pytest.MonkeyPatch, count: int
-) -> AsyncMock:
+def _mock_func_list(monkeypatch: pytest.MonkeyPatch, count: int) -> AsyncMock:
     mock_client = AsyncMock()
     mock_client.func_list.return_value = {
         "functions": [{"name": f"func_{i}"} for i in range(count)]
@@ -34,16 +32,12 @@ def _mock_func_list(
     ) -> AsyncIterator[AsyncMock]:
         yield mock_client
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.query.session_client", fake_session_client
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.query.session_client", fake_session_client)
     return mock_client
 
 
 class TestQueryTopNDefault:
-    async def test_funcs_default_truncates_to_100(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_funcs_default_truncates_to_100(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Calling funcs WITHOUT top_n truncates to 100 (was unlimited)."""
         _mock_func_list(monkeypatch, 150)
         result = await query(session_id="sess-1", action="funcs")
@@ -53,9 +47,7 @@ class TestQueryTopNDefault:
             "an unbounded hle.func.list can return 700+KB."
         )
 
-    async def test_funcs_below_default_not_padded(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_funcs_below_default_not_padded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A 40-entry function list returns all 40 (no artificial cap)."""
         _mock_func_list(monkeypatch, 40)
         result = await query(session_id="sess-1", action="funcs")

@@ -54,7 +54,9 @@ _DEFAULT_CHECKS: tuple[str, ...] = (
 # ToolError: on session lookup failure or WS connect failure.
 @mcp.tool(
     name="ppsspp_smoke_test",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def smoke_test(
@@ -75,17 +77,16 @@ async def smoke_test(
     ] = None,
 ) -> SmokeTestOutput:
     """PURPOSE: Four-point session health check — iso_loaded, cpu_running, ws_connected, game_mode_valid.
-    
+
     USAGE: session_id. NOT an ISO boot-acceptance test — use session wait_ready + analyze_log for boot triage.
-    
+
     BEHAVIOR: READ-ONLY. Battery of probes.
-    
+
     RETURNS: {checks[{name, passed, detail}], overall_status}."""
     selected = tuple(checks) if checks else _DEFAULT_CHECKS
     invalid = [c for c in selected if c not in _DEFAULT_CHECKS]
     if invalid:
-        raise ArgsInvalid(
-            f"invalid check(s) {invalid}; expected one of {_DEFAULT_CHECKS}")
+        raise ArgsInvalid(f"invalid check(s) {invalid}; expected one of {_DEFAULT_CHECKS}")
 
     logger.info(
         "tool_call",
@@ -100,23 +101,17 @@ async def smoke_test(
             # ws_connected check passes by virtue of context entry success.
             for check in selected:
                 if check == "ws_connected":
-                    results.append(
-                        CheckResult(name=check, passed=True, detail="WS handshake OK")
-                    )
+                    results.append(CheckResult(name=check, passed=True, detail="WS handshake OK"))
                     continue
                 if check in ("iso_loaded", "cpu_running"):
                     if not game_status:
                         try:
                             game_status = await client.game_status()
                         except Exception as e:
-                            results.append(
-                                CheckResult(name=check, passed=False, detail=str(e))
-                            )
+                            results.append(CheckResult(name=check, passed=False, detail=str(e)))
                             continue
                     if check == "iso_loaded":
-                        title = (
-                            game_status.get("game") or game_status.get("title") or ""
-                        )
+                        title = game_status.get("game") or game_status.get("title") or ""
                         results.append(
                             CheckResult(
                                 name=check,
@@ -154,9 +149,7 @@ async def smoke_test(
                             )
                         )
                     except Exception as e:
-                        results.append(
-                            CheckResult(name=check, passed=False, detail=str(e))
-                        )
+                        results.append(CheckResult(name=check, passed=False, detail=str(e)))
     except Exception as e:
         raise to_tool_error(e) from e
 

@@ -38,15 +38,13 @@ def live() -> dict[str, dict]:
         out_json = _canonical(t.output_schema)
         out[t.name] = {
             "description": t.description or "",
-            "input_schema_sha1": hashlib.sha1(
-                in_json.encode("utf-8")).hexdigest(),
+            "input_schema_sha1": hashlib.sha1(in_json.encode("utf-8")).hexdigest(),
             "input_schema_chars": len(in_json),
-            "input_schema_properties": sorted(
-                (t.input_schema or {}).get("properties") or {}
-            ),
-            "output_schema_sha1": hashlib.sha1(
-                out_json.encode("utf-8")).hexdigest(),
-            "annotations": {} if ann is None else {
+            "input_schema_properties": sorted((t.input_schema or {}).get("properties") or {}),
+            "output_schema_sha1": hashlib.sha1(out_json.encode("utf-8")).hexdigest(),
+            "annotations": {}
+            if ann is None
+            else {
                 "read_only_hint": getattr(ann, "read_only_hint", None),
                 "destructive_hint": getattr(ann, "destructive_hint", None),
                 "idempotent_hint": getattr(ann, "idempotent_hint", None),
@@ -78,9 +76,9 @@ def test_no_tool_added_or_removed(live):
 def test_descriptions_match_baseline(live):
     baseline = _committed()
     drifted = [
-        name for name, entry in baseline.items()
-        if name in live
-        and live[name]["description"] != entry["description"]
+        name
+        for name, entry in baseline.items()
+        if name in live and live[name]["description"] != entry["description"]
     ]
     assert not drifted, (
         f"description drift on {drifted} — if intended, regenerate the "
@@ -92,7 +90,8 @@ def test_descriptions_match_baseline(live):
 def test_annotations_match_baseline(live):
     baseline = _committed()
     drifted = [
-        name for name, entry in baseline.items()
+        name
+        for name, entry in baseline.items()
         if name in live and live[name]["annotations"] != entry["annotations"]
     ]
     assert not drifted, (
@@ -131,9 +130,9 @@ def test_input_schemas_match_baseline(live):
     """参数**类型/约束**不得变化（整份 inputSchema 的 hash 比对）。"""
     baseline = _committed()
     drifted = sorted(
-        name for name, entry in baseline.items()
-        if name in live
-        and live[name]["input_schema_sha1"] != entry.get("input_schema_sha1")
+        name
+        for name, entry in baseline.items()
+        if name in live and live[name]["input_schema_sha1"] != entry.get("input_schema_sha1")
     )
     assert not drifted, (
         f"inputSchema 漂移 on {drifted} — 参数类型或约束被改动；若确为有意，"
@@ -149,9 +148,9 @@ def test_output_schemas_match_baseline(live):
     """
     baseline = _committed()
     drifted = sorted(
-        name for name, entry in baseline.items()
-        if name in live
-        and live[name]["output_schema_sha1"] != entry.get("output_schema_sha1")
+        name
+        for name, entry in baseline.items()
+        if name in live and live[name]["output_schema_sha1"] != entry.get("output_schema_sha1")
     )
     assert not drifted, (
         f"outputSchema 漂移 on {drifted} — 若为有意的契约变更，same-commit "

@@ -72,13 +72,10 @@ def _validate_buttons_combo(buttons: str) -> None:
         raise ArgsInvalid("buttons must be a non-empty string")
     tokens = [t.strip() for t in buttons.split("|") if t.strip()]
     if not tokens:
-        raise ArgsInvalid(
-            "buttons must contain at least one button name"
-        )
+        raise ArgsInvalid("buttons must contain at least one button name")
     invalid = [t for t in tokens if t not in _VALID_BUTTONS]
     if invalid:
-        raise ArgsInvalid(
-            f"invalid button(s) {invalid!r}; expected each in {_VALID_BUTTONS}")
+        raise ArgsInvalid(f"invalid button(s) {invalid!r}; expected each in {_VALID_BUTTONS}")
 
 
 # Former docstring (kept as comment; description is now the TDQS docstring):
@@ -91,7 +88,9 @@ def _validate_buttons_combo(buttons: str) -> None:
 # ToolError: on session lookup failure, WS failure, or invalid button.
 @mcp.tool(
     name="ppsspp_press_button",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def press_button(
@@ -122,18 +121,16 @@ async def press_button(
     RETURNS: {button, duration}.
     """
     if button not in _VALID_BUTTONS:
-        raise ArgsInvalid(
-            f"invalid button={button!r}; expected one of {_VALID_BUTTONS}")
+        raise ArgsInvalid(f"invalid button={button!r}; expected one of {_VALID_BUTTONS}")
     if duration < 0:
-        raise ArgsInvalid(
-            f"duration must be >= 0; got {duration}"
-        )
+        raise ArgsInvalid(f"duration must be >= 0; got {duration}")
     if duration > MAX_PRESS_DURATION_FRAMES:
         # The WS ticket timeout scales with duration/60*1.5 — an
         # unbounded duration meant an unbounded tool hang.
         raise ArgsInvalid(
             f"duration {duration} exceeds the cap {MAX_PRESS_DURATION_FRAMES} "
-            f"(~{MAX_PRESS_DURATION_FRAMES // 60}s of hold time)")
+            f"(~{MAX_PRESS_DURATION_FRAMES // 60}s of hold time)"
+        )
     logger.info(
         "tool_call",
         extra={
@@ -167,7 +164,9 @@ async def press_button(
 # ToolError: on session lookup failure, WS failure, or invalid button.
 @mcp.tool(
     name="ppsspp_hold_buttons",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def hold_buttons(
@@ -244,7 +243,9 @@ async def hold_buttons(
 # ToolError: on session lookup failure, WS failure, or out-of-range.
 @mcp.tool(
     name="ppsspp_send_analog",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def send_analog(
@@ -256,8 +257,7 @@ async def send_analog(
         int,
         Field(
             description=(
-                "Analog X coordinate in [0, 255] (128 = center). "
-                "0 = full left, 255 = full right."
+                "Analog X coordinate in [0, 255] (128 = center). 0 = full left, 255 = full right."
             ),
         ),
     ],
@@ -265,8 +265,7 @@ async def send_analog(
         int,
         Field(
             description=(
-                "Analog Y coordinate in [0, 255] (128 = center). "
-                "0 = full up, 255 = full down."
+                "Analog Y coordinate in [0, 255] (128 = center). 0 = full up, 255 = full down."
             ),
         ),
     ],
@@ -324,7 +323,9 @@ async def send_analog(
 # ToolError: on session lookup failure.
 @mcp.tool(
     name="ppsspp_wait_frames",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def wait_frames(
@@ -341,8 +342,7 @@ async def wait_frames(
         Field(
             default=None,
             description=(
-                "Per-frame interval in seconds (default 1/60). "
-                "Total wait = frames * interval."
+                "Per-frame interval in seconds (default 1/60). Total wait = frames * interval."
             ),
         ),
     ] = None,

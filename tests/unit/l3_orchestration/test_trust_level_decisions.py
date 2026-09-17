@@ -31,8 +31,7 @@ from typing import Any
 
 import pytest
 
-from fake_transport import FakeTransport
-from ppsspp_dfx_mcp.core.stepping import SteppingManager, TrustLevel, ThreadSnapshot
+from ppsspp_dfx_mcp.core.stepping import ThreadSnapshot, TrustLevel
 
 
 def _make_regs_response(pc: int = 0x08804000) -> dict[str, Any]:
@@ -67,15 +66,16 @@ class TestTrustLevelFactoryDecisions:
         "result,description",
         [
             ({"categories": []}, "empty categories"),
-            ({"categories": [{"name": "GPR", "registerNames": ["pc"], "uintValues": [0]}]}, "normal response"),
+            (
+                {"categories": [{"name": "GPR", "registerNames": ["pc"], "uintValues": [0]}]},
+                "normal response",
+            ),
             ({}, "empty dict"),
             ({"extra_field": "ignored"}, "unrelated fields"),
             ({"threads": []}, "threads-shaped response (wrong factory)"),
         ],
     )
-    def test_from_pc_result_always_high(
-        self, result: dict[str, Any], description: str
-    ):
+    def test_from_pc_result_always_high(self, result: dict[str, Any], description: str):
         """from_pc_result returns HIGH for any input (V026 §5.2).
 
         The factory accepts any dict without inspecting it. This is
@@ -97,9 +97,7 @@ class TestTrustLevelFactoryDecisions:
             ({"categories": []}, "regs-shaped response (wrong factory)"),
         ],
     )
-    def test_from_thread_result_always_high(
-        self, result: dict[str, Any], description: str
-    ):
+    def test_from_thread_result_always_high(self, result: dict[str, Any], description: str):
         """from_thread_result returns HIGH for any input (V026 §5.2)."""
         assert TrustLevel.from_thread_result(result) == TrustLevel.HIGH, (
             f"from_thread_result must return HIGH for {description}. "
@@ -170,9 +168,7 @@ class TestTrustLevelOrchestration:
         hardcoded in safe_get_pc). L3 anchors that safe_get_pc uses
         the factory method (not a direct `TrustLevel.HIGH` reference).
         """
-        transport.set_response(
-            "cpu.getAllRegs", _make_regs_response(pc=0x088E0D5C)
-        )
+        transport.set_response("cpu.getAllRegs", _make_regs_response(pc=0x088E0D5C))
 
         pc, trust = await manager.safe_get_pc()
 
@@ -187,9 +183,7 @@ class TestTrustLevelOrchestration:
             "trust level (not hardcode TrustLevel.HIGH)."
         )
 
-    async def test_safe_get_threads_orchestration_yields_high(
-        self, manager, transport
-    ):
+    async def test_safe_get_threads_orchestration_yields_high(self, manager, transport):
         """safe_get_threads orchestration: TrustLevel.from_thread_result called."""
         threads = [{"id": 1, "name": "root"}]
         transport.set_response("hle.thread.list", {"threads": threads})

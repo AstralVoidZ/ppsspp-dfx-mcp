@@ -31,8 +31,8 @@ import logging
 from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.core.stepping import SteppingFailedError, SteppingManager, TrustLevel
 
 
@@ -91,6 +91,7 @@ class TestSetRegOrchestration:
         (a with_stepping caller) propagates the resume failure so callers
         know the CPU did NOT return to RUNNING.
         """
+
         def failing_resume(t: FakeTransport, **params: Any) -> None:
             raise RuntimeError("resume failed")
 
@@ -115,6 +116,7 @@ class TestSetRegOrchestration:
         - cpu.setReg was NOT sent (body did not execute).
         - cpu.resume was NOT sent (no resume after failed pause).
         """
+
         def failing_pause(t: FakeTransport, **params: Any) -> None:
             raise RuntimeError("pause failed")
 
@@ -134,8 +136,7 @@ class TestSetRegOrchestration:
         # Resume must NOT have been attempted.
         events = [ev for ev, _ in transport.fire_and_forget_calls]
         assert "cpu.resume" not in events, (
-            "set_reg must NOT resume when its with_stepping pause failed "
-            "(V020 I14 orchestration)."
+            "set_reg must NOT resume when its with_stepping pause failed (V020 I14 orchestration)."
         )
 
 
@@ -154,39 +155,35 @@ class TestEvaluateOrchestration:
         assert "cpu.resume" in events
         assert events.index("cpu.stepping") < events.index("cpu.resume")
 
-    async def test_evaluate_logs_warning_on_body_exception_resume_failure(
-        self, transport, caplog
-    ):
+    async def test_evaluate_logs_warning_on_body_exception_resume_failure(self, transport, caplog):
         """V020 I12 orchestration: evaluate body raises + resume fails → log warning.
 
         L4 anchors I12 on with_stepping directly; L3 anchors that evaluate
         (a with_stepping caller) logs the resume failure as a warning and
         propagates the original body exception unchanged.
         """
+
         def failing_resume(t: FakeTransport, **params: Any) -> None:
             raise RuntimeError("resume failed")
 
         transport.set_faf_handler("cpu.resume", failing_resume)
         # Make cpu.evaluate itself raise (simulating body exception)
-        transport.set_response(
-            "cpu.evaluate", _RaisingResponse(RuntimeError("eval failed"))
-        )
+        transport.set_response("cpu.evaluate", _RaisingResponse(RuntimeError("eval failed")))
         client = _build_client(transport)
 
-        with caplog.at_level(
-            logging.WARNING, logger="ppsspp_dfx_mcp.core.stepping"
+        with (
+            caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp.core.stepping"),
+            pytest.raises(RuntimeError, match="eval failed"),
         ):
-            with pytest.raises(RuntimeError, match="eval failed"):
-                await client.evaluate("r5")
+            await client.evaluate("r5")
 
         warning_records = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING
-            and "with_stepping: resume failed" in r.getMessage()
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "with_stepping: resume failed" in r.getMessage()
         ]
         assert len(warning_records) == 1, (
-            "evaluate orchestration must log resume failure as warning "
-            "when body raised (V020 I12)."
+            "evaluate orchestration must log resume failure as warning when body raised (V020 I12)."
         )
 
 
@@ -262,9 +259,7 @@ class TestHleRequiredSteppingOrchestration:
         )
         # Verify the ticketed event was issued exactly once.
         ticketed = [ev for ev, _ in transport.calls if ev == expected_event]
-        assert len(ticketed) == 1, (
-            f"{method_name} must issue {expected_event} exactly once."
-        )
+        assert len(ticketed) == 1, f"{method_name} must issue {expected_event} exactly once."
 
     @pytest.mark.parametrize(
         "method_name,call_args",
@@ -344,15 +339,13 @@ class TestNestedWithStepping:
             # CPU now paused
             assert transport.state.get("stepping") is True
             pause_count_before = sum(
-                1 for ev, _ in transport.fire_and_forget_calls
-                if ev == "cpu.stepping"
+                1 for ev, _ in transport.fire_and_forget_calls if ev == "cpu.stepping"
             )
 
             async with manager.with_stepping(preserve_state=True):
                 # Still paused; no additional cpu.stepping sent
                 pause_count_after = sum(
-                    1 for ev, _ in transport.fire_and_forget_calls
-                    if ev == "cpu.stepping"
+                    1 for ev, _ in transport.fire_and_forget_calls if ev == "cpu.stepping"
                 )
                 assert pause_count_after == pause_count_before, (
                     "Inner with_stepping must NOT send cpu.stepping when "
@@ -365,9 +358,7 @@ class TestNestedWithStepping:
         # Outer exited: CPU resumed
         assert transport.state.get("stepping") is False
 
-    async def test_consecutive_with_stepping_each_pauses_resumes(
-        self, manager, transport
-    ):
+    async def test_consecutive_with_stepping_each_pauses_resumes(self, manager, transport):
         """Two consecutive with_stepping calls each pause and resume.
 
         Unlike nested calls (which share the paused state), consecutive
@@ -397,16 +388,12 @@ class TestSafeQueryOrchestration:
     each perform their own pause/resume cycle.
     """
 
-    async def test_safe_get_pc_then_safe_get_threads_each_pause(
-        self, manager, transport
-    ):
+    async def test_safe_get_pc_then_safe_get_threads_each_pause(self, manager, transport):
         """Consecutive safe_get_pc + safe_get_threads each pause/resume.
 
         Two safe queries → two pause/resume cycles (NOT shared).
         """
-        transport.set_response(
-            "cpu.getAllRegs", _make_regs_response(pc=0x088E0D5C)
-        )
+        transport.set_response("cpu.getAllRegs", _make_regs_response(pc=0x088E0D5C))
         transport.set_response("hle.thread.list", {"threads": []})
 
         pc, trust = await manager.safe_get_pc()
@@ -421,9 +408,7 @@ class TestSafeQueryOrchestration:
         assert events.count("cpu.stepping") == 2
         assert events.count("cpu.resume") == 2
 
-    async def test_safe_get_pc_returns_high_trust_under_orchestration(
-        self, manager, transport
-    ):
+    async def test_safe_get_pc_returns_high_trust_under_orchestration(self, manager, transport):
         """safe_get_pc orchestration yields TrustLevel.HIGH.
 
         V026 (B.2 §5.2): TrustLevel.from_pc_result currently returns
@@ -432,9 +417,7 @@ class TestSafeQueryOrchestration:
         (with_stepping → cpu.getAllRegs → _extract_pc →
         TrustLevel.from_pc_result) yields HIGH.
         """
-        transport.set_response(
-            "cpu.getAllRegs", _make_regs_response(pc=0x12345678)
-        )
+        transport.set_response("cpu.getAllRegs", _make_regs_response(pc=0x12345678))
 
         pc, trust = await manager.safe_get_pc()
 
@@ -460,10 +443,9 @@ class _RaisingResponse:
 def _build_client(transport: FakeTransport):
     """Build a PpssppDebugClient with short timeout for fast tests."""
     from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
+
     # Patch SteppingManager defaults via direct construction
     client = PpssppDebugClient(transport)
     # Override the stepping manager with shorter timeouts
-    client._stepping = SteppingManager(
-        transport, default_timeout_ms=500, default_interval_ms=5
-    )
+    client._stepping = SteppingManager(transport, default_timeout_ms=500, default_interval_ms=5)
     return client

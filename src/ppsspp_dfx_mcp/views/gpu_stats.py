@@ -28,9 +28,7 @@ class GpuStatsResponse(FrozenModel):
     )
     vblanks_per_second: float | None = Field(
         default=None,
-        description=(
-            "VBlanks per second. None if PPSSPP didn't return it."
-        ),
+        description=("VBlanks per second. None if PPSSPP didn't return it."),
     )
     info: dict[str, Any] = Field(
         default_factory=dict,
@@ -53,16 +51,12 @@ class GpuStatsResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: GpuStatsResult) -> "GpuStatsResponse":
+    def from_result(cls, result: GpuStatsResult) -> GpuStatsResponse:
         info_keys = len(result.info)
         timing_keys = len(result.timing)
-        fps_str = (
-            f"{result.fps:.1f}" if (result.fps is not None) else "n/a"
-        )
+        fps_str = f"{result.fps:.1f}" if (result.fps is not None) else "n/a"
         vblanks_str = (
-            f"{result.vblanks_per_second:.1f}"
-            if (result.vblanks_per_second is not None)
-            else "n/a"
+            f"{result.vblanks_per_second:.1f}" if (result.vblanks_per_second is not None) else "n/a"
         )
         return cls(
             fps=result.fps,

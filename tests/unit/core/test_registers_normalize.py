@@ -9,8 +9,6 @@ never did.
 
 from __future__ import annotations
 
-import pytest
-
 from ppsspp_dfx_mcp.core.registers import normalize_reg_name
 
 

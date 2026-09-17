@@ -11,14 +11,10 @@ tool function — that's the job of L1 (forwarding) / L3 (orchestration).
 
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable
-
 import pytest
 from mcp.types import ToolAnnotations
 
 from ppsspp_dfx_mcp import server as server_mod
-
 
 # ============================================================================
 # Registry size & naming
@@ -42,9 +38,7 @@ class TestRegistrySize:
     def test_registry_includes_core_tools(self, registry_names):
         """All _CORE_TOOLS must be present in registry (liveness floor)."""
         missing = server_mod._CORE_TOOLS - registry_names
-        assert not missing, (
-            f"core tools missing from registry: {sorted(missing)}"
-        )
+        assert not missing, f"core tools missing from registry: {sorted(missing)}"
 
     def test_registry_is_non_empty(self, tool_registry):
         """Registry must contain at least the 3 core tools."""
@@ -69,16 +63,12 @@ class TestRegistrySize:
 class TestRegistryAnnotationCoverage:
     """Every registry tool must have a ToolAnnotations entry, and vice versa."""
 
-    def test_every_registry_tool_has_annotation(
-        self, registry_names, annotation_names
-    ):
+    def test_every_registry_tool_has_annotation(self, registry_names, annotation_names):
         """_ANNOTATIONS must cover every tool in _TOOL_REGISTRY."""
         missing = registry_names - annotation_names
         assert not missing, f"tools without annotations: {sorted(missing)}"
 
-    def test_every_annotation_has_registry_entry(
-        self, registry_names, annotation_names
-    ):
+    def test_every_annotation_has_registry_entry(self, registry_names, annotation_names):
         """_ANNOTATIONS must not contain entries not in _TOOL_REGISTRY."""
         orphan = annotation_names - registry_names
         assert not orphan, f"orphan annotations: {sorted(orphan)}"
@@ -109,9 +99,7 @@ class TestRegistryEntryShape:
     def test_entry_name_is_str(self, tool_registry):
         """Entry name must be a non-empty string."""
         for name, _, _ in tool_registry:
-            assert isinstance(name, str) and name, (
-                f"tool name must be non-empty str, got {name!r}"
-            )
+            assert isinstance(name, str) and name, f"tool name must be non-empty str, got {name!r}"
 
     def test_entry_description_is_str(self, tool_registry):
         """Entry description must be a non-empty string."""
@@ -123,9 +111,7 @@ class TestRegistryEntryShape:
     def test_entry_fn_is_callable(self, tool_registry):
         """Entry fn must be a callable (async function or wrapper)."""
         for name, _, fn in tool_registry:
-            assert callable(fn), (
-                f"{name}: fn must be callable, got {type(fn).__name__}"
-            )
+            assert callable(fn), f"{name}: fn must be callable, got {type(fn).__name__}"
 
 
 # ============================================================================
@@ -147,17 +133,13 @@ class TestToolDescriptionTdqsFormat:
     def test_each_tdqs_header_present(self, tool_registry, header):
         """Every tool description must contain all 4 TDQS headers."""
         for name, desc, _ in tool_registry:
-            assert header in desc, (
-                f"{name}: missing TDQS header {header!r} in description"
-            )
+            assert header in desc, f"{name}: missing TDQS header {header!r} in description"
 
     def test_tool_tdqs_headers_in_order(self, tool_registry):
         """TDQS headers must appear in PURPOSE → USAGE → BEHAVIOR → RETURNS order."""
         for name, desc, _ in tool_registry:
             positions = [desc.find(h) for h in self._TDQS_HEADERS]
-            assert all(p >= 0 for p in positions), (
-                f"{name}: missing at least one TDQS header"
-            )
+            assert all(p >= 0 for p in positions), f"{name}: missing at least one TDQS header"
             assert positions == sorted(positions), (
                 f"{name}: TDQS headers out of order: positions={positions}"
             )
@@ -197,11 +179,11 @@ class TestAssertCoreTools:
 
     def test_core_tools_subset_is_three(self):
         """_CORE_TOOLS contains exactly the 3 liveness-critical tools."""
-        assert server_mod._CORE_TOOLS == {
+        assert {
             "ppsspp_health",
             "ppsspp_session",
             "ppsspp_session_list",
-        }
+        } == server_mod._CORE_TOOLS
 
 
 # ============================================================================
@@ -242,26 +224,19 @@ class TestDescriptionPurity:
             for pattern, label in self._FORBIDDEN_ID_PATTERNS:
                 matches = re.findall(pattern, desc)
                 if matches:
-                    violations.append(
-                        f"{name}: {label} {matches}"
-                    )
+                    violations.append(f"{name}: {label} {matches}")
 
         tools_dir = Path(server_mod.__file__).parent / "tools"
         for py_file in sorted(tools_dir.glob("*.py")):
             text = py_file.read_text(encoding="utf-8")
-            for m in re.finditer(
-                r'description=\(?\s*"((?:[^"\\]|\\.)*)"', text
-            ):
+            for m in re.finditer(r'description=\(?\s*"((?:[^"\\]|\\.)*)"', text):
                 field_desc = m.group(1)
                 for pattern, label in self._FORBIDDEN_ID_PATTERNS:
                     if re.search(pattern, field_desc):
-                        violations.append(
-                            f"{py_file.name}: {label} in Field description"
-                        )
+                        violations.append(f"{py_file.name}: {label} in Field description")
 
-        assert not violations, (
-            "Internal identifiers found in descriptions:\n"
-            + "\n".join(violations)
+        assert not violations, "Internal identifiers found in descriptions:\n" + "\n".join(
+            violations
         )
 
     def test_session_id_wording(self):
@@ -275,15 +250,15 @@ class TestDescriptionPurity:
             text = py_file.read_text(encoding="utf-8")
             for m in re.finditer(
                 r"session_id:\s*Annotated\[[\s\S]*?"
-                r'Field\(\s*(?:default=[^,]*,\s*)?'
+                r"Field\(\s*(?:default=[^,]*,\s*)?"
                 r'description=\(?\s*"([^"]*)"',
                 text,
             ):
                 desc = m.group(1)
-                if not desc.startswith("Active session ID") and not desc.startswith("Optional session ID"):
-                    violations.append(
-                        f"{py_file.name}: session_id desc={desc!r}"
-                    )
+                if not desc.startswith("Active session ID") and not desc.startswith(
+                    "Optional session ID"
+                ):
+                    violations.append(f"{py_file.name}: session_id desc={desc!r}")
         assert not violations, (
             "session_id Field descriptions not starting with "
             "'Active session ID':\n" + "\n".join(violations)
@@ -306,6 +281,5 @@ class TestDescriptionPurity:
                 if keyword in behavior_text:
                     violations.append(f"{name}: '{keyword}' in BEHAVIOR")
         assert not violations, (
-            "Implementation mechanisms found in BEHAVIOR paragraphs:\n"
-            + "\n".join(violations)
+            "Implementation mechanisms found in BEHAVIOR paragraphs:\n" + "\n".join(violations)
         )

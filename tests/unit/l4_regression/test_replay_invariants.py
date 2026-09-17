@@ -355,9 +355,7 @@ class TestReplayFlushSizeComputation:
     """
 
     @pytest.mark.asyncio
-    async def test_flush_size_equals_decoded_byte_length(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_flush_size_equals_decoded_byte_length(self, monkeypatch: pytest.MonkeyPatch):
         """R-09a: result.size == len(b64decode(base64)).
 
         "AAEC" decodes to 3 bytes (0x00 0x01 0x02); the raw base64
@@ -377,9 +375,7 @@ class TestReplayFlushSizeComputation:
         assert result["size"] != len("AAEC")  # 3 != 4
 
     @pytest.mark.asyncio
-    async def test_flush_ignores_size_field_in_response(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_flush_ignores_size_field_in_response(self, monkeypatch: pytest.MonkeyPatch):
         """R-09b: a bogus `size` in the response must NOT be trusted.
 
         PPSSPP's replay.flush response has no `size` field, but a
@@ -401,9 +397,7 @@ class TestReplayFlushSizeComputation:
         assert result["size"] != 9999
 
     @pytest.mark.asyncio
-    async def test_flush_empty_base64_has_zero_size(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_flush_empty_base64_has_zero_size(self, monkeypatch: pytest.MonkeyPatch):
         """R-09c: empty base64 string yields size=0 (no crash)."""
         mock = AsyncMock()
         mock.replay_flush.return_value = {"version": 0, "base64": ""}
@@ -414,9 +408,7 @@ class TestReplayFlushSizeComputation:
         assert result["base64"] == ""
 
     @pytest.mark.asyncio
-    async def test_flush_invalid_base64_has_zero_size(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_flush_invalid_base64_has_zero_size(self, monkeypatch: pytest.MonkeyPatch):
         """R-09d: malformed base64 yields size=0 (no exception).
 
         Locks in the error-tolerant sizing policy centralized in
@@ -436,9 +428,7 @@ class TestReplayFlushSizeComputation:
         assert result["base64"] == "!!!not-base64!!!"
 
     @pytest.mark.asyncio
-    async def test_flush_size_matches_real_spike_data(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_flush_size_matches_real_spike_data(self, monkeypatch: pytest.MonkeyPatch):
         """R-09e: flush size matches real spike U1 recording length.
 
         Anchor: experiment_ppsspp_replay_spike_v1.md U1 — the 51-byte
@@ -446,9 +436,7 @@ class TestReplayFlushSizeComputation:
         evidence (catches a regression where size is computed via a
         different code path that disagrees with b64decode).
         """
-        spike_b64 = (
-            "ACycRgEAAAAAAEAAAAAAAAQBLJxGAQAAAACAgICAAAAABABExk8BAAAAAAAAAAB/AADQ"
-        )
+        spike_b64 = "ACycRgEAAAAAAEAAAAAAAAQBLJxGAQAAAACAgICAAAAABABExk8BAAAAAAAAAAB/AADQ"
         expected = len(_b64.b64decode(spike_b64))
         mock = AsyncMock()
         mock.replay_flush.return_value = {"version": 1, "base64": spike_b64}
@@ -505,13 +493,12 @@ class TestReplayWaitIterationsExtraction:
         assert result["wait_iterations"] == 7
         # Confirm the mock was called with the right timeout / interval.
         mock.replay_wait_complete.assert_awaited_once_with(
-            timeout_ms=5000, interval_ms=50,
+            timeout_ms=5000,
+            interval_ms=50,
         )
 
     @pytest.mark.asyncio
-    async def test_wait_iterations_does_not_leak_into_data(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_wait_iterations_does_not_leak_into_data(self, monkeypatch: pytest.MonkeyPatch):
         """R-10b: _wait_iterations must NOT appear in result.data.
 
         The internal counter is DebugClient-injected (not from PPSSPP)
@@ -556,9 +543,7 @@ class TestReplayWaitIterationsExtraction:
         assert result["wait_iterations"] == 0
 
     @pytest.mark.asyncio
-    async def test_wait_complete_does_not_mutate_response(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_wait_complete_does_not_mutate_response(self, monkeypatch: pytest.MonkeyPatch):
         """R-10d: wait_complete branch must not mutate the transport's
         response dict.
 

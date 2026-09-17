@@ -32,7 +32,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Project root on sys.path so we can import ppsspp_dfx_mcp + record_replay.
 # This file is at <package>/scripts/record_fixtures.py; the package root
@@ -43,11 +43,12 @@ sys.path.insert(0, str(PACKAGE_ROOT / "tests"))
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from contract_recorder import ContractRecorder  # noqa: E402
+from record_replay.recording_transport import RecordingTransport  # noqa: E402
+
 from ppsspp_dfx_mcp.config import ppsspp_exe_path  # noqa: E402
 from ppsspp_dfx_mcp.core.launcher import PpssppLauncher  # noqa: E402
 from ppsspp_dfx_mcp.core.transport import WsTransport  # noqa: E402
-from record_replay.recording_transport import RecordingTransport  # noqa: E402
-from contract_recorder import ContractRecorder  # noqa: E402
 
 logger = logging.getLogger("record_fixtures")
 
@@ -155,7 +156,7 @@ async def run_recording(iso_path: Path, output_dir: Path) -> int:
         return 0
     logger.info("PPSSPP started (pid=%d, ws_port=%d)", launcher.pid, ws_port)
 
-    transport: Optional[WsTransport] = None
+    transport: WsTransport | None = None
     try:
         # Step 2: connect a real WsTransport.
         logger.info("connecting WsTransport (port=%d)", ws_port)
@@ -193,9 +194,10 @@ async def run_recording(iso_path: Path, output_dir: Path) -> int:
         fixture_counts = contract_recorder.flush(fixtures_dir)
         n_fixtures = sum(fixture_counts.values())
         logger.info(
-            "fixtures written: %d events, %d total records to %s "
-            "(ppsspp_version=%s)",
-            len(fixture_counts), n_fixtures, fixtures_dir,
+            "fixtures written: %d events, %d total records to %s (ppsspp_version=%s)",
+            len(fixture_counts),
+            n_fixtures,
+            fixtures_dir,
             contract_recorder._ppsspp_version,
         )
 

@@ -20,8 +20,6 @@ inspect metadata only, never spawn real Windows processes).
 
 from __future__ import annotations
 
-import sys
-
 # satisfy `import <mod>` statements. L2 tests never call any function
 # from these modules (they inspect metadata).
 import pytest
@@ -39,10 +37,7 @@ def _static_registry_entries() -> list[tuple[str, str, object]]:
     """
     server_mod.register_all_tools()
     tools = server_mod.mcp._tool_manager._tools
-    return sorted(
-        (name, tool.description or "", tool.fn)
-        for name, tool in tools.items()
-    )
+    return sorted((name, tool.description or "", tool.fn) for name, tool in tools.items())
 
 
 @pytest.fixture

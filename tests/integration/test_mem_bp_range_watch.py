@@ -28,14 +28,9 @@ class TestMemBreakpointRangeWatch:
         await client.mem_bp_add(addr, size=8, read=True, write=True)
 
         listed = await client.mem_bp_list()
-        entries = [
-            bp for bp in listed.get("breakpoints", [])
-            if bp.get("address") == addr
-        ]
+        entries = [bp for bp in listed.get("breakpoints", []) if bp.get("address") == addr]
         assert len(entries) == 1, f"expected exactly one watch at {addr:#x}"
         assert entries[0].get("size") == 8
 
         removed = await client.mem_bp_remove(addr, size=8)
-        assert not removed.get("breakpoints"), (
-            f"watch not removed: {removed}"
-        )
+        assert not removed.get("breakpoints"), f"watch not removed: {removed}"

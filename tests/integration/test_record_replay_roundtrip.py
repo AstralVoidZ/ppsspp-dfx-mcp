@@ -30,19 +30,15 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import pytest
-
 from record_replay.cassette import (
-    CassetteRecord,
     load_cassette,
 )
 from record_replay.replay_transport import (
     CassetteExhaustedError,
     ReplayTransport,
 )
-
 
 # ============================================================================
 # Cassette loading & shape
@@ -94,9 +90,7 @@ def test_cassette_contains_expected_event_types(cassette_path: Path):
     # broadcast is optional, but if present, assert it has a message.
     broadcast_records = [r for r in records if r.type == "broadcast"]
     for r in broadcast_records:
-        assert r.message is not None, (
-            f"broadcast record {r.event!r} has no message: {r!r}"
-        )
+        assert r.message is not None, f"broadcast record {r.event!r} has no message: {r!r}"
 
 
 # ============================================================================
@@ -151,9 +145,7 @@ def test_replay_returns_recorded_call_responses(cassette_path: Path):
         )
 
     # Sanity: we replayed at least one call (skipped cpu.status only).
-    assert len(call_records) - skipped > 0, (
-        "no replayable call records (all were cpu.status)"
-    )
+    assert len(call_records) - skipped > 0, "no replayable call records (all were cpu.status)"
 
 
 # ============================================================================
@@ -180,16 +172,12 @@ def test_replay_fire_and_forget_applies_state_changes(cassette_path: Path):
     assert len(faf_records) > 0, "cassette has no fire_and_forget records"
 
     # Replay each fire_and_forget — should not raise CassetteExhaustedError.
-    for i, recorded in enumerate(faf_records):
-        asyncio.run(
-            replay.fire_and_forget(recorded.event, **(recorded.params or {}))
-        )
+    for _i, recorded in enumerate(faf_records):
+        asyncio.run(replay.fire_and_forget(recorded.event, **(recorded.params or {})))
 
     # Final state must have `stepping` field (cpu.status default + merges).
     final_state = replay.state
-    assert "stepping" in final_state, (
-        f"final state missing 'stepping' field: {final_state!r}"
-    )
+    assert "stepping" in final_state, f"final state missing 'stepping' field: {final_state!r}"
     assert isinstance(final_state["stepping"], bool)
 
 
@@ -210,17 +198,13 @@ def test_replay_does_not_raise_cassette_exhausted(cassette_path: Path):
 
     # Replay all fire_and_forget records first (to apply state changes).
     for recorded in faf_records:
-        asyncio.run(
-            replay.fire_and_forget(recorded.event, **(recorded.params or {}))
-        )
+        asyncio.run(replay.fire_and_forget(recorded.event, **(recorded.params or {})))
 
     # Replay all call records (cpu.status returns current state, others
     # return recorded responses).
     for recorded in call_records:
         try:
-            asyncio.run(
-                replay.call(recorded.event, timeout=1.0, **(recorded.params or {}))
-            )
+            asyncio.run(replay.call(recorded.event, timeout=1.0, **(recorded.params or {})))
         except CassetteExhaustedError:
             # Only acceptable for cpu.status when no records exist — but
             # we filtered that out. Any other CassetteExhaustedError is
@@ -253,9 +237,7 @@ def test_replay_cursors_advance_after_consumption(cassette_path: Path):
 
     # Consume one call record.
     first_call = next(r for r in records if r.type == "call")
-    asyncio.run(
-        replay.call(first_call.event, timeout=1.0, **(first_call.params or {}))
-    )
+    asyncio.run(replay.call(first_call.event, timeout=1.0, **(first_call.params or {})))
     assert replay.remaining_calls < initial_remaining_calls, (
         f"call cursor did not advance: "
         f"before={initial_remaining_calls}, after={replay.remaining_calls}"
@@ -263,12 +245,9 @@ def test_replay_cursors_advance_after_consumption(cassette_path: Path):
 
     # Consume one fire_and_forget record.
     first_faf = next(r for r in records if r.type == "fire_and_forget")
-    asyncio.run(
-        replay.fire_and_forget(first_faf.event, **(first_faf.params or {}))
-    )
+    asyncio.run(replay.fire_and_forget(first_faf.event, **(first_faf.params or {})))
     assert replay.remaining_faf < initial_remaining_faf, (
-        f"faf cursor did not advance: "
-        f"before={initial_remaining_faf}, after={replay.remaining_faf}"
+        f"faf cursor did not advance: before={initial_remaining_faf}, after={replay.remaining_faf}"
     )
 
 
@@ -293,9 +272,7 @@ def test_recording_then_replay_preserves_call_sequence(cassette_path: Path):
     call_records = [r for r in records if r.type == "call"]
 
     # Take the first 3 non-cpu.status call records (cpu.status is special).
-    sample_records = [
-        r for r in call_records if r.event != "cpu.status"
-    ][:3]
+    sample_records = [r for r in call_records if r.event != "cpu.status"][:3]
     if len(sample_records) < 3:
         pytest.skip(
             f"cassette has only {len(sample_records)} non-cpu.status call records "
@@ -304,9 +281,7 @@ def test_recording_then_replay_preserves_call_sequence(cassette_path: Path):
 
     replay = ReplayTransport(records)
     for i, recorded in enumerate(sample_records):
-        response = asyncio.run(
-            replay.call(recorded.event, timeout=1.0, **(recorded.params or {}))
-        )
+        response = asyncio.run(replay.call(recorded.event, timeout=1.0, **(recorded.params or {})))
         # Compare response (excluding ticket).
         expected = dict(recorded.response or {})
         expected.pop("ticket", None)

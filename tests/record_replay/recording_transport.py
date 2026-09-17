@@ -20,11 +20,11 @@ Design decisions (see design.md):
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from .cassette import CassetteRecord, save_cassette
 
@@ -43,7 +43,7 @@ class RecordingTransport:
     def __init__(
         self,
         real_transport: Any,
-        cassette_path: Optional[Path] = None,
+        cassette_path: Path | None = None,
         capture_state_changes: bool = True,
     ) -> None:
         """Initialize the recording decorator.
@@ -88,9 +88,7 @@ class RecordingTransport:
         """Read-only access to the in-memory record buffer."""
         return list(self._records)
 
-    async def call(
-        self, event: str, timeout: float = 5.0, **params: Any
-    ) -> dict[str, Any]:
+    async def call(self, event: str, timeout: float = 5.0, **params: Any) -> dict[str, Any]:
         """Forward call to real transport and record the exchange."""
         response = await self._real.call(event, timeout=timeout, **params)
         self._records.append(
@@ -112,7 +110,7 @@ class RecordingTransport:
         The delta is recorded as a state_change record so ReplayTransport
         can MERGE it during replay.
         """
-        before_state: Optional[dict[str, Any]] = None
+        before_state: dict[str, Any] | None = None
         if self._capture_state_changes:
             try:
                 before_state = await self._real.call("cpu.status", timeout=2.0)
@@ -174,13 +172,11 @@ class RecordingTransport:
         self,
         event: str,
         timeout_ms: int = 5000,
-        filter: Optional[Callable[[dict[str, Any]], bool]] = None,
+        filter: Callable[[dict[str, Any]], bool] | None = None,
     ) -> dict[str, Any]:
         """Forward to real transport's wait_for_broadcast and record the
         received broadcast message."""
-        msg = await self._real.wait_for_broadcast(
-            event, timeout_ms=timeout_ms, filter=filter
-        )
+        msg = await self._real.wait_for_broadcast(event, timeout_ms=timeout_ms, filter=filter)
         self._records.append(
             CassetteRecord(
                 type="broadcast",

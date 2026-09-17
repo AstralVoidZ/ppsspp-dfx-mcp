@@ -56,7 +56,6 @@ from ppsspp_dfx_mcp.core.transport import (
     WsTransport,
 )
 
-
 # ============================================================================
 # MockWebSocket — simulates PPSSPP WebSocket server
 # ============================================================================
@@ -110,8 +109,10 @@ class MockWebSocket:
 
 def _patch_connect(mock_ws: MockWebSocket):
     """Patch `websockets.connect` to return `mock_ws`."""
+
     async def _connect(*args: Any, **kwargs: Any) -> MockWebSocket:
         return mock_ws
+
     return patch("ppsspp_dfx_mcp.core.transport.websockets.connect", new=_connect)
 
 
@@ -169,6 +170,7 @@ class TestCallTicketLifecycle:
                 mock_ws.incoming_messages.append(
                     json.dumps({"event": "memory.read_u32", "ticket": "t1", "value": 42})
                 )
+
             asyncio.create_task(respond())
             result = await transport.call("memory.read_u32", address=0x08804000)
         await transport.close()
@@ -192,13 +194,16 @@ class TestCallTicketLifecycle:
             async def respond():
                 await asyncio.sleep(0.01)
                 mock_ws.incoming_messages.append(
-                    json.dumps({
-                        "event": "error",
-                        "ticket": "t1",
-                        "message": "bad address",
-                        "level": 3,
-                    })
+                    json.dumps(
+                        {
+                            "event": "error",
+                            "ticket": "t1",
+                            "message": "bad address",
+                            "level": 3,
+                        }
+                    )
                 )
+
             asyncio.create_task(respond())
             with pytest.raises(RuntimeError, match="bad address"):
                 await transport.call("memory.read_u32", address=0x0)
@@ -217,6 +222,7 @@ class TestCallTicketLifecycle:
         """
         with _patch_connect(mock_ws):
             await transport.connect()
+
             # Schedule two responses
             async def respond():
                 await asyncio.sleep(0.01)
@@ -226,6 +232,7 @@ class TestCallTicketLifecycle:
                 mock_ws.incoming_messages.append(
                     json.dumps({"event": "memory.read_u16", "ticket": "t2", "value": 2})
                 )
+
             asyncio.create_task(respond())
             await asyncio.gather(
                 transport.call("memory.read_u32", address=0x0),
@@ -247,6 +254,7 @@ class TestCallTicketLifecycle:
         """O1-I6: _pending is a dict, keys unique — no duplicate ticket."""
         with _patch_connect(mock_ws):
             await transport.connect()
+
             # Start two calls; both register different tickets
             async def respond():
                 await asyncio.sleep(0.02)
@@ -256,6 +264,7 @@ class TestCallTicketLifecycle:
                 mock_ws.incoming_messages.append(
                     json.dumps({"event": "memory.read_u16", "ticket": "t2", "value": 2})
                 )
+
             asyncio.create_task(respond())
             t1 = asyncio.create_task(transport.call("memory.read_u32", address=0x0))
             t2 = asyncio.create_task(transport.call("memory.read_u16", address=0x0))
@@ -268,6 +277,7 @@ class TestCallTicketLifecycle:
     async def test_I7_call_raises_when_not_connected(self, transport, monkeypatch):
         """O1-I7 (F-3 updated): call() on a transport that cannot reconnect
         raises RuntimeError mentioning the failed reconnect."""
+
         async def _fail_connect():
             raise ConnectionRefusedError("refused")
 
@@ -347,6 +357,7 @@ class TestWaitForState:
                 nonlocal call_count
                 call_count += 1
                 return {"stepping": True}
+
             transport.call = mock_call
             await transport.wait_for_state(
                 lambda s: s.get("stepping") is True,
@@ -363,6 +374,7 @@ class TestWaitForState:
 
             async def mock_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 return {"stepping": True, "pc": 0x1234}
+
             transport.call = mock_call
             result = await transport.wait_for_state(
                 lambda s: s.get("stepping") is True,
@@ -380,6 +392,7 @@ class TestWaitForState:
 
             async def mock_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 return {"stepping": False}
+
             transport.call = mock_call
             with pytest.raises(TimeoutError, match="timeout"):
                 await transport.wait_for_state(
@@ -405,6 +418,7 @@ class TestWaitForState:
                 call_count += 1
                 # First poll: not satisfied; second poll: satisfied
                 return {"stepping": call_count >= 2}
+
             transport.call = mock_call
             # Even with timeout_ms=0, predicate satisfied on 2nd poll should return
             result = await transport.wait_for_state(
@@ -463,13 +477,16 @@ class TestRecvLoop:
             async def respond():
                 await asyncio.sleep(0.01)
                 mock_ws.incoming_messages.append(
-                    json.dumps({
-                        "event": "error",
-                        "ticket": "t1",
-                        "message": "ppsspp error",
-                        "level": 3,
-                    })
+                    json.dumps(
+                        {
+                            "event": "error",
+                            "ticket": "t1",
+                            "message": "ppsspp error",
+                            "level": 3,
+                        }
+                    )
                 )
+
             asyncio.create_task(respond())
             with pytest.raises(RuntimeError, match="ppsspp error"):
                 await transport.call("memory.read_u32", address=0x0)
@@ -485,6 +502,7 @@ class TestRecvLoop:
                 mock_ws.incoming_messages.append(
                     json.dumps({"event": "memory.read_u32", "ticket": "t1", "value": 99})
                 )
+
             asyncio.create_task(respond())
             result = await transport.call("memory.read_u32", address=0x0)
         await transport.close()
@@ -526,13 +544,16 @@ class TestSendVersion:
                 sent = json.loads(mock_ws.sent_messages[0])
                 ticket = sent["ticket"]
                 mock_ws.incoming_messages.append(
-                    json.dumps({
-                        "event": "version",
-                        "ticket": ticket,
-                        "name": "PPSSPP",
-                        "version": "1.0",
-                    })
+                    json.dumps(
+                        {
+                            "event": "version",
+                            "ticket": ticket,
+                            "name": "PPSSPP",
+                            "version": "1.0",
+                        }
+                    )
                 )
+
             asyncio.create_task(respond())
             result = await transport.send_version()
         await transport.close()
@@ -549,13 +570,15 @@ class TestSendVersion:
                 mock_ws.incoming_messages.append(
                     json.dumps({"event": "version", "name": "PPSSPP", "version": "1.0"})
                 )
+
             asyncio.create_task(push_unsolicited_version())
 
             # Force call() to time out for "version" event
             async def fast_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 if event == "version":
-                    raise asyncio.TimeoutError()
+                    raise TimeoutError()
                 return {}
+
             transport.call = fast_call
             result = await transport.send_version()
         await transport.close()
@@ -569,22 +592,27 @@ class TestSendVersion:
 
             async def failing_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 if event == "version":
-                    raise asyncio.TimeoutError()
+                    raise TimeoutError()
                 return {}
+
             transport.call = failing_call
 
             # Patch time.monotonic so the 5.0 budget loop sees elapsed > 5.0
             import ppsspp_dfx_mcp.core.transport as transport_mod
 
             fake_times = iter([0.0, 6.0, 6.0])
+
             def fake_monotonic() -> float:
                 try:
                     return next(fake_times)
                 except StopIteration:
                     return 6.0
-            with patch.object(transport_mod.time, "monotonic", fake_monotonic):
-                with pytest.raises(RuntimeError, match="version handshake timeout"):
-                    await transport.send_version()
+
+            with (
+                patch.object(transport_mod.time, "monotonic", fake_monotonic),
+                pytest.raises(RuntimeError, match="version handshake timeout"),
+            ):
+                await transport.send_version()
         await transport.close()
 
     async def test_I24_put_back_non_version_messages(self, transport, mock_ws):
@@ -601,12 +629,14 @@ class TestSendVersion:
                 mock_ws.incoming_messages.append(
                     json.dumps({"event": "version", "name": "PPSSPP", "version": "1.0"})
                 )
+
             asyncio.create_task(push_messages())
 
             async def fast_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 if event == "version":
-                    raise asyncio.TimeoutError()
+                    raise TimeoutError()
                 return {}
+
             transport.call = fast_call
             result = await transport.send_version()
             await _wait_for_event(transport.events)
@@ -623,21 +653,26 @@ class TestSendVersion:
 
             async def failing_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 if event == "version":
-                    raise asyncio.TimeoutError()
+                    raise TimeoutError()
                 return {}
+
             transport.call = failing_call
 
             import ppsspp_dfx_mcp.core.transport as transport_mod
 
             fake_times = iter([0.0, 6.0, 6.0])
+
             def fake_monotonic() -> float:
                 try:
                     return next(fake_times)
                 except StopIteration:
                     return 6.0
-            with patch.object(transport_mod.time, "monotonic", fake_monotonic):
-                with pytest.raises(RuntimeError, match="version handshake timeout"):
-                    await transport.send_version()
+
+            with (
+                patch.object(transport_mod.time, "monotonic", fake_monotonic),
+                pytest.raises(RuntimeError, match="version handshake timeout"),
+            ):
+                await transport.send_version()
         await transport.close()
 
     async def test_I26_max_duration_about_7s(self, transport, mock_ws):
@@ -647,21 +682,26 @@ class TestSendVersion:
 
             async def failing_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 if event == "version":
-                    raise asyncio.TimeoutError()
+                    raise TimeoutError()
                 return {}
+
             transport.call = failing_call
 
             import ppsspp_dfx_mcp.core.transport as transport_mod
 
             fake_times = iter([0.0, 6.0, 6.0])
+
             def fake_monotonic() -> float:
                 try:
                     return next(fake_times)
                 except StopIteration:
                     return 6.0
-            with patch.object(transport_mod.time, "monotonic", fake_monotonic):
-                with pytest.raises(RuntimeError, match="version handshake timeout"):
-                    await transport.send_version()
+
+            with (
+                patch.object(transport_mod.time, "monotonic", fake_monotonic),
+                pytest.raises(RuntimeError, match="version handshake timeout"),
+            ):
+                await transport.send_version()
         await transport.close()
         # The ~7s budget is verified by the code path: call(timeout=2.0) + 5.0s
         # fallback loop. We don't wait real time; we verify the RuntimeError
@@ -716,9 +756,7 @@ class TestWaitForBroadcast:
             await transport.connect()
             transport._events_queue.put_nowait({"event": "cpu.stepping", "pc": 1})
             transport._events_queue.put_nowait({"event": "cpu.stepping", "pc": 2})
-            result = await transport.wait_for_broadcast(
-                "cpu.stepping", timeout_ms=500, filter=None
-            )
+            result = await transport.wait_for_broadcast("cpu.stepping", timeout_ms=500, filter=None)
         await transport.close()
         assert result["pc"] == 1  # First matching returned
 
@@ -726,12 +764,8 @@ class TestWaitForBroadcast:
         """B.2 I3: filter predicate selects among same-event messages."""
         with _patch_connect(mock_ws):
             await transport.connect()
-            transport._events_queue.put_nowait(
-                {"event": "cpu.stepping", "reason": "cpu.stepInto"}
-            )
-            transport._events_queue.put_nowait(
-                {"event": "cpu.stepping", "reason": "breakpoint"}
-            )
+            transport._events_queue.put_nowait({"event": "cpu.stepping", "reason": "cpu.stepInto"})
+            transport._events_queue.put_nowait({"event": "cpu.stepping", "reason": "breakpoint"})
             result = await transport.wait_for_broadcast(
                 "cpu.stepping",
                 timeout_ms=500,
@@ -762,13 +796,15 @@ class TestWaitForBroadcast:
                 mock_ws.incoming_messages.append(
                     json.dumps({"event": "version", "name": "PPSSPP", "version": "1.0"})
                 )
+
             asyncio.create_task(push_version())
 
             # Force call() to time out so send_version uses the fallback path
             async def fast_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 if event == "version":
-                    raise asyncio.TimeoutError()
+                    raise TimeoutError()
                 return {}
+
             transport.call = fast_call
             result = await transport.send_version()
         await transport.close()

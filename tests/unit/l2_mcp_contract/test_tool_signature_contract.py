@@ -15,8 +15,6 @@ FastMCP 分发时因参数名错配导致 TypeError。这些测试不调用工�
 from __future__ import annotations
 
 import inspect
-import sys
-import types
 
 # mcp[cli] is a declared dependency (pyproject.toml), so mcp.server.mcpserver
 # is always available in the test environment. No stub needed — using the
@@ -28,7 +26,6 @@ from mcp.server.mcpserver import Image  # noqa: F401 (re-exported by screenshot.
 from ppsspp_dfx_mcp.tools.memory import read_memory
 from ppsspp_dfx_mcp.tools.memory_info_search import memory_info_search
 from ppsspp_dfx_mcp.tools.screenshot import dump_texture
-
 
 # ============================================================================
 # F-01 (P-02): read_memory read_string 不传 length
@@ -46,9 +43,7 @@ class TestReadStringLengthDeprecation:
     def test_read_memory_has_length_param(self):
         """length 参数仍存在于签名中（向后兼容，但标记 deprecated）。"""
         sig = inspect.signature(read_memory)
-        assert "length" in sig.parameters, (
-            "length 参数应保留在签名中（标记 deprecated），不应删除"
-        )
+        assert "length" in sig.parameters, "length 参数应保留在签名中（标记 deprecated），不应删除"
 
     def test_read_memory_length_has_deprecated_description(self):
         """length 参数的 description 应标注 deprecated/ignored。"""
@@ -83,17 +78,13 @@ class TestMemoryInfoSearchTypeParam:
     def test_no_region_type_param(self):
         """函数签名不能包含 `region_type` 参数（已重命名）。"""
         sig = inspect.signature(memory_info_search)
-        assert "region_type" not in sig.parameters, (
-            "region_type 参数应已重命名为 type，不应残留"
-        )
+        assert "region_type" not in sig.parameters, "region_type 参数应已重命名为 type，不应残留"
 
     def test_type_param_is_optional(self):
         """type 参数是可选的（默认 None）。"""
         sig = inspect.signature(memory_info_search)
         type_param = sig.parameters["type"]
-        assert type_param.default is None, (
-            f"type 参数默认值应为 None，实际为 {type_param.default}"
-        )
+        assert type_param.default is None, f"type 参数默认值应为 None，实际为 {type_param.default}"
 
 
 # ============================================================================
@@ -112,9 +103,7 @@ class TestDumpTextureLevelParam:
     def test_has_level_param(self):
         """函数签名必须包含 `level` 参数。"""
         sig = inspect.signature(dump_texture)
-        assert "level" in sig.parameters, (
-            "dump_texture 必须有 `level` 参数"
-        )
+        assert "level" in sig.parameters, "dump_texture 必须有 `level` 参数"
 
     def test_no_address_param(self):
         """函数签名不能包含 `address` 参数。"""
@@ -127,6 +116,4 @@ class TestDumpTextureLevelParam:
         """level 参数默认值为 0（mipmap level 0）。"""
         sig = inspect.signature(dump_texture)
         level_param = sig.parameters["level"]
-        assert level_param.default == 0, (
-            f"level 参数默认值应为 0，实际为 {level_param.default}"
-        )
+        assert level_param.default == 0, f"level 参数默认值应为 0，实际为 {level_param.default}"

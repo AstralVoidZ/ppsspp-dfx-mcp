@@ -45,7 +45,9 @@ __all__ = ["memory_info_search"]
 # failure.
 @mcp.tool(
     name="ppsspp_memory_info_search",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def memory_info_search(
@@ -96,11 +98,11 @@ async def memory_info_search(
     ] = None,
 ) -> MemoryInfoSearchOutput:
     """PURPOSE: Search PPSSPP's memory-tracking metadata for allocation/texture tags matching a string.
-    
+
     USAGE: session_id + match (case-insensitive substring, required); optional address/end/type filters.
-    
+
     BEHAVIOR: READ-ONLY. Returns a single extent per matching tag.
-    
+
     RETURNS: {regions[], count, raw, text}."""
     require_session_id(session_id)
     # An empty match would match everything —
@@ -119,7 +121,7 @@ async def memory_info_search(
             "address": address_int,
             "end": end_int,
             "type": type,
-        }
+        },
     )
 
     try:

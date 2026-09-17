@@ -20,8 +20,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
 

@@ -30,10 +30,9 @@ import asyncio
 from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
-from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
+from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
 # ============================================================================
 # Fixtures (local — L3 confirm-step tests need custom faf handlers that
@@ -47,22 +46,24 @@ def _make_step_handler(reason: str = "cpu.stepInto", pc: int = 0x08804000):
     The handler pushes a broadcast with the given reason/pc fields,
     simulating PPSSPP's SteppingBroadcaster (SteppingBroadcaster.cpp:L57-72).
     """
+
     def handler(t: FakeTransport, **params: Any) -> None:
         t.set_state({"stepping": False})
 
         async def _push():
-            t.push_broadcast({
-                "event": "cpu.stepping",
-                "pc": pc,
-                "ticks": 12345.0,
-                "reason": reason,
-                "relatedAddress": 0,
-            })
+            t.push_broadcast(
+                {
+                    "event": "cpu.stepping",
+                    "pc": pc,
+                    "ticks": 12345.0,
+                    "reason": reason,
+                    "relatedAddress": 0,
+                }
+            )
             t.set_state({"stepping": True})
 
-        asyncio.get_event_loop().call_soon(
-            lambda: asyncio.ensure_future(_push())
-        )
+        asyncio.get_event_loop().call_soon(lambda: asyncio.ensure_future(_push()))
+
     return handler
 
 
@@ -148,7 +149,8 @@ class TestStepMethodEndToEndOrchestration:
         assert result["reason"] == "breakpoint"
         # Verify address was forwarded to fire_and_forget
         faf_events = [
-            (ev, p) for ev, p in step_client._transport.fire_and_forget_calls
+            (ev, p)
+            for ev, p in step_client._transport.fire_and_forget_calls
             if ev == "cpu.runUntil"
         ]
         assert len(faf_events) == 1
@@ -176,9 +178,7 @@ class TestReasonFieldEndToEndPropagation:
     end-to-end propagation through the real broadcast queue.
     """
 
-    async def test_custom_reason_propagates_end_to_end(
-        self, step_transport
-    ):
+    async def test_custom_reason_propagates_end_to_end(self, step_transport):
         """Custom reason (e.g. 'savestate.load') propagates to caller.
 
         PPSSPP's SteppingBroadcaster can push cpu.stepping with various
@@ -187,9 +187,7 @@ class TestReasonFieldEndToEndPropagation:
         string survives the end-to-end chain.
         """
         custom_reason = "savestate.load"
-        step_transport.set_faf_handler(
-            "cpu.stepInto", _make_step_handler(reason=custom_reason)
-        )
+        step_transport.set_faf_handler("cpu.stepInto", _make_step_handler(reason=custom_reason))
         client = PpssppDebugClient(step_transport)
 
         result = await client.step_into(timeout_ms=1000)
@@ -220,9 +218,7 @@ class TestLegacyFallbackOrchestration:
     _confirm_step_completed(use_broadcast=False).
     """
 
-    async def test_use_broadcast_false_uses_legacy_path(
-        self, step_client, step_transport
-    ):
+    async def test_use_broadcast_false_uses_legacy_path(self, step_client, step_transport):
         """use_broadcast=False: wait_for_state called (not wait_for_broadcast).
 
         Setup: set stepping=True (simulating the step faf handler's
@@ -231,16 +227,12 @@ class TestLegacyFallbackOrchestration:
         """
         step_transport.set_state({"stepping": True})
 
-        result = await step_client._confirm_step_completed(
-            timeout_ms=1000, use_broadcast=False
-        )
+        result = await step_client._confirm_step_completed(timeout_ms=1000, use_broadcast=False)
 
         # Legacy path returns cpu.status dict (stepping=True)
         assert result["stepping"] is True
 
-    async def test_interval_ms_accepted_in_legacy_path(
-        self, step_client, step_transport
-    ):
+    async def test_interval_ms_accepted_in_legacy_path(self, step_client, step_transport):
         """V004 I9 (API 兼容): interval_ms accepted in legacy path.
 
         interval_ms is a no-op in broadcast mode but is forwarded to
@@ -249,13 +241,15 @@ class TestLegacyFallbackOrchestration:
         """
         # Broadcast path: interval_ms accepted (no-op).
         # Push a broadcast message so wait_for_broadcast succeeds.
-        step_transport.push_broadcast({
-            "event": "cpu.stepping",
-            "pc": 0,
-            "ticks": 0.0,
-            "reason": "cpu.stepInto",
-            "relatedAddress": 0,
-        })
+        step_transport.push_broadcast(
+            {
+                "event": "cpu.stepping",
+                "pc": 0,
+                "ticks": 0.0,
+                "reason": "cpu.stepInto",
+                "relatedAddress": 0,
+            }
+        )
         result = await step_client._confirm_step_completed(
             timeout_ms=500, interval_ms=50, use_broadcast=True
         )

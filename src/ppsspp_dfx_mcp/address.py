@@ -44,9 +44,7 @@ Why not Pydantic Annotated[int, BeforeValidator]?
 
 from __future__ import annotations
 
-from typing import Union
-
-from ppsspp_dfx_mcp.errors import AddrInvalid, ToolError
+from ppsspp_dfx_mcp.errors import AddrInvalid
 
 __all__ = ["Address", "Value", "parse_address", "parse_value", "format_address"]
 
@@ -63,7 +61,7 @@ Value = str
 _EMPTY = ""
 
 
-def _parse_int(value: Union[str, int], *, param_name: str) -> int:
+def _parse_int(value: str | int, *, param_name: str) -> int:
     """Core parser shared by parse_address / parse_value.
 
     Args:
@@ -82,8 +80,7 @@ def _parse_int(value: Union[str, int], *, param_name: str) -> int:
         # bool is an int subclass — True would otherwise parse as
         # address 0x00000001 silently.
         raise AddrInvalid(
-            f"{param_name} must be a hex string (e.g. '0x08804000') or int; "
-            f"got bool",
+            f"{param_name} must be a hex string (e.g. '0x08804000') or int; got bool",
         )
     if isinstance(value, int):
         return value
@@ -115,7 +112,7 @@ def _parse_int(value: Union[str, int], *, param_name: str) -> int:
         ) from None
 
 
-def parse_address(address: Union[str, int]) -> int:
+def parse_address(address: str | int) -> int:
     """Parse a memory address from str/int to int.
 
     Rejects negative and >32-bit values — the
@@ -131,14 +128,11 @@ def parse_address(address: Union[str, int]) -> int:
     """
     value = _parse_int(address, param_name="address")
     if value < 0 or value > 0xFFFFFFFF:
-        raise AddrInvalid(
-            f"address out of the 32-bit range: {value!r} "
-            f"(expected 0..0xFFFFFFFF)"
-        )
+        raise AddrInvalid(f"address out of the 32-bit range: {value!r} (expected 0..0xFFFFFFFF)")
     return value
 
 
-def parse_value(value: Union[str, int]) -> int:
+def parse_value(value: str | int) -> int:
     """Parse a data value (e.g. write_memory `value`) from str/int to int.
 
     Same parsing rules as parse_address — hex strings (preferred) and

@@ -418,10 +418,12 @@ _PPSSPP_ERROR_HINTS: dict[str, str] = {
 # asyncio task (tool call) gets its own resolver scope, set by
 # session_client_with_transport (accept phase). Module-level state set by
 # start_session would leak resolvers across concurrently running sessions.
-_pid_resolver: contextvars.ContextVar[Callable[[], int | None] | None] = \
-    contextvars.ContextVar("_pid_resolver", default=None)
-_game_state_resolver: contextvars.ContextVar[Callable[[], str | None] | None] = \
+_pid_resolver: contextvars.ContextVar[Callable[[], int | None] | None] = contextvars.ContextVar(
+    "_pid_resolver", default=None
+)
+_game_state_resolver: contextvars.ContextVar[Callable[[], str | None] | None] = (
     contextvars.ContextVar("_game_state_resolver", default=None)
+)
 
 # Token type returned by set_error_context (used by reset_error_context).
 ErrorContextToken = tuple[contextvars.Token, contextvars.Token]
@@ -628,10 +630,7 @@ def to_tool_error(exc: Exception) -> ToolError:
     # plain ConnectionError("PPSSPP WebSocket disconnected") — previously
     # only ConnectionRefusedError was classified, so a mid-call disconnect
     # surfaced as generic INTERNAL instead of WS_DISCONNECTED.
-    if (
-        isinstance(exc, ConnectionError)
-        or "websocket not connected" in msg_lower
-    ):
+    if isinstance(exc, ConnectionError) or "websocket not connected" in msg_lower:
         return WsDisconnected(
             f"{msg} — Hint: PPSSPP WebSocket is not connected. Start a "
             f"session first via ppsspp_session(action='start'), or "
@@ -641,9 +640,7 @@ def to_tool_error(exc: Exception) -> ToolError:
     # PPSSPP error event → PpssppProtocolError with hint.
     if "ppsspp error" in msg_lower:
         hint = _match_ppsspp_hint(msg_lower)
-        return PpssppProtocolError(
-            f"{msg}{hint}" if hint else msg
-        )
+        return PpssppProtocolError(f"{msg}{hint}" if hint else msg)
 
     # RuntimeError stepping-related → CpuStateError.
     # Two directions based on what the CPU state IS and what it NEEDS:

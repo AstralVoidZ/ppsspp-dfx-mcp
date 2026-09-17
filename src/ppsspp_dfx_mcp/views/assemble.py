@@ -72,7 +72,7 @@ class AssembleResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: AssembleResult) -> "AssembleResponse":
+    def from_result(cls, result: AssembleResult) -> AssembleResponse:
         n = _byte_count(result.response)
         text = f"Assembled {n} bytes → {format_address(result.address)}"
         return cls(

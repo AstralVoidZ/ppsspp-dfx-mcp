@@ -81,9 +81,7 @@ def _get_field_type(model_cls, field_name: str):
     Raises AssertionError if the field doesn't exist.
     """
     hints = typing.get_type_hints(model_cls, include_extras=True)
-    assert field_name in hints, (
-        f"{model_cls.__name__} should have a `{field_name}` field"
-    )
+    assert field_name in hints, f"{model_cls.__name__} should have a `{field_name}` field"
     return hints[field_name]
 
 
@@ -293,8 +291,7 @@ class TestFromResultProducesHexOutput:
         )
         view = MemoryReadResponse.from_result(result)
         assert view.address == "0x08804000", (
-            f"from_result should format 0x08804000 as '0x08804000', "
-            f"got {view.address!r}"
+            f"from_result should format 0x08804000 as '0x08804000', got {view.address!r}"
         )
         assert isinstance(view.address, str)
 
@@ -312,8 +309,7 @@ class TestFromResultProducesHexOutput:
         )
         view = StepResponse.from_result(result)
         assert view.pc == "0xDEADBEEF", (
-            f"from_result should format pc 0xDEADBEEF as '0xDEADBEEF', "
-            f"got {view.pc!r}"
+            f"from_result should format pc 0xDEADBEEF as '0xDEADBEEF', got {view.pc!r}"
         )
         assert view.address == "0x00000000"
         assert view.related_address == "0x00000000"

@@ -54,9 +54,7 @@ class TestReplayContract:
         assert transport.calls[-1][1] == {}
 
     @pytest.mark.asyncio
-    async def test_replay_flush_forwards_event_and_passes_response(
-        self, client, transport
-    ):
+    async def test_replay_flush_forwards_event_and_passes_response(self, client, transport):
         """replay_flush() forwards to `replay.flush` WS event with no params.
 
         Anchor: ReplaySubscriber.cpp — replay.flush returns {version, base64}.
@@ -73,9 +71,7 @@ class TestReplayContract:
         assert result == {"version": 1, "base64": "AAEC"}
 
     @pytest.mark.asyncio
-    async def test_replay_execute_forwards_version_and_base64(
-        self, client, transport
-    ):
+    async def test_replay_execute_forwards_version_and_base64(self, client, transport):
         """replay_execute(version, base64) forwards both params.
 
         Anchor: ReplaySubscriber.cpp — replay.execute takes {version, base64}.
@@ -88,9 +84,7 @@ class TestReplayContract:
         assert transport.calls[-1][1] == {"version": 1, "base64": "AAEC"}
 
     @pytest.mark.asyncio
-    async def test_replay_status_forwards_event_and_passes_response(
-        self, client, transport
-    ):
+    async def test_replay_status_forwards_event_and_passes_response(self, client, transport):
         """replay_status() forwards to `replay.status` WS event with no params.
 
         Anchor: ReplaySubscriber.cpp — replay.status returns
@@ -108,9 +102,7 @@ class TestReplayContract:
         assert result == {"executing": False, "saving": True}
 
     @pytest.mark.asyncio
-    async def test_replay_time_get_forwards_event_and_passes_response(
-        self, client, transport
-    ):
+    async def test_replay_time_get_forwards_event_and_passes_response(self, client, transport):
         """replay_time_get() forwards to `replay.time.get` WS event with no params.
 
         Anchor: ReplaySubscriber.cpp — replay.time.get returns {value}
@@ -146,9 +138,7 @@ class TestReplayWaitCompletePoller:
     """
 
     @pytest.mark.asyncio
-    async def test_wait_complete_polls_until_not_executing(
-        self, client, transport
-    ):
+    async def test_wait_complete_polls_until_not_executing(self, client, transport):
         """wait_complete polls replay.status until executing=False.
 
         First poll returns executing=True (still running); second poll
@@ -164,49 +154,33 @@ class TestReplayWaitCompletePoller:
             return {"executing": False, "saving": False}
 
         transport.set_response("replay.status", _poll_response)
-        result = await client.replay_wait_complete(
-            timeout_ms=1000, interval_ms=10
-        )
+        result = await client.replay_wait_complete(timeout_ms=1000, interval_ms=10)
         assert result["executing"] is False
         assert result["_wait_iterations"] == 2
         # Two polls total: first still executing, second done.
-        replay_status_calls = [
-            c for c in transport.calls if c[0] == "replay.status"
-        ]
+        replay_status_calls = [c for c in transport.calls if c[0] == "replay.status"]
         assert len(replay_status_calls) == 2
 
     @pytest.mark.asyncio
-    async def test_wait_complete_exits_on_first_poll_if_not_executing(
-        self, client, transport
-    ):
+    async def test_wait_complete_exits_on_first_poll_if_not_executing(self, client, transport):
         """wait_complete exits on the first poll if executing=False.
 
         Locks in that the loop checks executing BEFORE sleeping —
         a regression here would add latency to every successful wait.
         """
-        transport.set_response(
-            "replay.status", {"executing": False, "saving": False}
-        )
-        result = await client.replay_wait_complete(
-            timeout_ms=1000, interval_ms=10
-        )
+        transport.set_response("replay.status", {"executing": False, "saving": False})
+        result = await client.replay_wait_complete(timeout_ms=1000, interval_ms=10)
         assert result["executing"] is False
         assert result["_wait_iterations"] == 1
 
     @pytest.mark.asyncio
-    async def test_wait_complete_raises_timeout_when_executing_stays_true(
-        self, client, transport
-    ):
+    async def test_wait_complete_raises_timeout_when_executing_stays_true(self, client, transport):
         """wait_complete raises asyncio.TimeoutError when executing stays True.
 
         Locks in spike U3: replay.execute does not auto-end. If the
         caller doesn't poll, the executing flag stays True forever and
         the timeout fires.
         """
-        transport.set_response(
-            "replay.status", {"executing": True, "saving": False}
-        )
+        transport.set_response("replay.status", {"executing": True, "saving": False})
         with pytest.raises(asyncio.TimeoutError, match="replay.wait_complete timeout"):
-            await client.replay_wait_complete(
-                timeout_ms=50, interval_ms=10
-            )
+            await client.replay_wait_complete(timeout_ms=50, interval_ms=10)

@@ -24,15 +24,14 @@ import inspect
 import logging
 import threading
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated, Any, TypedDict
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
-
-from ppsspp_dfx_mcp import __version__
 from pydantic import Field
 
+from ppsspp_dfx_mcp import __version__
 from ppsspp_dfx_mcp.config import (
     configure_logging,
     rate_limit,
@@ -84,10 +83,8 @@ async def _lifespan(_app: MCPServer) -> AsyncIterator[None]:
     yield
     log.info("lifespan shutdown: cancelling idle GC")
     gc_task.cancel()
-    try:
+    with suppress(asyncio.CancelledError):
         await gc_task
-    except asyncio.CancelledError:
-        pass
     # Stop every active session so PPSSPP processes don't leak. Each
     # stop_session is sync (kills subprocess + persists), so we offload
     # it to a thread and enforce a 5s timeout — a hung PPSSPP process
@@ -110,7 +107,8 @@ async def _shutdown_sessions() -> None:
         if gc_ids:
             log.info(
                 "lifespan shutdown: GC'd %d expired session(s): %s",
-                len(gc_ids), gc_ids,
+                len(gc_ids),
+                gc_ids,
             )
     except Exception as e:
         log.warning("lifespan shutdown: GC failed: %s", e)
@@ -139,19 +137,14 @@ async def _shutdown_sessions() -> None:
             )
             stopped_ok.append(sid)
             log.info("lifespan shutdown: session %s stopped", sid)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             timed_out.append(sid)
-            log.warning(
-                "lifespan shutdown: session %s stop timed out after 5s", sid
-            )
+            log.warning("lifespan shutdown: session %s stop timed out after 5s", sid)
         except Exception as e:
             failed.append((sid, repr(e)))
-            log.warning(
-                "lifespan shutdown: session %s stop failed: %r", sid, e
-            )
+            log.warning("lifespan shutdown: session %s stop failed: %r", sid, e)
     log.info(
-        "lifespan shutdown: session cleanup summary "
-        "(stopped=%d, timed_out=%d, failed=%d)",
+        "lifespan shutdown: session cleanup summary (stopped=%d, timed_out=%d, failed=%d)",
         len(stopped_ok),
         len(timed_out),
         len(failed),
@@ -208,6 +201,7 @@ def _build_exposed_wrapper(entry: Any, input_cls: Any, output_cls: Any) -> Calla
     # the leading-underscore param name).
     async def _exposed_wrapper(**kwargs: Any) -> dict[str, Any]:
         from ppsspp_dfx_mcp.tools.script import run_script
+
         # F2 (review-r3): forward session_id to run_script so the exposed
         # path populates ctx.session_id. When the Input model declares a
         # session_id field it stays in `input` as well (single source —
@@ -244,7 +238,9 @@ def _build_exposed_wrapper(entry: Any, input_cls: Any, output_cls: Any) -> Calla
     # in-process). Nesting `output_cls` under the envelope's `output` field
     # keeps the script's field-level schema visible to the Agent AND matches
     # the real return shape.
-    output_contract = TypedDict(  # type: ignore[operator]
+    # 动态 TypedDict：envelope 名含运行时 entry.name，类语法无法表达
+    # （UP013 的类转换仅适用于静态定义），故本行 noqa。
+    output_contract = TypedDict(  # type: ignore[operator]  # noqa: UP013
         f"{entry.name}OutputContract",
         {
             "name": str,
@@ -252,9 +248,7 @@ def _build_exposed_wrapper(entry: Any, input_cls: Any, output_cls: Any) -> Calla
             "output_model": str,
         },
     )
-    _exposed_wrapper.__signature__ = inspect.Signature(
-        params, return_annotation=output_contract
-    )  # type: ignore[attr-defined]
+    _exposed_wrapper.__signature__ = inspect.Signature(params, return_annotation=output_contract)  # type: ignore[attr-defined]
     # Also set __annotations__ for any caller that introspects annotations
     # directly (belt-and-suspenders; the SDK uses inspect.signature).
     _exposed_wrapper.__annotations__ = {p.name: p.annotation for p in params}  # type: ignore[attr-defined]
@@ -352,9 +346,7 @@ def _register_exposed_entry(entry: Any, project_root: Any) -> bool:
     # the shared `validate_script_contract` helper so lifespan and
     # run_script share the same contract validation logic (P1-11).
     try:
-        _module, input_cls, output_cls, _fn = validate_script_contract(
-            entry, project_root
-        )
+        _module, input_cls, output_cls, _fn = validate_script_contract(entry, project_root)
     except Exception as e:
         log.warning(
             "skipping exposed script %r (contract/import error): %s",
@@ -401,8 +393,8 @@ def _unregister_exposed_tool(script_name: str) -> bool:
     removed = mcp._tool_manager._tools.pop(tool_name, None) is not None  # noqa: SLF001 — private SDK API, isolated here
     if not removed:
         log.warning(
-            "exposed tool %r was not present in the SDK registry "
-            "(already removed?)", tool_name,
+            "exposed tool %r was not present in the SDK registry (already removed?)",
+            tool_name,
         )
     return True
 
@@ -421,8 +413,9 @@ def sync_exposed_tools() -> dict[str, Any]:
     when an add/remove raised unexpectedly AND the registry could not be
     reconciled — callers surface it so agents know to restart the server.
     """
-    from ppsspp_dfx_mcp.spec.script_manifest import get_manifest
     from pathlib import Path
+
+    from ppsspp_dfx_mcp.spec.script_manifest import get_manifest
 
     manifest = get_manifest()
     manifest.ensure_loaded()
@@ -506,11 +499,13 @@ mcp = MCPServer(
 # The full tool set is registered via register_all_tools(); startup
 # validation only checks this core subset — adding new tools does NOT
 # require bumping a "phase counter" or updating expected sets.
-_CORE_TOOLS: frozenset[str] = frozenset({
-    "ppsspp_health",
-    "ppsspp_session",
-    "ppsspp_session_list",
-})
+_CORE_TOOLS: frozenset[str] = frozenset(
+    {
+        "ppsspp_health",
+        "ppsspp_session",
+        "ppsspp_session_list",
+    }
+)
 
 # Static tool modules imported by `register_all_tools()`; importing each
 # module executes its `@mcp.tool()` decorators. Python's module cache makes
@@ -613,8 +608,7 @@ def _assert_core_tools() -> None:
     missing = _CORE_TOOLS - registered
     if missing:
         raise RuntimeError(
-            f"core tools missing from registry: {sorted(missing)} "
-            f"got={sorted(registered)}"
+            f"core tools missing from registry: {sorted(missing)} got={sorted(registered)}"
         )
     log.info(
         "ppsspp-dfx-mcp ready: %d tools registered (core subset ok)",

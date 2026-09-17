@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -29,7 +30,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,8 @@ import yaml
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-_EVALS_DIR = Path(__file__).resolve().parent      # .../ppsspp-dfx-mcp/evals
-_PKG_ROOT = _EVALS_DIR.parent                     # .../ppsspp-dfx-mcp
+_EVALS_DIR = Path(__file__).resolve().parent  # .../ppsspp-dfx-mcp/evals
+_PKG_ROOT = _EVALS_DIR.parent  # .../ppsspp-dfx-mcp
 _SRC_ROOT = _PKG_ROOT / "src"
 _TESTS_ROOT = _PKG_ROOT / "tests"
 _REPO_ROOT = _PKG_ROOT.parents[1]
@@ -55,12 +56,15 @@ _ARG_PARSE_CODE = "ARG_PARSE"
 # Config / provenance helpers
 # ---------------------------------------------------------------------------
 
+
 def load_config(path: Path) -> dict[str, Any]:
     cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
-    api_path = Path(os.environ.get(
-        "PPSSPP_DFX_EVALS_LLM_API_PATH",
-        (_EVALS_DIR / cfg["llm_api_path"]),
-    )).resolve()
+    api_path = Path(
+        os.environ.get(
+            "PPSSPP_DFX_EVALS_LLM_API_PATH",
+            (_EVALS_DIR / cfg["llm_api_path"]),
+        )
+    ).resolve()
     if not api_path.is_file():
         raise RuntimeError(
             f"LLM API config not found: {api_path} — set llm_api_path in "
@@ -96,8 +100,11 @@ def _dir_sha256(path: Path) -> str:
 def build_provenance(instructions: str | None) -> dict[str, str]:
     try:
         commit = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=_REPO_ROOT,
-            capture_output=True, text=True, check=True,
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     except Exception:
         commit = "unknown"
@@ -106,9 +113,7 @@ def build_provenance(instructions: str | None) -> dict[str, str]:
     return {
         "git_commit": commit,
         "tool_surface_sha256": _sha256_file(baseline) if baseline.is_file() else "missing",
-        "instructions_sha256": hashlib.sha256(
-            (instructions or "").encode("utf-8")
-        ).hexdigest(),
+        "instructions_sha256": hashlib.sha256((instructions or "").encode("utf-8")).hexdigest(),
         "fixture_dir_sha256": _dir_sha256(fixtures) if fixtures.is_dir() else "missing",
         "runner_version": "v0.1.0",
     }
@@ -118,9 +123,17 @@ def build_provenance(instructions: str | None) -> dict[str, str]:
 # LLM client (OpenAI-compatible, rate-limited)
 # ---------------------------------------------------------------------------
 
+
 class LlmClient:
-    def __init__(self, base_url: str, api_key: str, *, min_interval_s: float,
-                 max_retries: int, timeout_s: float):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        *,
+        min_interval_s: float,
+        max_retries: int,
+        timeout_s: float,
+    ):
         self._base = base_url.rstrip("/")
         self._key = api_key
         self._min_interval = min_interval_s
@@ -137,8 +150,9 @@ class LlmClient:
         self._last_call = time.monotonic()
 
     @staticmethod
-    def _post_sync(url: str, payload: dict[str, Any], headers: dict[str, str],
-                   timeout_s: float) -> dict[str, Any]:
+    def _post_sync(
+        url: str, payload: dict[str, Any], headers: dict[str, str], timeout_s: float
+    ) -> dict[str, Any]:
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -161,8 +175,11 @@ class LlmClient:
             try:
                 data = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self._post_sync, f"{self._base}/chat/completions",
-                        payload, headers, self._timeout,
+                        self._post_sync,
+                        f"{self._base}/chat/completions",
+                        payload,
+                        headers,
+                        self._timeout,
                     ),
                     timeout=attempt_budget,
                 )
@@ -179,10 +196,13 @@ class LlmClient:
             if attempt < self._max_retries:
                 if not retryable:
                     break
-                wait_s = self._min_interval * (2 ** attempt)
-                print(f"    llm retry {attempt + 1}/{self._max_retries} "
-                      f"after {type(last_err).__name__}: {str(last_err)[:120]} "
-                      f"(wait {wait_s:.0f}s)", flush=True)
+                wait_s = self._min_interval * (2**attempt)
+                print(
+                    f"    llm retry {attempt + 1}/{self._max_retries} "
+                    f"after {type(last_err).__name__}: {str(last_err)[:120]} "
+                    f"(wait {wait_s:.0f}s)",
+                    flush=True,
+                )
                 await asyncio.sleep(wait_s)
         raise RuntimeError(f"LLM call failed: {last_err}")
 
@@ -191,20 +211,25 @@ class LlmClient:
 # Agent loop
 # ---------------------------------------------------------------------------
 
+
 def _tool_defs(mcp_tools: list[Any]) -> list[dict[str, Any]]:
     defs = []
     for t in mcp_tools:
-        schema = (getattr(t, "input_schema", None)
-                  or getattr(t, "inputSchema", None)
-                  or {"type": "object", "properties": {}})
-        defs.append({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description or "",
-                "parameters": schema,
-            },
-        })
+        schema = (
+            getattr(t, "input_schema", None)
+            or getattr(t, "inputSchema", None)
+            or {"type": "object", "properties": {}}
+        )
+        defs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "parameters": schema,
+                },
+            }
+        )
     return defs
 
 
@@ -233,8 +258,7 @@ def _result_text(result: Any) -> str:
             mime = getattr(block, "mime_type", "image")
             raw = str(getattr(block, "data", ""))
             parts.append(f"[ImageContent {mime}, {len(raw)} base64 chars]")
-    sc = (getattr(result, "structured_content", None)
-          or getattr(result, "structuredContent", None))
+    sc = getattr(result, "structured_content", None) or getattr(result, "structuredContent", None)
     if sc:
         parts.append(json.dumps(sc, ensure_ascii=False, sort_keys=True))
     return "\n".join(parts)
@@ -244,9 +268,12 @@ def _result_text(result: Any) -> str:
 # B2 variant: skill pseudo-tool (progressive-disclosure simulation)
 # ---------------------------------------------------------------------------
 
-SKILL_DIR = Path(os.environ.get(
-    "PPSSPP_DFX_SKILL_DIR", str(_REPO_ROOT / ".zcode" / "skills" / "ppsspp-dfx"),
-)).resolve()
+SKILL_DIR = Path(
+    os.environ.get(
+        "PPSSPP_DFX_SKILL_DIR",
+        str(_REPO_ROOT / ".zcode" / "skills" / "ppsspp-dfx"),
+    )
+).resolve()
 SKILL_TOOL_NAME = "skill_read"
 _SKILL_TOOL_DEF = {
     "type": "function",
@@ -290,20 +317,21 @@ async def _seed_sessions(session: ClientSession, count: int, iso_path: str) -> l
     for _ in range(max(0, count)):
         result = await session.call_tool(
             "ppsspp_session",
-            {"action": "start", "iso_path": iso_path, "wait_ready": True,
-             "resilient": True},
+            {"action": "start", "iso_path": iso_path, "wait_ready": True, "resilient": True},
         )
         if getattr(result, "is_error", getattr(result, "isError", False)):
             raise RuntimeError(f"pre_state session start failed: {_result_text(result)[:300]}")
         # SDK versions differ on casing: structured_content vs structuredContent.
-        sc = (getattr(result, "structured_content", None)
-              or getattr(result, "structuredContent", None)) or {}
+        sc = (
+            getattr(result, "structured_content", None)
+            or getattr(result, "structuredContent", None)
+        ) or {}
         sid = sc.get("session_id")
         if not sid:
             # Fallback: SessionResponse JSON is also embedded in the text content.
             try:
                 sid = json.loads(_result_text(result)).get("session_id")
-            except (json.JSONDecodeError, AttributeError):
+            except json.JSONDecodeError, AttributeError:
                 sid = None
         if not sid:
             raise RuntimeError(
@@ -324,7 +352,7 @@ async def run_scenario(
 ) -> dict[str, Any]:
     from evals.gates import evaluate, extract_error_code
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     model_tag = cfg["model"]["name"].split("/")[-1][:24]
     run_id = f"r{ts}-{model_tag}-{variant}-{scenario['id']}-n{run_idx}"
     max_turns = int(scenario.get("max_turns", 12))
@@ -351,11 +379,14 @@ async def run_scenario(
     env["PYTHONPATH"] = os.pathsep.join(
         [str(_SRC_ROOT), str(_TESTS_ROOT), env.get("PYTHONPATH", "")]
     ).rstrip(os.pathsep)
-    seed_iso = os.environ.get("PPSSPP_DFX_TEST_ISO_PATH", "game.iso") \
-        if real_mode else "fake_game.iso"
+    seed_iso = (
+        os.environ.get("PPSSPP_DFX_TEST_ISO_PATH", "game.iso") if real_mode else "fake_game.iso"
+    )
 
     server_params = StdioServerParameters(
-        command=sys.executable, args=["-m", "ppsspp_dfx_mcp"], env=env,
+        command=sys.executable,
+        args=["-m", "ppsspp_dfx_mcp"],
+        env=env,
     )
 
     tool_calls: list[dict[str, Any]] = []
@@ -365,136 +396,165 @@ async def run_scenario(
     started = time.monotonic()
     run_timeout_s = float(cfg.get("limits", {}).get("run_timeout_s", 600))
 
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            init = await session.initialize()
-            instructions = getattr(init, "instructions", None)
-            prov = build_provenance(instructions)
+    async with (
+        stdio_client(server_params) as (read, write),
+        ClientSession(read, write) as session,
+    ):
+        init = await session.initialize()
+        instructions = getattr(init, "instructions", None)
+        prov = build_provenance(instructions)
 
-            mcp_tools = (await session.list_tools()).tools
-            pre_n = int((scenario.get("pre_state") or {}).get("sessions", 0))
-            seeded_ids = await _seed_sessions(session, pre_n, seed_iso)
-            if real_mode and seeded_ids:
-                # Real window settle: PPSSPP needs a few seconds after
-                # CPU-ready before the first frame is capturable (an
-                # immediate screenshot returns empty=true — R2 first
-                # attempt failed entirely on this race).
-                await asyncio.sleep(float(cfg.get("limits", {}).get("real_settle_s", 8)))
+        mcp_tools = (await session.list_tools()).tools
+        pre_n = int((scenario.get("pre_state") or {}).get("sessions", 0))
+        seeded_ids = await _seed_sessions(session, pre_n, seed_iso)
+        if real_mode and seeded_ids:
+            # Real window settle: PPSSPP needs a few seconds after
+            # CPU-ready before the first frame is capturable (an
+            # immediate screenshot returns empty=true — R2 first
+            # attempt failed entirely on this race).
+            await asyncio.sleep(float(cfg.get("limits", {}).get("real_settle_s", 8)))
 
-            sys_prompt = SYSTEM_TEMPLATE
-            if variant in ("B1", "B2") and instructions:
-                sys_prompt += "\n" + instructions
-            elif variant not in ("B0", "B1", "B2"):
-                raise ValueError(f"unsupported variant: {variant}")
+        sys_prompt = SYSTEM_TEMPLATE
+        if variant in ("B1", "B2") and instructions:
+            sys_prompt += "\n" + instructions
+        elif variant not in ("B0", "B1", "B2"):
+            raise ValueError(f"unsupported variant: {variant}")
 
-            messages: list[dict[str, Any]] = [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": scenario["prompt"].replace(
-                    "{{REAL_ISO}}", seed_iso)},
-            ]
-            payload_tools = _tool_defs(mcp_tools)
-            if variant == "B2":
-                if not SKILL_DIR.is_dir():
-                    raise RuntimeError(
-                        f"B2 variant requires skill dir (not found): {SKILL_DIR}"
-                    )
-                payload_tools = payload_tools + [dict(_SKILL_TOOL_DEF)]
-            caps = int(cfg.get("limits", {}).get("tool_result_char_cap", 8000))
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": scenario["prompt"].replace("{{REAL_ISO}}", seed_iso)},
+        ]
+        payload_tools = _tool_defs(mcp_tools)
+        if variant == "B2":
+            if not SKILL_DIR.is_dir():
+                raise RuntimeError(f"B2 variant requires skill dir (not found): {SKILL_DIR}")
+            payload_tools = payload_tools + [dict(_SKILL_TOOL_DEF)]
+        caps = int(cfg.get("limits", {}).get("tool_result_char_cap", 8000))
 
-            for _turn in range(max_turns):
-                if time.monotonic() - started > run_timeout_s:
-                    stop_reason = "run_timeout"
-                    break
-                if _turn:
-                    print(f"    turn {_turn + 1}/{max_turns}, "
-                          f"{len(tool_calls)} call(s) so far", flush=True)
-                data = await llm.chat({
+        for _turn in range(max_turns):
+            if time.monotonic() - started > run_timeout_s:
+                stop_reason = "run_timeout"
+                break
+            if _turn:
+                print(
+                    f"    turn {_turn + 1}/{max_turns}, {len(tool_calls)} call(s) so far",
+                    flush=True,
+                )
+            data = await llm.chat(
+                {
                     "model": cfg["model"]["name"],
                     "messages": messages,
                     "tools": payload_tools,
                     "tool_choice": "auto",
                     "temperature": 0,
                     "max_tokens": int(cfg.get("limits", {}).get("max_tokens", 4096)),
-                })
-                msg = (data.get("choices") or [{}])[0].get("message") or {}
-                tcs = msg.get("tool_calls") or []
-                if not tcs:
-                    final_answer = msg.get("content") or ""
-                    stop_reason = "final_answer"
-                    break
-                messages.append({
+                }
+            )
+            msg = (data.get("choices") or [{}])[0].get("message") or {}
+            tcs = msg.get("tool_calls") or []
+            if not tcs:
+                final_answer = msg.get("content") or ""
+                stop_reason = "final_answer"
+                break
+            messages.append(
+                {
                     "role": "assistant",
                     "content": msg.get("content") or "",
                     "tool_calls": tcs,
-                })
-                for tc in tcs:
-                    name = (tc.get("function") or {}).get("name", "")
-                    raw_args = (tc.get("function") or {}).get("arguments") or "{}"
-                    try:
-                        args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
-                    except json.JSONDecodeError:
-                        args = {}
-                        tool_calls.append({
-                            "seq": len(tool_calls) + 1, "name": name, "args": {},
-                            "is_error": True, "error_code": _ARG_PARSE_CODE,
+                }
+            )
+            for tc in tcs:
+                name = (tc.get("function") or {}).get("name", "")
+                raw_args = (tc.get("function") or {}).get("arguments") or "{}"
+                try:
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                except json.JSONDecodeError:
+                    args = {}
+                    tool_calls.append(
+                        {
+                            "seq": len(tool_calls) + 1,
+                            "name": name,
+                            "args": {},
+                            "is_error": True,
+                            "error_code": _ARG_PARSE_CODE,
                             "result_preview": f"unparseable arguments: {raw_args!r}"[:200],
                             "latency_ms": 0,
-                        })
-                        messages.append({"role": "tool", "tool_call_id": tc.get("id", ""),
-                                         "content": "ERROR: arguments were not valid JSON."})
-                        continue
-                    t0 = time.monotonic()
-                    if name == SKILL_TOOL_NAME:
-                        # B2 pseudo tool — answered locally, never touches
-                        # the MCP server; flagged pseudo so gates skip it.
-                        text = read_skill_file(str(args.get("path") or ""), SKILL_DIR)
-                        tool_calls.append({
-                            "seq": len(tool_calls) + 1, "name": name, "args": args,
-                            "is_error": False, "error_code": None,
+                        }
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", ""),
+                            "content": "ERROR: arguments were not valid JSON.",
+                        }
+                    )
+                    continue
+                t0 = time.monotonic()
+                if name == SKILL_TOOL_NAME:
+                    # B2 pseudo tool — answered locally, never touches
+                    # the MCP server; flagged pseudo so gates skip it.
+                    text = read_skill_file(str(args.get("path") or ""), SKILL_DIR)
+                    tool_calls.append(
+                        {
+                            "seq": len(tool_calls) + 1,
+                            "name": name,
+                            "args": args,
+                            "is_error": False,
+                            "error_code": None,
                             "result_preview": text[:200],
                             "latency_ms": int((time.monotonic() - t0) * 1000),
                             "pseudo": True,
-                        })
-                        messages.append({
-                            "role": "tool", "tool_call_id": tc.get("id", ""),
+                        }
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", ""),
                             "content": text[:caps] if text else "(empty result)",
-                        })
-                        continue
-                    try:
-                        result = await session.call_tool(name, args)
-                        text = _result_text(result)
-                        is_error = bool(getattr(result, "is_error",
-                                                getattr(result, "isError", False)))
-                    except Exception as exc:  # noqa: BLE001 — record as tool-level error
-                        text = f"[RUNNER_EXCEPTION] {exc}"
-                        is_error = True
-                    latency_ms = int((time.monotonic() - t0) * 1000)
-                    code = extract_error_code(text) if is_error else None
-                    tool_calls.append({
-                        "seq": len(tool_calls) + 1, "name": name, "args": args,
-                        "is_error": is_error, "error_code": code,
-                        "result_preview": text[:500], "latency_ms": latency_ms,
-                    })
-                    messages.append({
-                        "role": "tool", "tool_call_id": tc.get("id", ""),
+                        }
+                    )
+                    continue
+                try:
+                    result = await session.call_tool(name, args)
+                    text = _result_text(result)
+                    is_error = bool(getattr(result, "is_error", getattr(result, "isError", False)))
+                except Exception as exc:  # noqa: BLE001 — record as tool-level error
+                    text = f"[RUNNER_EXCEPTION] {exc}"
+                    is_error = True
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                code = extract_error_code(text) if is_error else None
+                tool_calls.append(
+                    {
+                        "seq": len(tool_calls) + 1,
+                        "name": name,
+                        "args": args,
+                        "is_error": is_error,
+                        "error_code": code,
+                        "result_preview": text[:500],
+                        "latency_ms": latency_ms,
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
                         "content": text[:caps] if text else "(empty result)",
-                    })
-            else:
-                stop_reason = "max_turns"
+                    }
+                )
+        else:
+            stop_reason = "max_turns"
 
-            # Real mode: stop every live session so PPSSPP does not
-            # outlive the eval server subprocess (temp sessions.json
-            # dies with the run — orphans would be unrecoverable).
-            if real_mode:
-                for sid in seeded_ids:
-                    try:
-                        await session.call_tool("ppsspp_session",
-                                                {"action": "stop", "session_id": sid})
-                    except Exception:  # noqa: BLE001 — best-effort cleanup
-                        pass
+        # Real mode: stop every live session so PPSSPP does not
+        # outlive the eval server subprocess (temp sessions.json
+        # dies with the run — orphans would be unrecoverable).
+        if real_mode:
+            for sid in seeded_ids:
+                with contextlib.suppress(Exception):  # best-effort cleanup
+                    await session.call_tool("ppsspp_session", {"action": "stop", "session_id": sid})
 
-    gates_result = evaluate(scenario, {"tool_calls": tool_calls,
-                                       "final_answer": final_answer}, fixtures_dir)
+    gates_result = evaluate(
+        scenario, {"tool_calls": tool_calls, "final_answer": final_answer}, fixtures_dir
+    )
     record = {
         "run_id": run_id,
         "scenario_id": scenario["id"],
@@ -502,7 +562,7 @@ async def run_scenario(
         "variant": variant,
         "run_idx": run_idx,
         "provenance": prov,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "wall_ms": int((time.monotonic() - started) * 1000),
         "tool_calls": tool_calls,
         "final_answer": final_answer,
@@ -526,6 +586,7 @@ async def run_scenario(
 # Resume support + CLI
 # ---------------------------------------------------------------------------
 
+
 def _done_keys(out_path: Path) -> set[tuple[str, str, str, int]]:
     keys: set[tuple[str, str, str, int]] = set()
     if not out_path.is_file():
@@ -536,7 +597,7 @@ def _done_keys(out_path: Path) -> set[tuple[str, str, str, int]]:
         try:
             r = json.loads(line)
             keys.add((r["scenario_id"], r["model"], r["variant"], int(r["run_idx"])))
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except json.JSONDecodeError, KeyError, ValueError:
             continue
     return keys
 
@@ -556,7 +617,8 @@ async def _async_main(args: argparse.Namespace) -> int:
     n_runs = args.runs if args.runs is not None else int(cfg.get("runs", 5))
     rate = cfg.get("rate", {})
     llm = LlmClient(
-        cfg["_llm"]["base_url"], cfg["_llm"]["api_key"],
+        cfg["_llm"]["base_url"],
+        cfg["_llm"]["api_key"],
         min_interval_s=float(rate.get("min_interval_s", 5.0)),
         max_retries=int(rate.get("max_retries", 3)),
         timeout_s=float(rate.get("timeout_s", 120)),
@@ -575,8 +637,9 @@ async def _async_main(args: argparse.Namespace) -> int:
             total += 1
             print(f"[run ] {key} ...", flush=True)
             try:
-                rec = await run_scenario(cfg, scenario, run_idx, variant, llm,
-                                         fixtures_dir, out_path)
+                rec = await run_scenario(
+                    cfg, scenario, run_idx, variant, llm, fixtures_dir, out_path
+                )
             except BaseException as exc:  # noqa: BLE001 — one bad run must not kill the grid
                 # anyio TaskGroups wrap real errors in (possibly nested)
                 # ExceptionGroups — unwrap recursively to the root causes.
@@ -588,6 +651,7 @@ async def _async_main(args: argparse.Namespace) -> int:
                             out.extend(roots(s))
                         return out
                     return [e]
+
                 print(f"[FAIL] {key}:", file=sys.stderr, flush=True)
                 for r in roots(exc):
                     print(f"  root: {type(r).__name__}: {r}", file=sys.stderr, flush=True)
@@ -595,8 +659,11 @@ async def _async_main(args: argparse.Namespace) -> int:
             passed += int(rec["success"])
             status = "PASS" if rec["success"] else "FAIL"
             failed_gates = [g for g, ok in rec["gates"].items() if not ok]
-            print(f"[{status}] {sid} n={run_idx} calls={len(rec['tool_calls'])} "
-                  f"stop={rec['stop_reason']} failed_gates={failed_gates}", flush=True)
+            print(
+                f"[{status}] {sid} n={run_idx} calls={len(rec['tool_calls'])} "
+                f"stop={rec['stop_reason']} failed_gates={failed_gates}",
+                flush=True,
+            )
     print(f"\ndone: {passed}/{total} runs passed; JSONL → {out_path}")
     return 0
 
@@ -606,9 +673,12 @@ def main() -> None:
     p.add_argument("--config", default=str(_EVALS_DIR / "config.yaml"))
     p.add_argument("--scenarios", default="", help="comma-separated scenario ids (default: all)")
     p.add_argument("--runs", type=int, default=None, help="runs per scenario (default: cfg.runs)")
-    p.add_argument("--variant", default=None, choices=["B0", "B1", "B2"],
-                   help="context variant (default: cfg.variant); B2 adds the "
-                        "skill_read pseudo tool")
+    p.add_argument(
+        "--variant",
+        default=None,
+        choices=["B0", "B1", "B2"],
+        help="context variant (default: cfg.variant); B2 adds the skill_read pseudo tool",
+    )
     args = p.parse_args()
     sys.exit(asyncio.run(_async_main(args)))
 

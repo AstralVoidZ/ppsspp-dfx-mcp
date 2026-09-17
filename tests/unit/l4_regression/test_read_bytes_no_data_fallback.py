@@ -75,12 +75,12 @@ class TestV002ReadBytesNoDataFallback:
         """
         src = inspect.getsource(PpssppDebugClient.read_bytes)
         assert 'resp.get("data"' not in src, (
-            "read_bytes must NOT contain a `resp.get(\"data\", ...)` "
+            'read_bytes must NOT contain a `resp.get("data", ...)` '
             "fallback — V002 fix was reverted. See "
             "MemorySubscriber.cpp:L37, L193-227 (memory.read returns "
             "only the `base64` field)."
         )
-        assert "or resp.get(\"data\"" not in src, (
-            "read_bytes must NOT contain an `or resp.get(\"data\", ...)` "
+        assert 'or resp.get("data"' not in src, (
+            'read_bytes must NOT contain an `or resp.get("data", ...)` '
             "fallback pattern — V002 fix was reverted."
         )

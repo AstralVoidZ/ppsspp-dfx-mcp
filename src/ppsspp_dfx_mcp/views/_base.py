@@ -28,7 +28,7 @@ class FrozenModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     @classmethod
-    def from_domain(cls, data: Any) -> "FrozenModel":
+    def from_domain(cls, data: Any) -> FrozenModel:
         """Opt-in hook: convert a domain model (frozen dataclass or dict) to a view.
 
         NOT an abstract method — subclasses are NOT required to override
@@ -46,7 +46,9 @@ class FrozenModel(BaseModel):
             return cls(**data)
         # If data is a dataclass, convert to dict via asdict().
         import dataclasses
+
         if dataclasses.is_dataclass(data):
             from dataclasses import asdict
+
             return cls(**asdict(data))
         raise TypeError(f"from_domain() cannot convert {type(data).__name__}")

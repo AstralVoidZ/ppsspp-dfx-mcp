@@ -21,7 +21,7 @@ def _hex_or_none(value: Any) -> str | None:
         return None
     try:
         return f"0x{int(value):08X}"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(value)
 
 
@@ -45,8 +45,7 @@ class WaitBreakpointResponse(FrozenModel):
     )
     reason: str | None = Field(
         default=None,
-        description="cpu.stepping broadcast reason (e.g. 'breakpoint' / "
-        "'memory.breakpoint').",
+        description="cpu.stepping broadcast reason (e.g. 'breakpoint' / 'memory.breakpoint').",
     )
     related_address: str | None = Field(
         default=None,
@@ -59,9 +58,7 @@ class WaitBreakpointResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(
-        cls, result: WaitBreakpointResult, timeout_s: float
-    ) -> "WaitBreakpointResponse":
+    def from_result(cls, result: WaitBreakpointResult, timeout_s: float) -> WaitBreakpointResponse:
         return cls(
             hit=result.hit,
             already_paused=result.already_paused,
@@ -121,7 +118,7 @@ class TraceAccessResponse(FrozenModel):
         address: int,
         access: str,
         timeout_s: float,
-    ) -> "TraceAccessResponse":
+    ) -> TraceAccessResponse:
         hits: list[dict[str, Any]] = []
         for entry in result.hits:
             formatted = dict(entry)
@@ -164,7 +161,7 @@ class FrameSnapshotResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: FrameSnapshotResult) -> "FrameSnapshotResponse":
+    def from_result(cls, result: FrameSnapshotResult) -> FrameSnapshotResponse:
         return cls(
             was_stepping=result.was_stepping,
             resumed=result.resumed,

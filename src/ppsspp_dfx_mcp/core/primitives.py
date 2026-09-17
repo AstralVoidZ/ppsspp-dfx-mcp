@@ -24,4 +24,4 @@ MAX_PRESS_DURATION_FRAMES = 60 * 300
 
 # ── Memory read/write limits ─────────────────────────────────────────────
 
-MAX_SINGLE_READ_BYTES = 65536   # hard ceiling for one memory.read
+MAX_SINGLE_READ_BYTES = 65536  # hard ceiling for one memory.read

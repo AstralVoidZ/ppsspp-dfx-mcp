@@ -24,17 +24,14 @@ def _extract_bytes(raw: dict[str, Any]) -> bytes:
         # Extract base64 payload from data URI
         # Format: data:<mime>;base64,<payload>
         b64_start = uri.find("base64,")
-        if b64_start >= 0:
-            b64 = uri[b64_start + 7:]
-        else:
-            b64 = ""
+        b64 = uri[b64_start + 7 :] if b64_start >= 0 else ""
     else:
         b64 = raw.get("base64", "") or raw.get("data", "")
     if not b64:
         return b""
     try:
         return base64.b64decode(b64)
-    except (TypeError, ValueError, base64.binascii.Error):
+    except TypeError, ValueError, base64.binascii.Error:
         return b""
 
 
@@ -55,7 +52,7 @@ class GpuRecordResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_raw(cls, raw: dict[str, Any]) -> "GpuRecordResult":
+    def from_raw(cls, raw: dict[str, Any]) -> GpuRecordResult:
         """Build GpuRecordResult from a raw `gpu.record.dump` response."""
         data = _extract_bytes(raw)
         return cls(

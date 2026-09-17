@@ -31,6 +31,7 @@ def is_pid_alive(pid: int | None) -> bool:
     if sys.platform == "win32":
         try:
             import ctypes
+
             STILL_ACTIVE = 259
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             kernel32 = ctypes.windll.kernel32
@@ -55,7 +56,7 @@ def is_pid_alive(pid: int | None) -> bool:
     else:
         try:
             os.kill(pid, 0)
-        except (OSError, ProcessLookupError):
+        except OSError, ProcessLookupError:
             return False
         # os.kill(pid, 0) returns True for zombies on POSIX. On Linux we
         # can disambiguate via /proc/<pid>/status; non-Linux POSIX keeps
@@ -63,9 +64,7 @@ def is_pid_alive(pid: int | None) -> bool:
         proc_status = Path("/proc") / str(pid) / "status"
         if proc_status.exists():
             try:
-                for line in proc_status.read_text(
-                    encoding="utf-8", errors="replace"
-                ).splitlines():
+                for line in proc_status.read_text(encoding="utf-8", errors="replace").splitlines():
                     if line.startswith("State:"):
                         # Sample: "State:\tZ (zombie)" — first token after
                         # ':' stripped is the state letter.

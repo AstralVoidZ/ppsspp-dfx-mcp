@@ -15,13 +15,12 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.errors import ToolError
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 from ppsspp_dfx_mcp.tools._common import MAX_SCAN_PATTERN_BYTES
 from ppsspp_dfx_mcp.tools.memory import read_memory
-
 
 # ── Tool layer: pattern cap ──────────────────────────────────────────────
 
@@ -37,9 +36,7 @@ async def test_tool_rejects_oversized_pattern(
     async def fake_session_client(session_id: str):
         yield mock_client
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
 
     oversized = "41" * (MAX_SCAN_PATTERN_BYTES + 1)  # hex → cap+1 bytes
     with pytest.raises(ToolError, match="scan cap"):
@@ -64,9 +61,7 @@ async def test_tool_allows_pattern_at_cap(
     async def fake_session_client(session_id: str):
         yield mock_client
 
-    monkeypatch.setattr(
-        "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-    )
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
 
     at_cap = "41" * MAX_SCAN_PATTERN_BYTES
     await read_memory(
@@ -90,9 +85,10 @@ def _make_recording_read_handler(memory_map: dict[int, bytes], sizes: list[int])
         for region_addr, region_data in memory_map.items():
             if region_addr <= addr < region_addr + len(region_data):
                 offset = addr - region_addr
-                chunk = region_data[offset:offset + size]
+                chunk = region_data[offset : offset + size]
                 return {"base64": base64.b64encode(chunk).decode("ascii")}
         return {"base64": ""}
+
     return handler
 
 
@@ -107,9 +103,7 @@ async def test_scan_single_read_never_exceeds_budget():
     sizes: list[int] = []
     transport.set_response(
         "memory.read",
-        _make_recording_read_handler(
-            {region_start: b"\x00" * region_len}, sizes
-        ),
+        _make_recording_read_handler({region_start: b"\x00" * region_len}, sizes),
     )
     client = PpssppDebugClient(transport)
 

@@ -23,8 +23,8 @@ from __future__ import annotations
 import inspect
 
 import pytest
-
 from fake_transport import FakeTransport
+
 from ppsspp_dfx_mcp.service.capture import CaptureService
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
@@ -37,12 +37,8 @@ def _configure_stepping(transport: FakeTransport) -> None:
     handlers update _current_state so wait_for_state returns immediately.
     """
     transport.set_state({"stepping": False})
-    transport.set_faf_handler(
-        "cpu.stepping", lambda t, **p: t.set_state({"stepping": True})
-    )
-    transport.set_faf_handler(
-        "cpu.resume", lambda t, **p: t.set_state({"stepping": False})
-    )
+    transport.set_faf_handler("cpu.stepping", lambda t, **p: t.set_state({"stepping": True}))
+    transport.set_faf_handler("cpu.resume", lambda t, **p: t.set_state({"stepping": False}))
 
 
 @pytest.fixture
@@ -65,10 +61,7 @@ def capture_service(transport: FakeTransport) -> CaptureService:
 
 def _screenshot_calls(transport: FakeTransport) -> list[tuple[str, dict]]:
     """Filter transport.calls for gpu.buffer.screenshot invocations."""
-    return [
-        (ev, p) for ev, p in transport.calls
-        if ev == "gpu.buffer.screenshot"
-    ]
+    return [(ev, p) for ev, p in transport.calls if ev == "gpu.buffer.screenshot"]
 
 
 class TestV019OutputScreenshotAlphaStackWidth:
@@ -79,26 +72,20 @@ class TestV019OutputScreenshotAlphaStackWidth:
         sig = inspect.signature(CaptureService._output_screenshot)
         params = sig.parameters
         assert "alpha" in params, (
-            "_output_screenshot missing `alpha` param. "
-            "V019 fix requires alpha=False default."
+            "_output_screenshot missing `alpha` param. V019 fix requires alpha=False default."
         )
         assert "stackWidth" in params, (
-            "_output_screenshot missing `stackWidth` param. "
-            "V019 fix requires stackWidth=0 default."
+            "_output_screenshot missing `stackWidth` param. V019 fix requires stackWidth=0 default."
         )
         assert params["alpha"].default is False, (
-            f"`alpha` default should be False, got "
-            f"{params['alpha'].default!r}"
+            f"`alpha` default should be False, got {params['alpha'].default!r}"
         )
         assert params["stackWidth"].default == 0, (
-            f"`stackWidth` default should be 0, got "
-            f"{params['stackWidth'].default!r}"
+            f"`stackWidth` default should be 0, got {params['stackWidth'].default!r}"
         )
 
     @pytest.mark.asyncio
-    async def test_default_call_forwards_alpha_false_stackwidth_0(
-        self, capture_service, transport
-    ):
+    async def test_default_call_forwards_alpha_false_stackwidth_0(self, capture_service, transport):
         """L1 anchor: default call forwards alpha=False, stackWidth=0."""
         transport.set_response(
             "gpu.buffer.screenshot",
@@ -106,18 +93,14 @@ class TestV019OutputScreenshotAlphaStackWidth:
         )
         await capture_service._output_screenshot()
         calls = _screenshot_calls(transport)
-        assert len(calls) == 1, (
-            f"expected 1 gpu.buffer.screenshot call, got {len(calls)}"
-        )
+        assert len(calls) == 1, f"expected 1 gpu.buffer.screenshot call, got {len(calls)}"
         params = calls[0][1]
         assert params["type"] == "uri"
         assert params["alpha"] is False
         assert params["stackWidth"] == 0
 
     @pytest.mark.asyncio
-    async def test_explicit_alpha_true_stackwidth_64_forwards(
-        self, capture_service, transport
-    ):
+    async def test_explicit_alpha_true_stackwidth_64_forwards(self, capture_service, transport):
         """L1 anchor: alpha=True, stackWidth=64 forwarded."""
         transport.set_response(
             "gpu.buffer.screenshot",
@@ -125,9 +108,7 @@ class TestV019OutputScreenshotAlphaStackWidth:
         )
         await capture_service._output_screenshot(alpha=True, stackWidth=64)
         calls = _screenshot_calls(transport)
-        assert len(calls) == 1, (
-            f"expected 1 gpu.buffer.screenshot call, got {len(calls)}"
-        )
+        assert len(calls) == 1, f"expected 1 gpu.buffer.screenshot call, got {len(calls)}"
         params = calls[0][1]
         assert params["type"] == "uri"
         assert params["alpha"] is True

@@ -28,22 +28,22 @@ def _push_stepping_broadcast_on_faf(transport: Any, **params: Any) -> None:
     a step completes. The broadcast carries pc/ticks/reason/relatedAddress
     fields (SteppingBroadcaster.cpp:L25-44).
     """
-    transport.push_broadcast({
-        "event": "cpu.stepping",
-        "pc": 0x08804000,
-        "ticks": 12345.0,
-        "reason": "cpu.stepInto",
-        "relatedAddress": 0,
-    })
+    transport.push_broadcast(
+        {
+            "event": "cpu.stepping",
+            "pc": 0x08804000,
+            "ticks": 12345.0,
+            "reason": "cpu.stepInto",
+            "relatedAddress": 0,
+        }
+    )
 
 
 class TestStepContract:
     """L1 contract: step methods fire-and-forget + confirm via cpu.stepping broadcast."""
 
     @pytest.mark.asyncio
-    async def test_step_into_fires_cpu_stepInto_and_confirms(
-        self, client, transport
-    ):
+    async def test_step_into_fires_cpu_stepInto_and_confirms(self, client, transport):
         """L1 anchor: step_into fires `cpu.stepInto` (no params) + confirms.
 
         See SteppingSubscriber.cpp:L56-60, L92-268.
@@ -58,9 +58,7 @@ class TestStepContract:
         assert result.get("event") == "cpu.stepping"
 
     @pytest.mark.asyncio
-    async def test_step_over_fires_cpu_stepOver_and_confirms(
-        self, client, transport
-    ):
+    async def test_step_over_fires_cpu_stepOver_and_confirms(self, client, transport):
         """L1 anchor: step_over fires `cpu.stepOver` (no params) + confirms.
 
         See SteppingSubscriber.cpp:L56-60, L92-268.
@@ -73,9 +71,7 @@ class TestStepContract:
         assert result.get("event") == "cpu.stepping"
 
     @pytest.mark.asyncio
-    async def test_step_out_fires_cpu_stepOut_and_confirms(
-        self, client, transport
-    ):
+    async def test_step_out_fires_cpu_stepOut_and_confirms(self, client, transport):
         """L1 anchor: step_out fires `cpu.stepOut` (no params) + confirms.
 
         See SteppingSubscriber.cpp:L56-60, L92-268.
@@ -88,29 +84,21 @@ class TestStepContract:
         assert result.get("event") == "cpu.stepping"
 
     @pytest.mark.asyncio
-    async def test_run_until_fires_cpu_runUntil_with_address(
-        self, client, transport
-    ):
+    async def test_run_until_fires_cpu_runUntil_with_address(self, client, transport):
         """L1 anchor: run_until fires `cpu.runUntil` with address param.
 
         See SteppingSubscriber.cpp:L56-60, L92-268 — address is the
         target PC to run until.
         """
         transport.set_faf_handler("cpu.runUntil", _push_stepping_broadcast_on_faf)
-        result = await client.run_until(
-            0x08804000, timeout_ms=500, interval_ms=10
-        )
+        result = await client.run_until(0x08804000, timeout_ms=500, interval_ms=10)
 
         assert transport.fire_and_forget_calls[-1][0] == "cpu.runUntil"
-        assert transport.fire_and_forget_calls[-1][1] == {
-            "address": 0x08804000
-        }
+        assert transport.fire_and_forget_calls[-1][1] == {"address": 0x08804000}
         assert result.get("event") == "cpu.stepping"
 
     @pytest.mark.asyncio
-    async def test_next_hle_fires_cpu_nextHLE_and_confirms(
-        self, client, transport
-    ):
+    async def test_next_hle_fires_cpu_nextHLE_and_confirms(self, client, transport):
         """L1 anchor: next_hle fires `cpu.nextHLE` (no params) + confirms.
 
         See SteppingSubscriber.cpp:L56-60, L92-268.

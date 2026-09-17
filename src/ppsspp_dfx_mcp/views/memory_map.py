@@ -54,7 +54,7 @@ class MemoryMapResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: MemoryMapResult) -> "MemoryMapResponse":
+    def from_result(cls, result: MemoryMapResult) -> MemoryMapResponse:
         ranges = _extract_ranges(result.mapping)
         lines: list[str] = []
         for rng in ranges:
@@ -67,10 +67,8 @@ class MemoryMapResponse(FrozenModel):
                 start_int = int(start) if not isinstance(start, int) else start
                 size_int = int(size) if not isinstance(size, int) else size
                 end_int = start_int + size_int
-                lines.append(
-                    f"0x{start_int:08X}-0x{end_int:08X} {type_}/{subtype} {name}"
-                )
-            except (TypeError, ValueError):
+                lines.append(f"0x{start_int:08X}-0x{end_int:08X} {type_}/{subtype} {name}")
+            except TypeError, ValueError:
                 lines.append(f"{start}-{size} {type_}/{subtype} {name}")
         return cls(
             ranges=ranges,

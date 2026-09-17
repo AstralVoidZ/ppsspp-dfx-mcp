@@ -38,7 +38,7 @@ class BreakpointResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: BreakpointResult) -> "BreakpointResponse":
+    def from_result(cls, result: BreakpointResult) -> BreakpointResponse:
         return cls(
             action=result.action,
             address=format_address(result.address),

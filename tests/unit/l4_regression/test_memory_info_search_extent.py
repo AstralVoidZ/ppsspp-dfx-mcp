@@ -72,9 +72,7 @@ class TestV013MemoryInfoSearchExtent:
             "size": 0x10000,
             "tag": "framebuf",
         }
-        transport.set_response(
-            "memory.info.search", {"extent": extent_payload}
-        )
+        transport.set_response("memory.info.search", {"extent": extent_payload})
         result = await client.memory_info_search(match="framebuf")
         assert "extent" in result
         assert result["extent"] == extent_payload

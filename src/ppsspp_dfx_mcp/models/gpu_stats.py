@@ -27,7 +27,7 @@ def _to_float(value: Any) -> float | None:
             return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -65,7 +65,7 @@ class GpuStatsResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_raw(cls, raw: dict[str, Any]) -> "GpuStatsResult":
+    def from_raw(cls, raw: dict[str, Any]) -> GpuStatsResult:
         """Build GpuStatsResult from a raw `gpu.stats.get` response.
 
         PPSSPP returns `fps` and `vblanksPerSecond` as numeric fields and

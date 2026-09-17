@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -64,7 +63,7 @@ def rate_limit() -> int:
     raw = os.environ.get("PPSSPP_DFX_RATE_LIMIT", DEFAULT_RATE_LIMIT)
     try:
         return int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return int(DEFAULT_RATE_LIMIT)
 
 
@@ -76,7 +75,7 @@ def ws_port() -> int:
     raw = os.environ.get("PPSSPP_DFX_WS_PORT", DEFAULT_WS_PORT)
     try:
         return int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return int(DEFAULT_WS_PORT)
 
 
@@ -204,11 +203,10 @@ def configure_logging() -> None:
     handler = logging.StreamHandler(sys.stderr)
     if log_format() == "json":
         from ppsspp_dfx_mcp.logging import JsonFormatter
+
         handler.setFormatter(JsonFormatter())
     else:
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        ))
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
@@ -217,6 +215,7 @@ def configure_logging() -> None:
     # .ppsspp-dfx/output/ppsspp.log so ppsspp_analyze_log's default path
     # (log_path=None) reads a real file. Idempotent attachment.
     from ppsspp_dfx_mcp.logging import attach_ppsspp_log_mirror
+
     attach_ppsspp_log_mirror()
 
 
@@ -234,6 +233,4 @@ def validate_config() -> None:
     if rate_limit() < 0:
         errors.append(f"PPSSPP_DFX_RATE_LIMIT={rate_limit()} must be >= 0")
     if errors:
-        raise ConfigInvalid(
-            "config validation failed:\n  " + "\n  ".join(errors)
-        )
+        raise ConfigInvalid("config validation failed:\n  " + "\n  ".join(errors))

@@ -21,8 +21,8 @@ from __future__ import annotations
 import logging
 import time
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 from ppsspp_dfx_mcp.config import rate_limit
@@ -70,17 +70,14 @@ class TokenBucketLimiter:
         # Lazy GC: prune buckets unused for > 1h once the table grows past
         # a threshold, so long-running servers don't leak memory per-tool.
         if len(self._buckets) > 100:
-            self._buckets = {
-                k: v for k, v in self._buckets.items() if now - v[1] < 3600
-            }
+            self._buckets = {k: v for k, v in self._buckets.items() if now - v[1] < 3600}
         tokens, last = self._buckets.get(key, (self._rate, now))
         elapsed = now - last
         tokens = min(self._rate, tokens + elapsed * self._rate / 60.0)
         if tokens < 1.0:
             from ppsspp_dfx_mcp.errors import RateLimitExceeded
-            raise RateLimitExceeded(
-                f"rate limit {int(self._rate)}/min exceeded for tool {key!r}"
-            )
+
+            raise RateLimitExceeded(f"rate limit {int(self._rate)}/min exceeded for tool {key!r}")
         self._buckets[key] = (tokens - 1.0, now)
 
 

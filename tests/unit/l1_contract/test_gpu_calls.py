@@ -39,9 +39,7 @@ class TestGpuBufferContract:
         stackWidth=0 — the PPSSPP `gpu.buffer.renderColor` contract
         defaults.
         """
-        transport.set_response(
-            "gpu.buffer.renderColor", {"uri": "data:image/png;base64,..."}
-        )
+        transport.set_response("gpu.buffer.renderColor", {"uri": "data:image/png;base64,..."})
         await client.render_color()
         assert transport.calls[-1][0] == "gpu.buffer.renderColor"
         assert transport.calls[-1][1] == {
@@ -85,9 +83,7 @@ class TestGpuBufferContract:
         forwards all three params verbatim.
         """
         transport.set_response("gpu.buffer.renderColor", {"data": "..."})
-        await client.render_color(
-            output_type="base64", alpha=True, stackWidth=512
-        )
+        await client.render_color(output_type="base64", alpha=True, stackWidth=512)
         assert transport.calls[-1][0] == "gpu.buffer.renderColor"
         assert transport.calls[-1][1] == {
             "type": "base64",
@@ -95,12 +91,8 @@ class TestGpuBufferContract:
             "stackWidth": 512,
         }
 
-
-
     @pytest.mark.asyncio
-    async def test_texture_includes_level_and_default_params(
-        self, client, transport
-    ):
+    async def test_texture_includes_level_and_default_params(self, client, transport):
         """L1 anchor: GPUBufferSubscriber.cpp:L378-386 (gpu.buffer.texture).
 
         texture(level=2, type="base64", alpha=True, stackWidth=256)
@@ -111,9 +103,7 @@ class TestGpuBufferContract:
         appear in the recorded `**params`.
         """
         transport.set_response("gpu.buffer.texture", {"data": "..."})
-        await client.texture(
-            level=2, output_type="base64", alpha=True, stackWidth=256
-        )
+        await client.texture(level=2, output_type="base64", alpha=True, stackWidth=256)
         assert transport.calls[-1][0] == "gpu.buffer.texture"
         assert transport.calls[-1][1] == {
             "level": 2,
@@ -193,9 +183,7 @@ class TestGpuStatsRecordRequiredRunning:
     """
 
     @pytest.mark.asyncio
-    async def test_gpu_stats_raises_cpu_state_error_when_stepping(
-        self, client, transport
-    ):
+    async def test_gpu_stats_raises_cpu_state_error_when_stepping(self, client, transport):
         """L1 anchor: gpu_stats raises CpuStateError when CPU is stepping.
 
         Pre-set stepping=True. gpu_stats must raise CpuStateError (not
@@ -206,9 +194,7 @@ class TestGpuStatsRecordRequiredRunning:
         with pytest.raises(CpuStateError, match="gpu.stats.get"):
             await client.gpu_stats(timeout=0.5)
         # Verify the ticketed call was NOT issued (pre-check short-circuited).
-        gpu_stats_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "gpu.stats.get"
-        ]
+        gpu_stats_calls = [(ev, p) for ev, p in transport.calls if ev == "gpu.stats.get"]
         assert len(gpu_stats_calls) == 0, (
             "gpu_stats must NOT issue the ticketed call when CPU is "
             "stepping — the REQUIRED_RUNNING pre-check must short-circuit."
@@ -226,15 +212,11 @@ class TestGpuStatsRecordRequiredRunning:
             {"fps": 60, "vblanksPerSecond": 60, "info": {}, "timing": {}},
         )
         await client.gpu_stats(timeout=0.5)
-        gpu_stats_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "gpu.stats.get"
-        ]
+        gpu_stats_calls = [(ev, p) for ev, p in transport.calls if ev == "gpu.stats.get"]
         assert len(gpu_stats_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_gpu_record_dump_raises_cpu_state_error_when_stepping(
-        self, client, transport
-    ):
+    async def test_gpu_record_dump_raises_cpu_state_error_when_stepping(self, client, transport):
         """L1 anchor: gpu_record_dump raises CpuStateError when CPU is stepping.
 
         Pre-set stepping=True. gpu_record_dump must raise CpuStateError
@@ -245,27 +227,21 @@ class TestGpuStatsRecordRequiredRunning:
         with pytest.raises(CpuStateError, match="gpu.record.dump"):
             await client.gpu_record_dump(timeout=0.5)
         # Verify the ticketed call was NOT issued.
-        gpu_record_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "gpu.record.dump"
-        ]
+        gpu_record_calls = [(ev, p) for ev, p in transport.calls if ev == "gpu.record.dump"]
         assert len(gpu_record_calls) == 0, (
             "gpu_record_dump must NOT issue the ticketed call when CPU is "
             "stepping — the REQUIRED_RUNNING pre-check must short-circuit."
         )
 
     @pytest.mark.asyncio
-    async def test_gpu_record_dump_forwards_when_running(
-        self, client, transport
-    ):
+    async def test_gpu_record_dump_forwards_when_running(self, client, transport):
         """L1 anchor: gpu_record_dump forwards normally when CPU is running."""
         transport.set_response(
             "gpu.record.dump",
             {"uri": "data:application/octet-stream;base64,AAAA"},
         )
         await client.gpu_record_dump(timeout=0.5)
-        gpu_record_calls = [
-            (ev, p) for ev, p in transport.calls if ev == "gpu.record.dump"
-        ]
+        gpu_record_calls = [(ev, p) for ev, p in transport.calls if ev == "gpu.record.dump"]
         assert len(gpu_record_calls) == 1
 
 
@@ -281,9 +257,7 @@ class TestMemoryInfoSearchContract:
         / type) are omitted entirely when None — NOT forwarded as
         null.
         """
-        transport.set_response(
-            "memory.info.search", {"extent": None}
-        )
+        transport.set_response("memory.info.search", {"extent": None})
         await client.memory_info_search(match="framebuf")
         assert transport.calls[-1][0] == "memory.info.search"
         assert transport.calls[-1][1] == {"match": "framebuf"}
@@ -303,9 +277,7 @@ class TestMemoryInfoSearchContract:
             "size": 0x10000,
             "tag": "framebuf",
         }
-        transport.set_response(
-            "memory.info.search", {"extent": extent_payload}
-        )
+        transport.set_response("memory.info.search", {"extent": extent_payload})
         result = await client.memory_info_search(
             match="texture",
             address=0x04000000,

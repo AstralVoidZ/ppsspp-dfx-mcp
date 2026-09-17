@@ -14,6 +14,7 @@
    假话，而本测试会同时变红，逼着两者一起改。
    **这就是"文档与代码耦合"的可执行形式**——否则只能靠记忆维护。
 """
+
 from __future__ import annotations
 
 import re
@@ -59,7 +60,7 @@ class TestStructure:
             assert idx != -1, f"instructions 缺少小节 {section!r}"
             positions.append(idx)
         assert positions == sorted(positions), (
-            f"小节顺序被打乱：{list(zip(_SECTIONS, positions))}"
+            f"小节顺序被打乱：{list(zip(_SECTIONS, positions, strict=False))}"
         )
 
     def test_size_ceiling(self):
@@ -83,9 +84,7 @@ class TestLoadBearingFacts:
 
     def test_auto_resolving_tools_are_named(self):
         for tool in _AUTO_SESSION_ID_TOOLS:
-            assert tool in INSTRUCTIONS, (
-                f"instructions 应点名可省略 session_id 的工具 {tool}"
-            )
+            assert tool in INSTRUCTIONS, f"instructions 应点名可省略 session_id 的工具 {tool}"
 
     def test_auto_resolving_tool_set_matches_the_code(self):
         """点名的 5 个工具必须真的是自动解析的那 5 个。
@@ -178,8 +177,7 @@ class TestLoadBearingFacts:
         assert listed, "分诊表解析失败——格式可能变了"
         unknown = sorted(listed - real)
         assert not unknown, (
-            f"instructions 分诊表引用了不存在的错误码：{unknown}\n"
-            f"（真实码：{sorted(real)}）"
+            f"instructions 分诊表引用了不存在的错误码：{unknown}\n（真实码：{sorted(real)}）"
         )
 
     def test_breakpoint_prerequisite_stated(self):

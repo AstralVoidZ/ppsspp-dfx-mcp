@@ -17,14 +17,11 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
-
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-from ppsspp_dfx_mcp.tools.screenshot import dump_texture
 from ppsspp_dfx_mcp.tools.input import hold_buttons
 from ppsspp_dfx_mcp.tools.memory import read_memory
+from ppsspp_dfx_mcp.tools.screenshot import dump_texture
 from ppsspp_dfx_mcp.tools.search_disasm import search_disasm
-
 
 # ============================================================================
 # P-01: dump_texture — has level, no address
@@ -88,12 +85,8 @@ class TestImplReadStringNoLength:
         """
         src = inspect.getsource(read_memory)
         # 找到 client.read_string( 调用行
-        read_string_lines = [
-            line for line in src.splitlines() if "client.read_string(" in line
-        ]
-        assert read_string_lines, (
-            "read_memory 源码中应包含 client.read_string(...) 调用。"
-        )
+        read_string_lines = [line for line in src.splitlines() if "client.read_string(" in line]
+        assert read_string_lines, "read_memory 源码中应包含 client.read_string(...) 调用。"
         for line in read_string_lines:
             # 调用应传 address（变量名可能是 address 或 address_int）
             assert "address=" in line, (
@@ -159,19 +152,16 @@ class TestImplHoldButtonsEmptyString:
         # 确认 _validate_buttons_combo 在守卫内部（非无条件调用）
         lines = src.splitlines()
         validate_lines = [
-            (i, line) for i, line in enumerate(lines)
-            if "_validate_buttons_combo" in line
+            (i, line) for i, line in enumerate(lines) if "_validate_buttons_combo" in line
         ]
-        assert validate_lines, (
-            "hold_buttons 源码应调用 _validate_buttons_combo。"
-        )
+        assert validate_lines, "hold_buttons 源码应调用 _validate_buttons_combo。"
         for idx, line in validate_lines:
             # _validate_buttons_combo 应在 if 守卫内部（缩进更深）
             stripped = line.lstrip()
             indent = len(line) - len(stripped)
             assert indent > 0, (
                 f"_validate_buttons_combo 不应在模块顶层（应在 if 守卫内）— "
-                f"行 {idx+1}: {line.strip()}"
+                f"行 {idx + 1}: {line.strip()}"
             )
 
 
@@ -191,7 +181,7 @@ class TestImplSearchDisasmNoFallback:
         """
         src = inspect.getsource(search_disasm)
         assert 'response.get("disasm")' not in src, (
-            "search_disasm 不应使用 response.get(\"disasm\") 作为回退键 — "
+            'search_disasm 不应使用 response.get("disasm") 作为回退键 — '
             "PPSSPP memory.searchDisasm 只返回 lines 字段。"
             "P-17 回归。"
         )
@@ -200,7 +190,7 @@ class TestImplSearchDisasmNoFallback:
         """L4 anchor: search_disasm 源码不应有 response.get("results") 回退。"""
         src = inspect.getsource(search_disasm)
         assert 'response.get("results")' not in src, (
-            "search_disasm 不应使用 response.get(\"results\") 作为回退键 — "
+            'search_disasm 不应使用 response.get("results") 作为回退键 — '
             "PPSSPP memory.searchDisasm 只返回 lines 字段。"
             "P-17 回归。"
         )

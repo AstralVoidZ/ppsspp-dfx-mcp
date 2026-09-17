@@ -60,9 +60,7 @@ _DEFAULT_PROBE_ADDR = "0x08804000"
 _WAIT_READY_POLL_INTERVAL_S = 1.0
 
 
-async def _wait_ready_cpu(
-    session_id: str, timeout_s: float, probe_addr: int
-) -> WaitReadyResult:
+async def _wait_ready_cpu(session_id: str, timeout_s: float, probe_addr: int) -> WaitReadyResult:
     """Poll a probe read until the emulated CPU is up (H0 helper).
 
     Delegates to the SINGLE shared probe implementation
@@ -110,7 +108,9 @@ async def _wait_ready_cpu(
 # ToolError: on invalid action, missing required param, or business error.
 @mcp.tool(
     name="ppsspp_session",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    ),
 )
 @translate_tool_errors
 async def session(
@@ -195,23 +195,21 @@ async def session(
     ] = False,
 ) -> SessionOutput:
     """PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.
-    
+
     USAGE: action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).
 
     BEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; get is read-only.
-    
+
     RETURNS: SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version} — or, for wait_ready, {action, ready, elapsed_s, probe_addr, probe_value, note}."""
     if action not in _VALID_ACTIONS:
-        raise ArgsInvalid(
-            f"invalid action={action!r}; expected one of {_VALID_ACTIONS}")
+        raise ArgsInvalid(f"invalid action={action!r}; expected one of {_VALID_ACTIONS}")
 
     logger.info("tool_call", extra={"tool": "ppsspp_session", "action": action})
     clamped_timeout = min(max(float(timeout_s), 1.0), 300.0)
     try:
         if action == "start":
             if not iso_path:
-                raise ArgsInvalid(
-                    "iso_path is required when action=start")
+                raise ArgsInvalid("iso_path is required when action=start")
             sess = await session_manager.start_session(
                 iso_path,
                 resilient=resilient,
@@ -223,44 +221,32 @@ async def session(
                 # action=wait_ready, inlined after a successful start.
                 probe_int = parse_address(probe_addr)
                 if probe_int == 0:
-                    raise ArgsInvalid(
-                        f"probe_addr must be a valid hex address, got "
-                        f"{probe_addr!r}")
+                    raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
                 await _wait_ready_cpu(sess.session_id, clamped_timeout, probe_int)
         elif action == "stop":
             if not session_id:
-                raise ArgsInvalid(
-                    "session_id is required when action=stop")
+                raise ArgsInvalid("session_id is required when action=stop")
             sess = await session_manager.stop_session(session_id)
         elif action == "wait_ready":
             if not session_id:
-                raise ArgsInvalid(
-                    "session_id is required when action=wait_ready")
+                raise ArgsInvalid("session_id is required when action=wait_ready")
             probe_int = parse_address(probe_addr)
             if probe_int == 0:
-                raise ArgsInvalid(
-                    f"probe_addr must be a valid hex address, got "
-                    f"{probe_addr!r}")
+                raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
             if test_mode() == "fake":
                 result = WaitReadyResult(
                     ready=True,
                     elapsed_s=0.0,
                     probe_addr=probe_int,
                     probe_value=None,
-                    note="fake test mode has no boot concept — ready "
-                         "immediately",
+                    note="fake test mode has no boot concept — ready immediately",
                 )
             else:
-                result = await _wait_ready_cpu(
-                    session_id, clamped_timeout, probe_int
-                )
-            return WaitReadyResponse.from_result(result).model_dump(
-                mode="json"
-            )
+                result = await _wait_ready_cpu(session_id, clamped_timeout, probe_int)
+            return WaitReadyResponse.from_result(result).model_dump(mode="json")
         else:  # action == "get"
             if not session_id:
-                raise ArgsInvalid(
-                    "session_id is required when action=get")
+                raise ArgsInvalid("session_id is required when action=get")
             sess = await session_manager.get_session_state(session_id)
     except Exception as e:
         raise to_tool_error(e) from e
@@ -274,7 +260,9 @@ async def session(
 # idle_s). Idle sessions (>30min) are auto-GC'd as a side effect.
 @mcp.tool(
     name="ppsspp_session_list",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def session_list() -> SessionListOutput:

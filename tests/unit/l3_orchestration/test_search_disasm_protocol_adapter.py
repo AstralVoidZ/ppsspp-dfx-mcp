@@ -16,8 +16,8 @@ L3 tests the tool wrapper's protocol adaptation):
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -35,9 +35,7 @@ class TestSearchDisasmDollarStrip:
     """
 
     @pytest.mark.asyncio
-    async def test_dollar_in_register_name_stripped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_dollar_in_register_name_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """match="jr $ra" forwarded as match="jr ra" to client.search_disasm."""
         mock_client = AsyncMock()
         mock_client.search_disasm.return_value = {"address": None}
@@ -53,9 +51,7 @@ class TestSearchDisasmDollarStrip:
             fake_session_client,
         )
 
-        await search_disasm(
-            session_id="sess-1", address=0x08804000, match="jr $ra"
-        )
+        await search_disasm(session_id="sess-1", address=0x08804000, match="jr $ra")
 
         # Verify '$' was stripped before forwarding.
         call_kwargs = mock_client.search_disasm.call_args.kwargs
@@ -65,9 +61,7 @@ class TestSearchDisasmDollarStrip:
         )
 
     @pytest.mark.asyncio
-    async def test_no_dollar_unchanged(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_no_dollar_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """match without '$' is forwarded unchanged."""
         mock_client = AsyncMock()
         mock_client.search_disasm.return_value = {"address": None}
@@ -83,17 +77,13 @@ class TestSearchDisasmDollarStrip:
             fake_session_client,
         )
 
-        await search_disasm(
-            session_id="sess-1", address=0x08804000, match="jal func"
-        )
+        await search_disasm(session_id="sess-1", address=0x08804000, match="jal func")
 
         call_kwargs = mock_client.search_disasm.call_args.kwargs
         assert call_kwargs["match"] == "jal func"
 
     @pytest.mark.asyncio
-    async def test_multiple_dollars_all_stripped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_multiple_dollars_all_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """match="addu $t0, $t1, $t2" → forwarded as "addu t0, t1, t2"."""
         mock_client = AsyncMock()
         mock_client.search_disasm.return_value = {"address": None}
@@ -129,15 +119,11 @@ class TestSearchDisasmTextPopulation:
     """
 
     @pytest.mark.asyncio
-    async def test_matched_address_populates_text(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_matched_address_populates_text(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When searchDisasm returns an address, disasm is called for text."""
         mock_client = AsyncMock()
         mock_client.search_disasm.return_value = {"address": 0x08808400}
-        mock_client.disasm.return_value = [
-            {"text": "jr ra", "name": "jr", "params": "ra"}
-        ]
+        mock_client.disasm.return_value = [{"text": "jr ra", "name": "jr", "params": "ra"}]
 
         @asynccontextmanager
         async def fake_session_client(
@@ -150,14 +136,10 @@ class TestSearchDisasmTextPopulation:
             fake_session_client,
         )
 
-        result = await search_disasm(
-            session_id="sess-1", address=0x08804000, match="jr ra"
-        )
+        result = await search_disasm(session_id="sess-1", address=0x08804000, match="jr ra")
 
         # Verify disasm was called with the matched address.
-        mock_client.disasm.assert_awaited_once_with(
-            address=0x08808400, count=1
-        )
+        mock_client.disasm.assert_awaited_once_with(address=0x08808400, count=1)
         # Verify the result entry has the text field populated.
         assert len(result["results"]) == 1
         assert result["results"][0]["address"] == 0x08808400
@@ -167,9 +149,7 @@ class TestSearchDisasmTextPopulation:
         )
 
     @pytest.mark.asyncio
-    async def test_no_match_no_disasm_call(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_no_match_no_disasm_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When searchDisasm returns address=null, disasm is NOT called."""
         mock_client = AsyncMock()
         mock_client.search_disasm.return_value = {"address": None}
@@ -185,9 +165,7 @@ class TestSearchDisasmTextPopulation:
             fake_session_client,
         )
 
-        result = await search_disasm(
-            session_id="sess-1", address=0x08804000, match="nonexistent"
-        )
+        result = await search_disasm(session_id="sess-1", address=0x08804000, match="nonexistent")
 
         mock_client.disasm.assert_not_awaited()
         assert result["results"] == []
@@ -216,9 +194,7 @@ class TestSearchDisasmTextPopulation:
             fake_session_client,
         )
 
-        result = await search_disasm(
-            session_id="sess-1", address=0x08804000, match="jr ra"
-        )
+        result = await search_disasm(session_id="sess-1", address=0x08804000, match="jr ra")
 
         # Match is still returned, just without text.
         assert len(result["results"]) == 1

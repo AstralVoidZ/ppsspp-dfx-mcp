@@ -41,9 +41,7 @@ class _EchoWebSocket:
     async def send(self, data: str) -> None:
         msg = json.loads(data)
         self.sent.append(msg)
-        await self._reply.put(
-            json.dumps({"event": msg["event"], "ticket": msg["ticket"]})
-        )
+        await self._reply.put(json.dumps({"event": msg["event"], "ticket": msg["ticket"]}))
 
     async def close(self) -> None:
         self.state = State.CLOSED

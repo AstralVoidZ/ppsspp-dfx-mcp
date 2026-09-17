@@ -36,8 +36,10 @@ def main() -> None:
 
     out_path = _EVALS_DIR / "runs" / "rescored-b1-v12.jsonl"
     n_ok = n_total = 0
-    with Path(args.archive).open(encoding="utf-8") as f, \
-            out_path.open("w", encoding="utf-8") as out:
+    with (
+        Path(args.archive).open(encoding="utf-8") as f,
+        out_path.open("w", encoding="utf-8") as out,
+    ):
         for line in f:
             if not line.strip():
                 continue

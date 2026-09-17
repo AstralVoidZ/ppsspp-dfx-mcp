@@ -24,13 +24,11 @@ in practice because PPSSPP returns at least 1 byte or raises.
 from __future__ import annotations
 
 import base64
-from typing import Any
 
 import pytest
-
 from fake_transport import FakeTransport
-from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
+from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
 # ============================================================================
 # Fixtures (local — L3 scan tests need fine-grained control over reads)
@@ -56,15 +54,17 @@ def _make_read_handler(memory_map: dict[int, bytes]):
     (address, size), the callable slices from the matching region.
     Returns {base64: <encoded bytes>}.
     """
+
     def handler(**params):
         addr = params["address"]
         size = params["size"]
         for region_addr, region_data in memory_map.items():
             if region_addr <= addr < region_addr + len(region_data):
                 offset = addr - region_addr
-                chunk = region_data[offset:offset + size]
+                chunk = region_data[offset : offset + size]
                 return {"base64": base64.b64encode(chunk).decode("ascii")}
         return {"base64": ""}
+
     return handler
 
 
@@ -75,15 +75,17 @@ def _make_short_read_handler(memory_map: dict[int, bytes], max_bytes: int):
     The handler returns min(requested_size, max_bytes) bytes per call,
     forcing the scan_memory cursor to advance by len(data) (not chunk_end).
     """
+
     def handler(**params):
         addr = params["address"]
         size = min(params["size"], max_bytes)
         for region_addr, region_data in memory_map.items():
             if region_addr <= addr < region_addr + len(region_data):
                 offset = addr - region_addr
-                chunk = region_data[offset:offset + size]
+                chunk = region_data[offset : offset + size]
                 return {"base64": base64.b64encode(chunk).decode("ascii")}
         return {"base64": ""}
+
     return handler
 
 
@@ -106,9 +108,7 @@ class TestShortReadCursorAdvance:
     4. Full-read advances cursor to chunk_end
     """
 
-    async def test_short_read_advances_cursor_by_len_data(
-        self, scan_client, scan_transport
-    ):
+    async def test_short_read_advances_cursor_by_len_data(self, scan_client, scan_transport):
         """Short-read: cursor += len(data), not chunk_end.
 
         Setup: chunk_size=16, pattern=2 bytes. The handler returns only
@@ -116,7 +116,7 @@ class TestShortReadCursorAdvance:
         cursor must advance by 8 (not 16), so the next read starts at
         cursor+8 (not cursor+16) — ensuring no memory is skipped.
         """
-        pattern = b"\xAA\xBB"
+        pattern = b"\xaa\xbb"
         region_addr = 0x08804000
         # 32-byte region with pattern at offset 12 (would be skipped if
         # cursor advanced by chunk_end=16 after a short-read of 8 bytes
@@ -140,9 +140,7 @@ class TestShortReadCursorAdvance:
         assert len(matches) == 1
         assert matches[0]["address"] == region_addr + 12
 
-    async def test_full_read_advances_cursor_to_chunk_end(
-        self, scan_client, scan_transport
-    ):
+    async def test_full_read_advances_cursor_to_chunk_end(self, scan_client, scan_transport):
         """Full-read: cursor = chunk_end (not cursor + len(data)).
 
         When len(data) == read_size, cursor advances to chunk_end. This
@@ -151,7 +149,7 @@ class TestShortReadCursorAdvance:
         be less than cursor + read_size (because read_size includes
         overlap bytes that are re-read next iteration).
         """
-        pattern = b"\xCC\xDD"
+        pattern = b"\xcc\xdd"
         region_addr = 0x08804000
         # 64-byte region with pattern at offset 32 (start of chunk 2)
         region_data = bytearray(b"\x00" * 64)
@@ -171,9 +169,7 @@ class TestShortReadCursorAdvance:
         assert len(matches) == 1
         assert matches[0]["address"] == region_addr + 32
 
-    async def test_short_read_no_infinite_loop(
-        self, scan_client, scan_transport
-    ):
+    async def test_short_read_no_infinite_loop(self, scan_client, scan_transport):
         """Short-read must always advance cursor (no infinite loop).
 
         V022 §5.3 notes the theoretical risk: if len(data) == 0 (empty
@@ -181,7 +177,7 @@ class TestShortReadCursorAdvance:
         happen because PPSSPP returns at least 1 byte or raises. This
         test anchors that a 1-byte short-read still advances the cursor.
         """
-        pattern = b"\xEE"
+        pattern = b"\xee"
         region_addr = 0x08804000
         # 8-byte region; handler returns 1 byte per call (extreme short-read)
         region_data = bytes([0x00] * 4 + [0xEE] + [0x00] * 3)
@@ -221,16 +217,14 @@ class TestOverlapNoDuplicateMatches:
     3. Overlap bytes are re-read but not double-matched
     """
 
-    async def test_pattern_at_chunk_end_reported_once(
-        self, scan_client, scan_transport
-    ):
+    async def test_pattern_at_chunk_end_reported_once(self, scan_client, scan_transport):
         """Pattern exactly at chunk_end is reported by the next chunk.
 
         Pattern at offset = chunk_size (chunk_end of chunk 0) is in the
         overlap tail of chunk 0's read but at the start of chunk 1's
         read. It must be reported exactly once (by chunk 1).
         """
-        pattern = b"\xAB\xCD"
+        pattern = b"\xab\xcd"
         region_addr = 0x08804000
         chunk_size = 16
         # Place pattern at offset 16 (= chunk_end of chunk 0)
@@ -249,21 +243,18 @@ class TestOverlapNoDuplicateMatches:
         )
 
         assert len(matches) == 1, (
-            f"Pattern at chunk_end must be reported exactly once, got "
-            f"{len(matches)}: {matches}"
+            f"Pattern at chunk_end must be reported exactly once, got {len(matches)}: {matches}"
         )
         assert matches[0]["address"] == region_addr + 16
 
-    async def test_pattern_spanning_chunk_end_reported_once(
-        self, scan_client, scan_transport
-    ):
+    async def test_pattern_spanning_chunk_end_reported_once(self, scan_client, scan_transport):
         """Pattern spanning chunk_end is caught by overlap, reported once.
 
         Pattern at offset chunk_size - 1 (1 byte in chunk 0, 1 byte in
         chunk 1) is found by chunk 0's overlap read. It must NOT be
         re-reported by chunk 1 (which re-reads the overlap bytes).
         """
-        pattern = b"\xDE\xAD"
+        pattern = b"\xde\xad"
         region_addr = 0x08804000
         chunk_size = 16
         # Place pattern at offset 15 (1 byte in chunk 0, 1 byte in chunk 1)
@@ -303,16 +294,14 @@ class TestUnreadableRegionAdvance:
     cause infinite loop and the scan continues at the next chunk.
     """
 
-    async def test_unreadable_region_advances_to_chunk_end(
-        self, scan_client, scan_transport
-    ):
+    async def test_unreadable_region_advances_to_chunk_end(self, scan_client, scan_transport):
         """Unreadable chunk: cursor = chunk_end, scan continues.
 
         Setup: chunk_size=16, first chunk raises, second chunk has pattern.
         After the first chunk raises, cursor must jump to chunk_end=16
         (not stay at 0), so the second read starts at 16.
         """
-        pattern = b"\xFF\xEE"
+        pattern = b"\xff\xee"
         region_addr = 0x08804000
         chunk_size = 16
         # Second chunk has pattern at offset 4 (absolute offset 20)
@@ -325,7 +314,7 @@ class TestUnreadableRegionAdvance:
                 raise RuntimeError("unmapped memory")
             # Second chunk: return data
             offset = addr - region_addr
-            chunk = region_data[offset:offset + params["size"]]
+            chunk = region_data[offset : offset + params["size"]]
             return {"base64": base64.b64encode(chunk).decode("ascii")}
 
         scan_transport.set_response("memory.read", handler)
@@ -342,7 +331,7 @@ class TestUnreadableRegionAdvance:
 
     async def test_all_unreadable_returns_empty(self, scan_client, scan_transport):
         """All chunks unreadable: empty list, no infinite loop."""
-        pattern = b"\xAA"
+        pattern = b"\xaa"
 
         def handler(**params):
             raise RuntimeError("unmapped")
@@ -372,17 +361,15 @@ class TestMultiChunkScanIntegration:
     integration of V022 §5.3's algorithm under realistic conditions.
     """
 
-    async def test_pattern_in_each_chunk_all_found(
-        self, scan_client, scan_transport
-    ):
+    async def test_pattern_in_each_chunk_all_found(self, scan_client, scan_transport):
         """Pattern in each of 4 chunks: all 4 matches returned."""
-        pattern = b"\xBE\xEF"
+        pattern = b"\xbe\xef"
         region_addr = 0x08804000
         chunk_size = 16
         # 4 chunks × 16 bytes = 64 bytes; pattern at offset 4 of each chunk
         region_data = bytearray(b"\x00" * 64)
         for chunk_idx in range(4):
-            region_data[chunk_idx * chunk_size + 4:chunk_idx * chunk_size + 6] = pattern
+            region_data[chunk_idx * chunk_size + 4 : chunk_idx * chunk_size + 6] = pattern
         scan_transport.set_response(
             "memory.read",
             _make_read_handler({region_addr: bytes(region_data)}),
@@ -404,19 +391,17 @@ class TestMultiChunkScanIntegration:
         ]
         assert [m["address"] for m in matches] == expected_addrs
 
-    async def test_max_results_stops_mid_scan(
-        self, scan_client, scan_transport
-    ):
+    async def test_max_results_stops_mid_scan(self, scan_client, scan_transport):
         """max_results stops scan mid-way (no unnecessary reads).
 
         With 4 matches available and max_results=2, the scan must stop
         after finding 2 matches. L3 anchors that the scan terminates
         early (no infinite read loop after max_results reached).
         """
-        pattern = b"\xAA"
+        pattern = b"\xaa"
         region_addr = 0x08804000
         # 256 bytes of 0xAA → 256 matches; max_results=2
-        region_data = b"\xAA" * 256
+        region_data = b"\xaa" * 256
         scan_transport.set_response(
             "memory.read",
             _make_read_handler({region_addr: region_data}),

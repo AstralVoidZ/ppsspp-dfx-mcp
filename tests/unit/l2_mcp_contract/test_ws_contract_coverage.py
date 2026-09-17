@@ -18,17 +18,14 @@ import ast
 import inspect
 from pathlib import Path
 
-import pytest
-
 from ppsspp_dfx_mcp.core import stepping as stepping_module
 from ppsspp_dfx_mcp.core.ws_contract import WS_EVENT_CONTRACTS, get_contract
 from ppsspp_dfx_mcp.errors import (
     StepNoAdvanceError,
-    to_tool_error,
     WsDisconnected,
+    to_tool_error,
 )
 from ppsspp_dfx_mcp.service import debug_client as dc_module
-from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
 
 class TestW10aConnectionErrorClassification:
@@ -54,9 +51,7 @@ class TestW10bStepNoAdvancePassthrough:
             "breakpoint or step action=run_until instead"
         )
         translated = to_tool_error(exc)
-        assert translated is exc, (
-            "W10b: the no-advance diagnosis must reach the client verbatim"
-        )
+        assert translated is exc, "W10b: the no-advance diagnosis must reach the client verbatim"
         assert translated.code == "STEP_NO_ADVANCE"
 
     def test_message_not_polluted_with_reconnect_hint(self):

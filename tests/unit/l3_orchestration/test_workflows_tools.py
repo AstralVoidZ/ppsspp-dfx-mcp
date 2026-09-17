@@ -45,19 +45,19 @@ class _StubClient:
         self.ops.append("safe_get_pc")
         return 0x08812345, "high"
 
-    async def mem_bp_add(self, address, size, read=True, write=True,
-                         enabled=True, log=False, **kw):
+    async def mem_bp_add(self, address, size, read=True, write=True, enabled=True, log=False, **kw):
         self.ops.append(("mem_add", address, size, read, write))
         self.mem_bps[address] = size
         return {}
 
     async def mem_bp_list(self):
         self.ops.append("mem_list")
-        return {"breakpoints": [
-            {"address": a, "size": s, "read": True, "write": True,
-             "hits": 2}
-            for a, s in self.mem_bps.items()
-        ]}
+        return {
+            "breakpoints": [
+                {"address": a, "size": s, "read": True, "write": True, "hits": 2}
+                for a, s in self.mem_bps.items()
+            ]
+        }
 
     async def mem_bp_remove(self, address, size):
         self.ops.append(("mem_remove", address, size))
@@ -115,18 +115,19 @@ def _patch(monkeypatch, client: _StubClient, observer: GameStateObserver):
     monkeypatch.setattr(wf, "session_client_with_transport", fake_swt)
     monkeypatch.setattr(wf, "session_client", fake_sc)
     monkeypatch.setattr(wf, "validate_session_alive", fake_alive)
-    monkeypatch.setattr(wf.session_manager, "get_observer",
-                        fake_get_observer)
+    monkeypatch.setattr(wf.session_manager, "get_observer", fake_get_observer)
 
 
 def _push_hit(transport: _ObserverTransport) -> None:
-    transport.events.put_nowait({
-        "event": "cpu.stepping",
-        "pc": 0x08804008,
-        "relatedAddress": 0x08A0D000,
-        "reason": "memory.breakpoint",
-        "ticks": 1234.5,
-    })
+    transport.events.put_nowait(
+        {
+            "event": "cpu.stepping",
+            "pc": 0x08804008,
+            "relatedAddress": 0x08A0D000,
+            "reason": "memory.breakpoint",
+            "ticks": 1234.5,
+        }
+    )
 
 
 # ── ppsspp_wait_breakpoint ───────────────────────────────────────────────
@@ -144,9 +145,7 @@ async def test_wait_breakpoint_returns_hit_tuple(
     client = _StubClient()
     _patch(monkeypatch, client, observer)
     try:
-        task = asyncio.create_task(
-            wf.wait_breakpoint(session_id="s1", timeout_s=5.0)
-        )
+        task = asyncio.create_task(wf.wait_breakpoint(session_id="s1", timeout_s=5.0))
         await asyncio.sleep(0.15)  # let the tool enter its wait
         _push_hit(transport)
         out = await task
@@ -218,10 +217,16 @@ async def test_trace_full_chain_captures_cleans_restores(
     client = _StubClient()
     _patch(monkeypatch, client, observer)
     try:
-        task = asyncio.create_task(wf.trace_memory_access(
-            session_id="s1", address=TRACE_ADDR, access="read_write",
-            timeout_s=5.0, want_registers=True, want_backtrace=True,
-        ))
+        task = asyncio.create_task(
+            wf.trace_memory_access(
+                session_id="s1",
+                address=TRACE_ADDR,
+                access="read_write",
+                timeout_s=5.0,
+                want_registers=True,
+                want_backtrace=True,
+            )
+        )
         await asyncio.sleep(0.15)
         _push_hit(transport)
         out = await task
@@ -239,8 +244,12 @@ async def test_trace_full_chain_captures_cleans_restores(
         assert client.ops[0] == ("mem_add", 0x08A0D000, 4, True, True)
         # capture → remove (real size) → verify → resume
         assert names[1:] == [
-            "get_all_regs", "backtrace",
-            "mem_list", "mem_remove", "mem_list", "resume",
+            "get_all_regs",
+            "backtrace",
+            "mem_list",
+            "mem_remove",
+            "mem_list",
+            "resume",
         ]
         assert ("mem_remove", 0x08A0D000, 4) in client.ops
         assert observer._stepping_subscribers == []
@@ -261,7 +270,9 @@ async def test_trace_timeout_removes_breakpoint_without_resume(
     _patch(monkeypatch, client, observer)
     try:
         out = await wf.trace_memory_access(
-            session_id="s1", address=TRACE_ADDR, access="read",
+            session_id="s1",
+            address=TRACE_ADDR,
+            access="read",
             timeout_s=0.5,
         )
         assert out["hit"] is False
@@ -288,7 +299,9 @@ async def test_trace_already_paused_short_circuits(
     _patch(monkeypatch, client, observer)
     try:
         out = await wf.trace_memory_access(
-            session_id="s1", address=TRACE_ADDR, timeout_s=5.0,
+            session_id="s1",
+            address=TRACE_ADDR,
+            timeout_s=5.0,
         )
         assert out["hit"] is False
         assert out["already_paused"] is True
@@ -311,10 +324,14 @@ async def test_trace_capture_failure_still_cleans_up_and_resumes(
     client = _StubClient(fail_regs=True)
     _patch(monkeypatch, client, observer)
     try:
-        task = asyncio.create_task(wf.trace_memory_access(
-            session_id="s1", address=TRACE_ADDR, timeout_s=5.0,
-            want_registers=True,
-        ))
+        task = asyncio.create_task(
+            wf.trace_memory_access(
+                session_id="s1",
+                address=TRACE_ADDR,
+                timeout_s=5.0,
+                want_registers=True,
+            )
+        )
         await asyncio.sleep(0.15)
         _push_hit(transport)
         with pytest.raises(ToolError):
@@ -339,11 +356,14 @@ async def test_trace_rejects_bad_size_and_address(
     try:
         with pytest.raises(ToolError, match="size"):
             await wf.trace_memory_access(
-                session_id="s1", address=TRACE_ADDR, size=3,
+                session_id="s1",
+                address=TRACE_ADDR,
+                size=3,
             )
         with pytest.raises(ToolError, match="address"):
             await wf.trace_memory_access(
-                session_id="s1", address="0x0",
+                session_id="s1",
+                address="0x0",
             )
         assert client.ops == []
     finally:
@@ -372,7 +392,8 @@ class TestFrameSnapshot:
 
     @pytest.mark.asyncio
     async def test_running_game_pauses_captures_resumes(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         client = _StubClient(stepping=False)
         self._patch(monkeypatch, client)
@@ -387,7 +408,8 @@ class TestFrameSnapshot:
 
     @pytest.mark.asyncio
     async def test_already_paused_left_paused(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         client = _StubClient(stepping=True)
         self._patch(monkeypatch, client)
@@ -399,7 +421,8 @@ class TestFrameSnapshot:
 
     @pytest.mark.asyncio
     async def test_capture_failure_resumes_our_pause(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         client = _StubClient(stepping=False, fail_regs=True)
         self._patch(monkeypatch, client)

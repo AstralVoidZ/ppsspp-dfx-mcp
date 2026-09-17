@@ -31,10 +31,7 @@ import pytest
 
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 
-
-_INVALID_CLUT_PARAMS = frozenset(
-    {"clutaddr", "clutfmt", "clut_addr", "clut_fmt", "address"}
-)
+_INVALID_CLUT_PARAMS = frozenset({"clutaddr", "clutfmt", "clut_addr", "clut_fmt", "address"})
 
 _VALID_CLUT_PARAMS = frozenset({"output_type", "alpha", "stackWidth"})
 
@@ -70,9 +67,7 @@ class TestV009ClutParamsCleaned:
         assert transport.calls[-1][0] == "gpu.buffer.clut"
         sent_keys = set(transport.calls[-1][1].keys())
         invalid_sent = sent_keys & _INVALID_CLUT_PARAMS
-        assert not invalid_sent, (
-            f"clut forwarded invalid params to PPSSPP: {invalid_sent}"
-        )
+        assert not invalid_sent, f"clut forwarded invalid params to PPSSPP: {invalid_sent}"
         params = transport.calls[-1][1]
         assert params["type"] == "base64"
         assert params["alpha"] is True

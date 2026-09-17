@@ -94,7 +94,9 @@ def _extract_broadcast_fields(resp: dict[str, Any] | None) -> dict[str, Any]:
 # next_hle  → session_id
 @mcp.tool(
     name="ppsspp_step",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    ),
 )
 @translate_tool_errors
 async def step(
@@ -139,8 +141,7 @@ async def step(
         str | None,
         Field(
             description=(
-                "Active session ID; omit to auto-resolve when exactly "
-                "one session is active."
+                "Active session ID; omit to auto-resolve when exactly one session is active."
             ),
         ),
     ] = None,
@@ -155,13 +156,10 @@ async def step(
     """
     session_id = await resolve_session_id(session_id)
     if action not in _STEP_ACTIONS:
-        raise ArgsInvalid(
-            f"invalid action={action!r}; expected one of {_STEP_ACTIONS}")
+        raise ArgsInvalid(f"invalid action={action!r}; expected one of {_STEP_ACTIONS}")
     address_int = parse_address(address)
     if action == "run_until" and address_int == 0:
-        raise ArgsInvalid(
-            "address is required when action=run_until"
-        )
+        raise ArgsInvalid("address is required when action=run_until")
 
     logger.info(
         "tool_call",

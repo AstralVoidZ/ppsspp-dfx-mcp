@@ -32,6 +32,7 @@ class _Output(BaseModel):
 
 def _fake_entry() -> Any:
     from types import SimpleNamespace
+
     return SimpleNamespace(
         name="unit_fake_script",
         description="fake",

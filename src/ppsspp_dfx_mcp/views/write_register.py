@@ -31,7 +31,7 @@ class WriteRegisterResponse(FrozenModel):
     )
 
     @classmethod
-    def from_result(cls, result: WriteRegisterResult) -> "WriteRegisterResponse":
+    def from_result(cls, result: WriteRegisterResult) -> WriteRegisterResponse:
         text = f"Wrote 0x{result.value:X} → {result.name}"
         return cls(
             name=result.name,

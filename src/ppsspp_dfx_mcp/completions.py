@@ -104,18 +104,14 @@ def address_candidates(prefix: str = "") -> tuple[list[str], int]:
     matches: list[str] = []
     for value in sorted(seen):
         digits = f"{value:08x}"
-        if query and not (
-            digits.startswith(query) or digits.lstrip("0").startswith(query)
-        ):
+        if query and not (digits.startswith(query) or digits.lstrip("0").startswith(query)):
             continue
         matches.append(format_address(value))
     return (matches[:_MAX_VALUES], len(matches))
 
 
 @mcp.completion()
-async def complete(
-    ref: Any, argument: Any, context: Any = None
-) -> Completion | None:
+async def complete(ref: Any, argument: Any, context: Any = None) -> Completion | None:
     """`completion/complete` handler — serves the wizards' `address` argument.
 
     Returning `None` (rather than an empty `Completion`) is the SDK's

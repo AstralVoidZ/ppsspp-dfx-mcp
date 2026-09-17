@@ -13,10 +13,12 @@ responsible for connect/close.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from ppsspp_dfx_mcp.core.transport import WsTransport
 from ppsspp_dfx_mcp.logging import PPSSPP_LOG_LOGGER_NAME
@@ -27,12 +29,12 @@ logger = logging.getLogger(__name__)
 # See PPSSPP LogBroadcaster.cpp — level is numeric 1-6:
 #   1=NOTICE, 2=ERROR, 3=WARN, 4=INFO, 5=DEBUG, 6=VERBOSE.
 _LOG_LEVEL_MAP: dict[int, int] = {
-    1: logging.INFO,     # NOTICE
-    2: logging.ERROR,    # ERROR
+    1: logging.INFO,  # NOTICE
+    2: logging.ERROR,  # ERROR
     3: logging.WARNING,  # WARN
-    4: logging.INFO,     # INFO
-    5: logging.DEBUG,    # DEBUG
-    6: logging.DEBUG,    # VERBOSE
+    4: logging.INFO,  # INFO
+    5: logging.DEBUG,  # DEBUG
+    6: logging.DEBUG,  # VERBOSE
 }
 
 # Subscribed event names — each gets its own asyncio.Queue.
@@ -55,9 +57,7 @@ _SUBSCRIBED_EVENTS: tuple[str, ...] = (
 )
 
 # Game lifecycle event names (state machine inputs).
-_GAME_EVENTS: frozenset[str] = frozenset(
-    {"game.start", "game.quit", "game.pause", "game.resume"}
-)
+_GAME_EVENTS: frozenset[str] = frozenset({"game.start", "game.quit", "game.pause", "game.resume"})
 
 # Valid state machine transitions: {from_state: {event_name: to_state}}.
 # The quit→loading transition is NOT here because it is triggered by
@@ -195,14 +195,9 @@ class GameStateObserver:
         # disabled" i.e. enabled. Log broadcast is enabled by default
         # in PPSSPP; this call is defensive.
         try:
-            await self._transport.call(
-                "broadcast.config.set", disallowed={"logger": False}
-            )
+            await self._transport.call("broadcast.config.set", disallowed={"logger": False})
         except Exception as e:
-            logger.warning(
-                "start: broadcast.config.set failed (defensive, "
-                "non-fatal): %s", e
-            )
+            logger.warning("start: broadcast.config.set failed (defensive, non-fatal): %s", e)
 
         # Start the single-consumer dispatcher.
         self._dispatcher_task = asyncio.ensure_future(self._dispatcher())
@@ -280,11 +275,9 @@ class GameStateObserver:
         """
         queue = self._queues["cpu.resume"]
         try:
-            await asyncio.wait_for(
-                queue.get(), timeout=timeout_ms / 1000.0
-            )
+            await asyncio.wait_for(queue.get(), timeout=timeout_ms / 1000.0)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     def is_running(self) -> bool:
@@ -325,8 +318,8 @@ class GameStateObserver:
     async def wait_for_step_broadcast(
         self,
         timeout_ms: int = 1200,
-        filter: Optional[Callable[[dict[str, Any]], bool]] = None,
-    ) -> Optional[dict[str, Any]]:
+        filter: Callable[[dict[str, Any]], bool] | None = None,
+    ) -> dict[str, Any] | None:
         """Wait for a ``cpu.stepping`` broadcast.
 
         Consumes from the ``cpu.stepping`` per-event-name queue fed by
@@ -359,7 +352,7 @@ class GameStateObserver:
                 return None
             try:
                 msg = await asyncio.wait_for(queue.get(), timeout=remaining)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return None
             if filter is None or filter(msg):
                 return msg
@@ -390,10 +383,8 @@ class GameStateObserver:
 
     def _remove_stepping_subscription(self, sub: SteppingSubscription) -> None:
         """Detach a subscriber (idempotent; called by ``sub.close()``)."""
-        try:
+        with contextlib.suppress(ValueError):
             self._stepping_subscribers.remove(sub)
-        except ValueError:
-            pass
 
     # ------------------------------------------------------------------
     # Public API — gpu.stats.feed
@@ -421,13 +412,9 @@ class GameStateObserver:
         # Reset freeze flag for this feed session.
         self._gpu_freeze_detected = False
         if self._gpu_stats_consumer_task is None:
-            self._gpu_stats_consumer_task = asyncio.ensure_future(
-                self._gpu_stats_consumer()
-            )
+            self._gpu_stats_consumer_task = asyncio.ensure_future(self._gpu_stats_consumer())
         if self._gpu_freeze_task is None:
-            self._gpu_freeze_task = asyncio.ensure_future(
-                self._gpu_freeze_detector()
-            )
+            self._gpu_freeze_task = asyncio.ensure_future(self._gpu_freeze_detector())
 
     async def stop_gpu_stats_feed(self) -> None:
         """Disable ``gpu.stats.feed`` and stop frame freeze detection.
@@ -444,9 +431,7 @@ class GameStateObserver:
         try:
             await self._transport.call("gpu.stats.feed", enable=False)
         except Exception as e:
-            logger.warning(
-                "stop_gpu_stats_feed: gpu.stats.feed disable failed: %s", e
-            )
+            logger.warning("stop_gpu_stats_feed: gpu.stats.feed disable failed: %s", e)
         self._gpu_stats_feed_enabled = False
         for attr in ("_gpu_stats_consumer_task", "_gpu_freeze_task"):
             task = getattr(self, attr)
@@ -457,9 +442,7 @@ class GameStateObserver:
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
-                    logger.warning(
-                        "stop_gpu_stats_feed: cleanup error: %s", e
-                    )
+                    logger.warning("stop_gpu_stats_feed: cleanup error: %s", e)
                 setattr(self, attr, None)
 
     # ------------------------------------------------------------------
@@ -513,7 +496,8 @@ class GameStateObserver:
                 # state machine logic bugs) so they are not silently
                 # swallowed.
                 logger.warning(
-                    "dispatcher: message handling failed: %s", e,
+                    "dispatcher: message handling failed: %s",
+                    e,
                     exc_info=True,
                 )
 
@@ -527,15 +511,11 @@ class GameStateObserver:
         transitions = _TRANSITIONS.get(self._state, {})
         new_state = transitions.get(event_name)
         if new_state is not None:
-            logger.debug(
-                "state transition: %s --%s--> %s",
-                self._state, event_name, new_state
-            )
+            logger.debug("state transition: %s --%s--> %s", self._state, event_name, new_state)
             self._state = new_state
         else:
             logger.warning(
-                "invalid state transition: event=%s, current=%s",
-                event_name, self._state
+                "invalid state transition: event=%s, current=%s", event_name, self._state
             )
 
     # ------------------------------------------------------------------
@@ -560,9 +540,7 @@ class GameStateObserver:
                 logger.warning("log_consumer: error: %s", e)
 
     @staticmethod
-    def _inject_log(
-        msg: dict[str, Any], ppsspp_logger: logging.Logger
-    ) -> None:
+    def _inject_log(msg: dict[str, Any], ppsspp_logger: logging.Logger) -> None:
         """Inject a single log broadcast into the Python logger.
 
         Malformed broadcasts (missing ``level`` or ``message``) are
@@ -579,7 +557,7 @@ class GameStateObserver:
             return  # silently drop malformed broadcasts
         try:
             level_int = int(level_num)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return  # invalid level, drop
         py_level = _LOG_LEVEL_MAP.get(level_int)
         if py_level is None:
@@ -640,8 +618,7 @@ class GameStateObserver:
                 elapsed = time.monotonic() - self._last_frame_mono
                 if elapsed > 3.0 and self.get_state() == "running":
                     logger.error(
-                        "gpu freeze detected: no frame for >%.1fs while "
-                        "game running",
+                        "gpu freeze detected: no frame for >%.1fs while game running",
                         elapsed,
                         exc_info=True,
                     )
@@ -683,9 +660,7 @@ class SteppingSubscription:
         maxsize: int = 32,
     ) -> None:
         self._observer = observer
-        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
-            maxsize=maxsize
-        )
+        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=maxsize)
         self._closed = False
 
     def _offer(self, msg: dict[str, Any]) -> None:
@@ -696,16 +671,12 @@ class SteppingSubscription:
             self._queue.put_nowait(msg)
         except asyncio.QueueFull:
             # Drop the OLDEST broadcast to make room (bounded backlog).
-            try:
+            with contextlib.suppress(asyncio.QueueEmpty):  # pragma: no cover — race guard
                 self._queue.get_nowait()
-            except asyncio.QueueEmpty:  # pragma: no cover — race guard
-                pass
-            try:
+            with contextlib.suppress(asyncio.QueueFull):  # pragma: no cover — race guard
                 self._queue.put_nowait(msg)
-            except asyncio.QueueFull:  # pragma: no cover — race guard
-                pass
 
-    async def get(self, timeout_s: float) -> Optional[dict[str, Any]]:
+    async def get(self, timeout_s: float) -> dict[str, Any] | None:
         """Await the next buffered broadcast.
 
         Returns:
@@ -713,10 +684,8 @@ class SteppingSubscription:
             breakpoint-wait tool treats None as "not hit yet").
         """
         try:
-            return await asyncio.wait_for(
-                self._queue.get(), timeout=max(0.0, timeout_s)
-            )
-        except asyncio.TimeoutError:
+            return await asyncio.wait_for(self._queue.get(), timeout=max(0.0, timeout_s))
+        except TimeoutError:
             return None
 
     def drain(self) -> int:
@@ -740,7 +709,7 @@ class SteppingSubscription:
         self._closed = True
         self._observer._remove_stepping_subscription(self)
 
-    async def __aenter__(self) -> "SteppingSubscription":
+    async def __aenter__(self) -> SteppingSubscription:
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:

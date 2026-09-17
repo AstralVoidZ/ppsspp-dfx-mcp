@@ -12,8 +12,6 @@ not in-process calls. Verifies:
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 loop_scope = "session"  # share the mcp_inspector session-scoped loop

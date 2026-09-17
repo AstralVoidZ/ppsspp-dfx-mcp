@@ -44,6 +44,7 @@ Agent 无法据此判断会收到哪些字段（openspec `tool-schema-contract` 
 携带类型/枚举/$ref 约束」。**能枚举的联合类型就应当写出来**（用 `overrides`），
 而不是留 `Any`。
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -122,9 +123,7 @@ def derive_output_contract(
         # 保留 view 的字段说明：schema 里带 description 的输出契约对 Agent 的
         # 可用性有直接价值，而 Pydantic 的 Field 元数据在 TypedDict 里会丢失。
         if field.description:
-            hints[field_name] = Annotated[
-                hints[field_name], Field(description=field.description)
-            ]
+            hints[field_name] = Annotated[hints[field_name], Field(description=field.description)]
     if overrides:
         for key, annotation in overrides.items():
             # 收紧类型不应丢掉 view 对该字段的说明——overrides 是替换注解，
@@ -142,4 +141,3 @@ def derive_output_contract(
     contract.__contract_source_view__ = view  # type: ignore[attr-defined]
     contract.__contract_excluded__ = frozenset(exclude)  # type: ignore[attr-defined]
     return contract
-
