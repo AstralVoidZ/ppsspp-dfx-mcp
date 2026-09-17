@@ -1,5 +1,14 @@
 # ppsspp-dfx-mcp
 
+[English](README.en.md) | 中文
+
+[![PyPI](https://img.shields.io/pypi/v/ppsspp-dfx-mcp)](https://pypi.org/project/ppsspp-dfx-mcp/)
+[![CI](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.14%2B-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+<!-- mcp-name: io.github.AstralVoidZ/ppsspp-dfx-mcp -->
+
 一个把 [PPSSPP](https://www.ppsspp.org/) 变成 AI 可调试目标的 MCP（Model Context
 Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面向 LLM agent 的工具面：
 会话生命周期、内存读写、反汇编、断点、CPU 控制、输入自动化、截图、回放录制与诊断
@@ -37,7 +46,8 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
 ## 运行
 
 环境要求：Python 3.14+（配合独立 venv，原因见[从源码运行](#从源码运行)）；
-带 WebSocket 调试器的 PPSSPP 构建（服务器负责启动它，并连接
+带 WebSocket 调试器的 PPSSPP——官方发行版即可，开启方法见
+[docs/ppsspp-build.md](docs/ppsspp-build.md)（服务器负责启动它，并连接
 `ws://<host>:<port>/debugger`）；一个 MCP 客户端（ZCode、Claude Desktop、
 MCP Inspector 等）。
 
