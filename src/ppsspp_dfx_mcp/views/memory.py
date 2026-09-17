@@ -67,7 +67,7 @@ def _format_read_text(action: str, address: int, value: Any, size: int) -> str:
                 if isinstance(m, dict) and "address" in m:
                     try:
                         addrs.append(f"0x{int(m['address']):08X}")
-                    except TypeError, ValueError:
+                    except (TypeError, ValueError):
                         addrs.append(str(m["address"]))
             head = ", ".join(addrs)
             suffix = ", ..." if count > 5 else ""

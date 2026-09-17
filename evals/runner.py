@@ -331,8 +331,7 @@ async def _seed_sessions(session: ClientSession, count: int, iso_path: str) -> l
             # Fallback: SessionResponse JSON is also embedded in the text content.
             try:
                 sid = json.loads(_result_text(result)).get("session_id")
-            except json.JSONDecodeError, AttributeError:
-                sid = None
+            except (json.JSONDecodeError, AttributeError):                sid = None
         if not sid:
             raise RuntimeError(
                 f"pre_state start returned no session_id: {_result_text(result)[:300]}"
@@ -597,8 +596,7 @@ def _done_keys(out_path: Path) -> set[tuple[str, str, str, int]]:
         try:
             r = json.loads(line)
             keys.add((r["scenario_id"], r["model"], r["variant"], int(r["run_idx"])))
-        except json.JSONDecodeError, KeyError, ValueError:
-            continue
+        except (json.JSONDecodeError, KeyError, ValueError):            continue
     return keys
 
 

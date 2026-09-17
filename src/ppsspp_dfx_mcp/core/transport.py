@@ -454,7 +454,7 @@ class WsTransport:
             )
             self.version_info = dict(resp)
             return resp
-        except TimeoutError, RuntimeError, ConnectionError:
+        except (TimeoutError, RuntimeError, ConnectionError):
             # Fallback: poll events queue for a version broadcast.
             pass
 

@@ -54,7 +54,7 @@ def _format_registers_text(data: Any) -> str:
             val = vals[i] if i < len(vals) else 0
             try:
                 val_int = int(val)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 val_int = 0
             lines.append(f"  {str(reg_name):<7} = 0x{val_int:08X}")
     return "\n".join(lines)
