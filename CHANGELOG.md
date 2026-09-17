@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-17
+
 ### Added
 
 - **配置模板三件套**（`examples/`）：`project.yaml` / `addresses.yaml` /
@@ -28,6 +30,9 @@
 
 - README 定位为中文社区发布；代码注释与工具 docstring 保持英文
   （协议面被工具面基线锁定）。
+- README 参考 deepseek-harness 的官方 README 结构重构为发布版形态：
+  PyPI 安装为主路径（含安装后的 `.mcp.json` 与命令示例），新增项目状态、
+  致谢与引用节。
 
 ## [0.1.0] - 2026-09-16
 
