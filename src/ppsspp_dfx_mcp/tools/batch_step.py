@@ -167,6 +167,15 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
                 f"step[{index}] samples must be int >= 1; got {samples!r}",
             )
     # screenshot: no required fields (source / mode optional).
+    elif stype == "cpu_step":
+        cmode = step.get("mode")
+        if cmode not in ("into", "over", "out"):
+            raise StepInvalid(
+                f"step[{index}] cpu_step requires mode='into'|'over'|'out'; got {cmode!r}"
+            )
+        ccount = step.get("count", 1)
+        if not isinstance(ccount, int) or ccount < 1 or ccount > 1000:
+            raise StepInvalid(f"step[{index}] cpu_step count must be int 1..1000; got {ccount!r}")
 
 
 async def _execute_batch(

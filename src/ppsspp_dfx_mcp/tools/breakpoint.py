@@ -14,6 +14,7 @@ indirection.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
@@ -41,6 +42,9 @@ __all__ = ["breakpoint"]
 _BP_ACTIONS: tuple[str, ...] = (
     "wait",
     "trace",
+    "stats",
+    "stats",
+    "stats",
     "set",
     "remove",
     "list",
@@ -97,6 +101,7 @@ async def breakpoint(
         Literal[
             "wait",
             "trace",
+            "stats",
             "set",
             "remove",
             "list",
@@ -110,13 +115,16 @@ async def breakpoint(
             description=(
                 "Breakpoint operation. Valid values:\n"
                 "Consumption actions (lifecycle orchestration):\n"
-                "- 'wait': STRICT-WAIT — block until any breakpoint is hit "
-                "(arm nothing; set/mem_set first). Lock-free: concurrent "
+                "- 'wait': STRICT-WAIT — block until any breakpoint is hit \n"
+                "(arm nothing; set/mem_set first). Lock-free: concurrent \n"
                 "reads keep working. The breakpoint stays armed.\n"
-                "- 'trace': HIT-SNAPSHOT-RESUME — arm a temporary "
-                "breakpoint at `address`, wait for the hit, capture "
-                "pc/registers/backtrace, ALWAYS remove it, then resume "
-                "(memory access via read/write/size; exec via address "
+                "- 'stats': HIT-FREQUENCY — count breakpoint hits by pc \n"
+                "over a time window; optionally samples probe value \n"
+                "changes via state_observer. Read-only.\n"
+                "- 'trace': HIT-SNAPSHOT-RESUME — arm a temporary \n"
+                "breakpoint at `address`, wait for the hit, capture \n"
+                "pc/registers/backtrace, ALWAYS remove it, then resume \n"
+                "(memory access via read/write/size; exec via address \n"
                 "only).\n"
                 "CPU breakpoint actions:\n"
                 "- 'set': add a CPU execution breakpoint (requires address; "
@@ -266,7 +274,7 @@ async def breakpoint(
     ROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.
     BEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.
 
-    RETURNS: management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}."""
+    RETURNS: stats → {mode:"stats", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}], probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}."""
     if action == "wait":
         from ppsspp_dfx_mcp.tools.workflows import wait_breakpoint
 
@@ -284,6 +292,37 @@ async def breakpoint(
             want_registers=want_registers,
             want_backtrace=want_backtrace,
         )
+    if action == "stats":
+        from ppsspp_dfx_mcp.tools.workflows import _get_live_observer
+        from ppsspp_dfx_mcp.core.game_state_observer import SteppingSubscription
+        budget = min(max(timeout_s, 0.5), 300.0)
+        await validate_session_alive(session_id)
+        observer = await _get_live_observer(session_id)
+        sub = observer.subscribe_stepping()
+        try:
+            deadline = time.monotonic() + budget
+            by_pc: dict[int, dict[str, Any]] = {}
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                msg = await sub.get(timeout_s=remaining)
+                if msg is None:
+                    continue
+                pc = msg.get("pc")
+                if pc is None:
+                    continue
+                e = by_pc.setdefault(pc, {"pc": f"0x{pc:08X}", "count": 0,
+                                          "first_seen": round(time.time(), 1),
+                                          "last_seen": round(time.time(), 1)})
+                e["count"] += 1
+                e["last_seen"] = round(time.time(), 1)
+            return {"mode": "stats", "window_s": round(budget, 1),
+                    "total_hits": sum(e["count"] for e in by_pc.values()),
+                    "by_pc": sorted(by_pc.values(), key=lambda x: -x["count"]),
+                    "note": ""}
+        finally:
+            sub.close()
     if action not in _BP_ACTIONS:
         raise ArgsInvalid(f"invalid action={action!r}; expected one of {_BP_ACTIONS}")
     address_int = parse_address(address)

@@ -47,10 +47,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["step"]
 
+# v0.1.7: into/over/out moved to ppsspp_batch_step cpu_step type
 _STEP_ACTIONS: tuple[str, ...] = (
-    "into",
-    "over",
-    "out",
     "pause",
     "resume",
     "reset",
@@ -102,9 +100,6 @@ def _extract_broadcast_fields(resp: dict[str, Any] | None) -> dict[str, Any]:
 async def step(
     action: Annotated[
         Literal[
-            "into",
-            "over",
-            "out",
             "pause",
             "resume",
             "reset",
