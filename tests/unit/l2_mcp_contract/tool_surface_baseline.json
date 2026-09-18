@@ -1,6 +1,6 @@
 {
  "note": "Committed tools/list baseline — regenerate with scripts/dump_tool_surface.py and review the diff alongside the description change that caused it.",
- "tool_count": 37,
+ "tool_count": 38,
  "tools": {
   "ppsspp_analyze_log": {
    "annotations": {
@@ -126,6 +126,28 @@
    "input_schema_sha1": "b0cb1fbb8eae39fc4d0d2e488550ddc7f80dccb6",
    "output_schema_chars": 741,
    "output_schema_sha1": "accef786a28db7552ccda7c7dae548cff76721e3"
+  },
+  "ppsspp_diff_memory": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Snapshot a memory range and diff it against current memory — the classic \"what changed?\" variable-locator.\n\nUSAGE: diff_memory(action=\"snapshot\", start=..., end=...) → handle; act in game; diff_memory(action=\"compare\", handle=...) → changed-byte list; action=\"drop\"/\"list\" manage handles.\n\nBEHAVIOR: READ-ONLY. Memory is never written — only the per-server snapshot registry mutates. Large ranges are read across multiple reads; per-snapshot cap 8 MiB; registry cap 4 with FIFO eviction. compare requires the handle's exact range.\n\nRETURNS: snapshot → {handle, start, size_bytes, checksum}; compare → {handle, start, size_bytes, changed_count, truncated, changes: [{address, old, new}]}; drop → {handle, dropped}; list → {handles: [...], count, max_snapshots}.",
+   "description_chars": 769,
+   "description_words": 98,
+   "input_schema_chars": 1313,
+   "input_schema_properties": [
+    "action",
+    "end",
+    "handle",
+    "session_id",
+    "start"
+   ],
+   "input_schema_sha1": "7d10c7cddddf6ae32e96b750b4893071a2a30c8a",
+   "output_schema_chars": 460,
+   "output_schema_sha1": "6e8c40d0fea6c4a4170369c75cdce079355abc55"
   },
   "ppsspp_disassemble": {
    "annotations": {
@@ -763,6 +785,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 22280,
- "total_input_schema_chars": 38619
+ "total_description_chars": 23049,
+ "total_input_schema_chars": 39932
 }

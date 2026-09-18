@@ -65,6 +65,10 @@ DYNAMIC_INPUT_PARAMETERS: frozenset[str] = frozenset(
 # error on one branch only — invisible to a test suite that does not call
 # that branch.
 MULTI_SHAPE_OUTPUT_TOOLS: dict[str, str] = {
+    "ppsspp_diff_memory": (
+        "action 分发：snapshot/compare/drop/list 各返回不同视图"
+        "（partial=True 全字段可选）"
+    ),
     "ppsspp_batch_status": (
         "batch_id 省略（survey/list 模式）返回 BatchListResponse"
         "（{jobs, retention_jobs}），指定 batch_id 返回 BatchStatusResponse"

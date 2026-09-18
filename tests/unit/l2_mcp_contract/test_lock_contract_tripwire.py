@@ -43,6 +43,7 @@ HOLDING_LOCK: frozenset[str] = frozenset(
         # session_capture users
         "ppsspp_screenshot",
         "ppsspp_dump",  # kind=texture|clut — session_capture user
+        "ppsspp_diff_memory",  # snapshot/compare read via session_client
         # hold_buttons / press_button / send_analog use session_client via input.py
         "ppsspp_press_button",
         "ppsspp_hold_buttons",
