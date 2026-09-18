@@ -137,6 +137,6 @@ class TestMemoryTraceWizardRegistered:
         from ppsspp_dfx_mcp.prompts import memory_trace_wizard
 
         text = memory_trace_wizard("0x08A0D000")
-        assert "ppsspp_trace_memory_access" in text
-        assert "ppsspp_wait_breakpoint" in text
+        assert "ppsspp_breakpoint(action='trace'" in text
+        assert "ppsspp_breakpoint(action='wait'" in text
         assert "0x08A0D000" in text

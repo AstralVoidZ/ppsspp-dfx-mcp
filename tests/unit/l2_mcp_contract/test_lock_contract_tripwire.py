@@ -30,7 +30,6 @@ HOLDING_LOCK: frozenset[str] = frozenset(
         "ppsspp_evaluate",
         "ppsspp_search_disasm",
         "ppsspp_assemble",
-        "ppsspp_breakpoint",
         "ppsspp_step",
         "ppsspp_smoke_test",
         "ppsspp_state_observer",
@@ -63,8 +62,9 @@ HOLDING_LOCK: frozenset[str] = frozenset(
 # locked regions.
 PARTIAL_HOLD_LOCK: frozenset[str] = frozenset(
     {
-        "ppsspp_wait_breakpoint",
-        "ppsspp_trace_memory_access",
+        # v0.1.7: wait/trace 消费动作并入 breakpoint —— 锁仅用于
+        # arm/capture/cleanup，等待本身 lock-free 订阅步进广播
+        "ppsspp_breakpoint",
     }
 )
 

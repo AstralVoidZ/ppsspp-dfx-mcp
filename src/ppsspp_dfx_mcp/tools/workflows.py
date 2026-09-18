@@ -1,9 +1,11 @@
-"""H1 composite breakpoint-wait tools (2026-09-07).
+"""H1 composite breakpoint-wait implementations (2026-09-07).
 
-2 tools exposed:
-- ppsspp_wait_breakpoint — block until a breakpoint hit (cpu.stepping
+v0.1.7: the tool surface moved to ppsspp_breakpoint(action="wait"/"trace")
+(see tools/breakpoint.py); the functions here remain as the delegated
+implementations and are no longer registered as MCP tools:
+- wait_breakpoint — block until a breakpoint hit (cpu.stepping
   broadcast) without holding the per-session lock
-- ppsspp_trace_memory_access — arm a memory breakpoint, wait for the
+- trace_memory_access — arm a memory breakpoint, wait for the
   hit, capture pc/registers/backtrace, remove the breakpoint, and
   restore the CPU — all in one call
 
@@ -63,7 +65,7 @@ TraceAccessOutput = derive_output_contract("TraceAccessOutput", TraceAccessRespo
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["wait_breakpoint", "trace_memory_access", "frame_snapshot"]
+__all__ = ["frame_snapshot"]  # wait/trace now internal (breakpoint delegates)
 
 
 # Wait budgets are clamped: long enough for a real hit, short enough
@@ -138,12 +140,6 @@ async def _remove_mem_bp_quietly(session_id: str, address: int) -> bool:
         return False
 
 
-@mcp.tool(
-    name="ppsspp_wait_breakpoint",
-    annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=False
-    ),
-)
 @translate_tool_errors
 async def wait_breakpoint(
     session_id: Annotated[
@@ -331,12 +327,6 @@ async def frame_snapshot(
         raise to_tool_error(e) from e
 
 
-@mcp.tool(
-    name="ppsspp_trace_memory_access",
-    annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
-    ),
-)
 @translate_tool_errors
 async def trace_memory_access(
     session_id: Annotated[
