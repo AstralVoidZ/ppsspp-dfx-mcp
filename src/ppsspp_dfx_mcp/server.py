@@ -514,6 +514,7 @@ _TOOL_MODULE_NAMES: tuple[str, ...] = (
     "assemble",
     "batch_step",
     "breakpoint",
+    "context",
     "diff",
     "evaluate",
     "gpu_record",

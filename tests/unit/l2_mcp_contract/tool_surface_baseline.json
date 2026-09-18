@@ -1,6 +1,6 @@
 {
  "note": "Committed tools/list baseline — regenerate with scripts/dump_tool_surface.py and review the diff alongside the description change that caused it.",
- "tool_count": 38,
+ "tool_count": 39,
  "tools": {
   "ppsspp_analyze_log": {
    "annotations": {
@@ -126,6 +126,27 @@
    "input_schema_sha1": "b0cb1fbb8eae39fc4d0d2e488550ddc7f80dccb6",
    "output_schema_chars": 741,
    "output_schema_sha1": "accef786a28db7552ccda7c7dae548cff76721e3"
+  },
+  "ppsspp_context": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: One-call crash-triage pack — identity + disassembly window + optional backtrace for an address.\n\nUSAGE: pass a crash PC or call target; identity resolves via addresses.yaml known_functions (IDA offset applied); disasm covers `window` instructions before/after; include_backtrace=true adds the call stack (pauses the CPU briefly).\n\nBEHAVIOR: READ-ONLY. Unknown addresses return identity=null and the raw window instead of failing; backtrace is skipped (not an error) when the CPU is running — the note field says why.\n\nROUTING: persistent breakpoints around this address -> ppsspp_breakpoint; one armed hit-capture -> ppsspp_wait_breakpoint; recurring sampling -> ppsspp_state_observer.\n\nRETURNS: {address, identity: {name, start, offset} | null, region, disasm: [{address, text}], backtrace: [...], backtrace_note}.",
+   "description_chars": 824,
+   "description_words": 107,
+   "input_schema_chars": 866,
+   "input_schema_properties": [
+    "address",
+    "include_backtrace",
+    "session_id",
+    "window"
+   ],
+   "input_schema_sha1": "84ec9f1bd68e92ed3b9c82317922309c39576f04",
+   "output_schema_chars": 1987,
+   "output_schema_sha1": "8afbf97a8570a89a7160d8f94212e48507eb8b93"
   },
   "ppsspp_diff_memory": {
    "annotations": {
@@ -785,6 +806,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 23049,
- "total_input_schema_chars": 39932
+ "total_description_chars": 23873,
+ "total_input_schema_chars": 40798
 }
