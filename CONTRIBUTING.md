@@ -151,6 +151,6 @@ its modules are marked `integration` + `real_ppsspp`.
   `proc.is_pid_alive(...)` (module attribute) — patch
   `ppsspp_dfx_mcp.core.proc.is_pid_alive`, never a stale re-export.
 - **Tool-surface baseline**: `tests/unit/l2_mcp_contract/tool_surface_baseline.json`
-  snapshots the *static* registry (36 tools). Manifest scripts add dynamic
+  snapshots the *static* registry (35 tools). Manifest scripts add dynamic
   `ppsspp_script_*` tools at runtime, so a live server's `tool_count` is
   baseline + manifest count.

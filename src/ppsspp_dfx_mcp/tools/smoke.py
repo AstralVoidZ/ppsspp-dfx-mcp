@@ -13,17 +13,14 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.errors import ArgsInvalid, to_tool_error
-from ppsspp_dfx_mcp.models.smoke import CheckResult, SmokeTestResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.models.smoke import CheckResult
 from ppsspp_dfx_mcp.session.client_helper import (
     read_game_mode_addr,
     session_client,
 )
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.smoke import SmokeTestResponse
 
@@ -52,13 +49,15 @@ _DEFAULT_CHECKS: tuple[str, ...] = (
 #
 # Raises:
 # ToolError: on session lookup failure or WS connect failure.
-@mcp.tool(
-    name="ppsspp_smoke_test",
-    annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-    ),
-)
-@translate_tool_errors
+async def run_smoke_checks(
+    session_id: str,
+    checks: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Internal four-point session battery (v0.1.7 D5: absorbed into
+    ppsspp_health(session_id=...); no longer an MCP tool). Returns
+    (checks_as_dicts, overall_status)."""
+
+
 async def smoke_test(
     session_id: Annotated[
         str,
@@ -90,7 +89,11 @@ async def smoke_test(
 
     logger.info(
         "tool_call",
-        extra={"tool": "ppsspp_smoke_test", "session_id": session_id, "checks": selected},
+        extra={
+            "tool": "ppsspp_health.session_battery",
+            "session_id": session_id,
+            "checks": selected,
+        },
     )
 
     results: list[CheckResult] = []
@@ -154,5 +157,5 @@ async def smoke_test(
         raise to_tool_error(e) from e
 
     overall = "pass" if all(r.passed for r in results) else "fail"
-    result = SmokeTestResult(checks=results, overall_status=overall)
-    return SmokeTestResponse.from_result(result).model_dump(mode="json")
+    checks_out = [{"name": r.name, "passed": r.passed, "detail": r.detail} for r in results]
+    return checks_out, overall

@@ -20,6 +20,7 @@ import pytest
 
 from ppsspp_dfx_mcp.tools.assemble import _split_instructions, assemble
 from ppsspp_dfx_mcp.tools.memory import read_memory
+from ppsspp_dfx_mcp.tools.scan import scan
 
 # ============================================================================
 # D-01: read_string max_len fallback to read_bytes
@@ -43,16 +44,15 @@ class TestReadStringMaxLenFallback:
         mock_client = AsyncMock()
         mock_client.read_string.return_value = "hello"
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client",
-            fake_session_client,
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.resolve_session_id", fake_resolve)
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
 
         result = await read_memory(
             action="read_string",
@@ -78,10 +78,11 @@ class TestReadStringMaxLenFallback:
         mock_client = AsyncMock()
         mock_client.read_string.return_value = "hello"
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
         monkeypatch.setattr(
@@ -106,10 +107,11 @@ class TestReadStringMaxLenFallback:
         mock_client = AsyncMock()
         mock_client.read_string.return_value = "abcdef"  # no NUL, capped decode
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
         monkeypatch.setattr(
@@ -182,10 +184,11 @@ class TestAssembleMultiInstructionSplit:
         mock_client = AsyncMock()
         mock_client.assemble.return_value = {"encoding": 0x00000000}
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
         monkeypatch.setattr(
@@ -224,10 +227,11 @@ class TestAssembleMultiInstructionSplit:
         mock_client = AsyncMock()
         mock_client.assemble.return_value = {"encoding": 0x00000000}
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
         monkeypatch.setattr(
@@ -265,19 +269,20 @@ class TestScanPatternType:
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
         monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client",
+            "ppsspp_dfx_mcp.tools.scan.session_client",
             fake_session_client,
         )
 
-        await read_memory(
-            action="scan",
+        await scan(
+            mode="pattern",
             pattern="hello",
             pattern_type="ascii",
             start_addr=0x08800000,
@@ -297,19 +302,20 @@ class TestScanPatternType:
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
         monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client",
+            "ppsspp_dfx_mcp.tools.scan.session_client",
             fake_session_client,
         )
 
-        await read_memory(
-            action="scan",
+        await scan(
+            mode="pattern",
             pattern="AABB",
             start_addr=0x08800000,
             end_addr=0x08900000,
@@ -329,21 +335,22 @@ class TestScanPatternType:
         mock_client = AsyncMock()
         mock_client.scan_memory.return_value = []
 
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
         @asynccontextmanager
-        async def fake_session_client(
-            session_id: str,
-        ) -> AsyncIterator[AsyncMock]:
+        async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
         monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client",
+            "ppsspp_dfx_mcp.tools.scan.session_client",
             fake_session_client,
         )
 
         # "jr ra" is not valid hex — would fail with pattern_type='hex',
         # but works with pattern_type='ascii'.
-        await read_memory(
-            action="scan",
+        await scan(
+            mode="pattern",
             pattern="jr ra",
             pattern_type="ascii",
             start_addr=0x08800000,

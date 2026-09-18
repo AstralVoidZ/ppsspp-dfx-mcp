@@ -1,13 +1,13 @@
 """Memory tool wrappers.
 
 3 tools exposed:
-- ppsspp_read_memory(action, ...) — aggregate read (bytes/u32/string/scan)
+- ppsspp_read_memory(action, ...) — aggregate read (bytes/u32/string)
 - ppsspp_write_memory(address, data, format?) — write u32 or bytes
 - ppsspp_disassemble(address, count?) — disassemble N instructions
 
 Async: uses session_client → PpssppDebugClient (composed of WsTransport
 + SteppingManager) under the hood. Tools call DebugClient domain
-methods (read_bytes / read_u32 / read_string / scan_memory / write_u32 /
+methods (read_bytes / read_u32 / read_string / write_u32 /
 write_bytes / disasm) directly; no orchestration wrapper indirection.
 """
 
@@ -33,9 +33,6 @@ from ppsspp_dfx_mcp.service.memory_protection import check_protected_address
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
 from ppsspp_dfx_mcp.tools._common import (
     DEFAULT_STRING_CAP,
-    MAX_SCAN_PATTERN_BYTES,
-    MAX_SCAN_RANGE_BYTES,
-    MIN_SCAN_CHUNK_BYTES,
     save_output_bytes,
     save_output_text,
     translate_tool_errors,
@@ -51,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["read_memory", "write_memory", "disassemble"]
 
-_READ_ACTIONS = ("read_bytes", "read_u32", "read_string", "scan")
+_READ_ACTIONS = ("read_bytes", "read_u32", "read_string")
 
 # 输出契约：从对应 view 派生（见 views/_contract.py 的机制说明）。
 # 派生而非手写，使契约与实现**结构性地不可能漂移**——手写版本曾在首跑守卫
@@ -114,14 +111,13 @@ _DISASM_KEEP_FIELDS = ("address", "text", "name", "params")
 @translate_tool_errors
 async def read_memory(
     action: Annotated[
-        Literal["read_bytes", "read_u32", "read_string", "scan"],
+        Literal["read_bytes", "read_u32", "read_string"],
         Field(
             description=(
                 "Read action. Valid values:\n"
                 "- 'read_bytes': read raw bytes (requires address + size).\n"
                 "- 'read_u32': read a 32-bit unsigned int (requires address).\n"
                 "- 'read_string': read a string (requires address).\n"
-                "- 'scan': scan memory for a pattern (requires "
                 "pattern + start_addr + end_addr). Optional max_results "
                 "(default 100)."
             ),
@@ -133,8 +129,7 @@ async def read_memory(
             default="0x0",
             description=(
                 "Starting address for read_bytes/read_u32/read_string, as a "
-                "hex string (e.g. '0x08804000'). Ignored for scan (use "
-                "start_addr)."
+                "hex string (e.g. '0x08804000')."
             ),
         ),
     ] = "0x0",
@@ -169,79 +164,6 @@ async def read_memory(
             "accept a length parameter. Kept for backward schema compatibility.",
         ),
     ] = None,
-    pattern: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description=(
-                "Pattern to scan for (scan only). Interpreted according to "
-                "`pattern_type`: 'hex' (default) expects even-length hex "
-                "digits like 'AABBCCDD'; 'ascii' treats the string as literal "
-                "ASCII bytes like 'hello'."
-            ),
-        ),
-    ] = None,
-    pattern_type: Annotated[
-        Literal["hex", "ascii"],
-        Field(
-            default="hex",
-            description=(
-                "How to interpret `pattern` (scan only). 'hex' (default) "
-                "decodes as hex string; 'ascii' encodes the pattern string "
-                "as literal ASCII bytes."
-            ),
-        ),
-    ] = "hex",
-    max_len: Annotated[
-        int,
-        Field(
-            default=0,
-            description=(
-                "Maximum string length in bytes for read_string (0 = "
-                "default cap 4096). Always uses read_bytes + local NUL "
-                "scan — PPSSPP memory.readString is never called (its "
-                "strnlen scans to memory end and a giant response can "
-                "kill the WebSocket). Values are clamped to 65536. "
-                "Ignored for other actions."
-            ),
-        ),
-    ] = 0,
-    start_addr: Annotated[
-        str,
-        Field(
-            default="0x0",
-            description=(
-                "Scan start address, inclusive (scan only), hex string (same format as `address`)."
-            ),
-        ),
-    ] = "0x0",
-    end_addr: Annotated[
-        str,
-        Field(
-            default="0x0",
-            description=(
-                "Scan end address, exclusive (scan only), hex string (same format as `address`)."
-            ),
-        ),
-    ] = "0x0",
-    max_results: Annotated[
-        int,
-        Field(
-            default=100,
-            description=("Maximum number of matches to return (scan only, default 100)."),
-        ),
-    ] = 100,
-    chunk_size: Annotated[
-        int,
-        Field(
-            default=4096,
-            description=(
-                "Bytes per read request during scan (scan only, default "
-                "4096). Larger values reduce round-trips but increase "
-                "per-read latency."
-            ),
-        ),
-    ] = 4096,
     session_id: Annotated[
         str | None,
         Field(
@@ -250,42 +172,32 @@ async def read_memory(
             ),
         ),
     ] = None,
+    max_len: Annotated[
+        int,
+        Field(
+            default=0,
+            description=(
+                "Maximum string length in bytes for read_string "
+                "(0 = default cap 4096). Values are clamped to 65536."
+            ),
+        ),
+    ] = 0,
 ) -> MemoryReadOutput:
-    """PURPOSE: Read memory (read_bytes / read_u32 / read_string) or scan a region for a byte pattern.
+    """PURPOSE: Read memory (read_bytes / read_u32 / read_string).
 
-    USAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); scan takes pattern (hex/ascii, ≤4096B) + start_addr/end_addr (≤256MiB) + chunk_size.
+    USAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); Memory scanning has moved to ppsspp_scan.
 
-    BEHAVIOR: READ-ONLY. Unreadable scan blocks are skipped silently. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).
+    BEHAVIOR: READ-ONLY. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).
 
-    RETURNS: {action, address, value, size, text, file} — value is the match list for scan. read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/)."""
+    RETURNS: {action, address, value, size, text, file} — read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/)."""
     session_id = await resolve_session_id(session_id)
     if action not in _READ_ACTIONS:
         raise ArgsInvalid(f"invalid action={action!r}; expected one of {_READ_ACTIONS}")
     address_int = parse_address(address)
-    start_addr_int = parse_address(start_addr)
-    end_addr_int = parse_address(end_addr)
     # read_bytes/read_u32/read_string require a non-zero address; scan uses
     # start_addr/end_addr instead (address is ignored).
-    if action != "scan" and address_int <= 0:
+    if address_int <= 0:
         raise ArgsInvalid(f"address must be > 0 for action={action!r}")
-    if action == "scan":
-        # Validate the scan envelope BEFORE opening the session —
-        # pure input checks belong in the fail-fast section, not inside
-        # the session_client block.
-        if start_addr_int >= end_addr_int:
-            raise ArgsInvalid(
-                f"start_addr (0x{start_addr_int:08X}) must be < end_addr "
-                f"(0x{end_addr_int:08X}) for scan action"
-            )
-        if end_addr_int - start_addr_int > MAX_SCAN_RANGE_BYTES:
-            raise ArgsInvalid(
-                f"scan range too large: 0x{start_addr_int:08X}-"
-                f"0x{end_addr_int:08X} "
-                f"({end_addr_int - start_addr_int} bytes; cap 256 MiB). "
-                "Narrow start_addr/end_addr — unreadable regions are "
-                "skipped per-chunk, which costs one WS round-trip each."
-            )
-
     # G1 file-mode locals — only populated for read_bytes + output="file"
     file_bin_path = ""
     file_summary = ""
@@ -359,53 +271,6 @@ async def read_memory(
                     value=val,
                     size=byte_count,
                     truncated=(byte_count >= cap),
-                )
-            else:  # scan
-                if not pattern:
-                    raise ArgsInvalid("pattern is required for scan action")
-                if max_results <= 0:
-                    raise ArgsInvalid(f"max_results must be > 0 (got {max_results})")
-                if chunk_size <= 0:
-                    raise ArgsInvalid(f"chunk_size must be > 0 (got {chunk_size})")
-                # Clamp chunk_size to the 64 KiB single-read cap —
-                # scan issues one memory.read per chunk (chunk+overlap), so
-                # an unclamped chunk bypassed the F-6 read_bytes cap, and
-                # oversized reads fail per-chunk (silently skipped by
-                # scan_memory → an empty "successful" scan).
-                # Clamp to [64, 65536] — scan issues one
-                # memory.read per chunk (chunk+overlap), so an unclamped
-                # chunk bypassed the F-6 read cap and oversized reads fail
-                # per-chunk (silently skipped → empty "successful" scan).
-                chunk_size = max(MIN_SCAN_CHUNK_BYTES, min(chunk_size, MAX_SINGLE_READ_BYTES))
-                # pattern_type selects hex vs ascii decoding.
-                if pattern_type == "ascii":
-                    pattern_bytes = pattern.encode("ascii")
-                else:
-                    pattern_bytes = _decode_hex_pattern(pattern)
-                # Scan reads chunk + len(pattern)-1
-                # bytes in one memory.read — an oversized pattern makes
-                # every chunk read exceed the documented 64 KiB single-read
-                # budget. Fail fast with the cap named.
-                if len(pattern_bytes) > MAX_SCAN_PATTERN_BYTES:
-                    raise ArgsInvalid(
-                        f"pattern is {len(pattern_bytes)} bytes; the scan "
-                        f"cap is {MAX_SCAN_PATTERN_BYTES} bytes (each scan "
-                        f"chunk reads chunk_size + len(pattern) - 1 bytes "
-                        f"in one request). Narrow the pattern or scan for "
-                        f"a shorter signature."
-                    )
-                matches = await client.scan_memory(
-                    pattern=pattern_bytes,
-                    start=start_addr_int,
-                    end=end_addr_int,
-                    max_results=max_results,
-                    chunk_size=chunk_size,
-                )
-                result = MemoryReadResult(
-                    action=action,
-                    address=start_addr_int,
-                    value=matches,
-                    size=len(matches),
                 )
     except ToolError:
         raise

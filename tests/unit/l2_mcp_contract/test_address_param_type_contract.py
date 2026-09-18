@@ -36,6 +36,7 @@ from ppsspp_dfx_mcp.tools.assemble import assemble
 from ppsspp_dfx_mcp.tools.breakpoint import breakpoint
 from ppsspp_dfx_mcp.tools.memory import disassemble, read_memory, write_memory
 from ppsspp_dfx_mcp.tools.query import query
+from ppsspp_dfx_mcp.tools.scan import scan
 from ppsspp_dfx_mcp.tools.search_disasm import search_disasm
 from ppsspp_dfx_mcp.tools.search_memory_info import search_memory_info
 from ppsspp_dfx_mcp.tools.state_observer import state_observer
@@ -197,8 +198,8 @@ class TestRangeParamsAreStr:
     @pytest.mark.parametrize(
         "func,param_name",
         [
-            (read_memory, "start_addr"),
-            (read_memory, "end_addr"),
+            (scan, "start_addr"),
+            (scan, "end_addr"),
             (search_disasm, "end"),
         ],
     )

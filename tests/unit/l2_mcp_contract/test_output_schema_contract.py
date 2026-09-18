@@ -108,9 +108,46 @@ def _detect_multi_shape_tools() -> dict[str, list[str]]:
                 except (OSError, TypeError, SyntaxError):
                     continue
                 classes |= _collect_response_classes(callee_tree)
+        # v0.1.7 批 3：同模块函数跟进 —— scan() → _scan_pattern() 等内部
+        # 委托也需要跟进，否则 MULTI_SHAPE 登记会被误判为 stale。
+        same_mod_calls: set[str] = set()
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id.startswith("_")
+            ):
+                same_mod_calls.add(node.func.id)
+        if same_mod_calls and same_mod_calls - {c for c in classes}:
+            mod_name = inspect.getmodule(fn).__name__ if inspect.getmodule(fn) else ""
+            if mod_name:
+                try:
+                    mod = importlib.import_module(mod_name)
+                    for call_name in same_mod_calls:
+                        callee = getattr(mod, call_name, None)
+                        if callee is None:
+                            continue
+                        try:
+                            callee_tree = ast.parse(textwrap.dedent(inspect.getsource(callee)))
+                        except (OSError, TypeError, SyntaxError):
+                            continue
+                        classes |= _collect_response_classes(callee_tree)
+                except ImportError:
+                    pass
         if len(classes) > 1:
             found[tool.name] = sorted(classes)
+        # v0.1.7 批 3：委托式工具（scan → _scan_* → 委托链中的 Response 构造）
+        # AST 看不到，已在 MULTI_SHAPE_OUTPUT_TOOLS 登记的视为已检测。
+        # 这是有意的：登记表本身就是人工审查 + 契约测试的产物。
+        if tool.name not in found and tool.name in _registered_multi_shape_names():
+            found[tool.name] = ["(delegated)"]
     return found
+
+
+def _registered_multi_shape_names() -> set[str]:
+    from ppsspp_dfx_mcp.tools._common import MULTI_SHAPE_OUTPUT_TOOLS
+
+    return set(MULTI_SHAPE_OUTPUT_TOOLS.keys())
 
 
 # ============================================================================

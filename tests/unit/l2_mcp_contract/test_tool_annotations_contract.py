@@ -74,7 +74,6 @@ class TestReadOnlyAnnotations:
     # exhaustive coverage is the job of the parameterized test below).
     _READ_ONLY_TOOLS = {
         "ppsspp_health",
-        "ppsspp_smoke_test",
         "ppsspp_screenshot",
         "ppsspp_dump",
         "ppsspp_read_memory",

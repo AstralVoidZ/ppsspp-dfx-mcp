@@ -39,13 +39,13 @@ game-localization work.
 
 ## Bring-up
 ppsspp_health → ppsspp_session(action="start", iso_path=…, wait_ready=true) →
-ppsspp_smoke_test → … → ppsspp_session(action="stop").
+ppsspp_health(session_id=…) → … → ppsspp_session(action="stop").
 `wait_ready=true` returns only once the emulated CPU is up; memory and
 disassembly calls before that point fail. Stop the session when you are done.
 
 ## session_id
 `ppsspp_read_memory`, `ppsspp_disassemble`, `ppsspp_step`,
-`ppsspp_screenshot`, `ppsspp_diff_memory` and `ppsspp_context` may omit
+`ppsspp_screenshot`, `ppsspp_diff_memory`, `ppsspp_context` and `ppsspp_scan` may omit
 `session_id` when exactly ONE session is active
 (0 sessions → an error telling you to start one; 2+ → `SESSION_AMBIGUOUS`
 listing the ids). Every other tool requires it. Do not call
