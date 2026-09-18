@@ -1,6 +1,6 @@
 """Smoke test — internal four-point session battery (absorbed into health).
 
-v0.1.7 D5: ppsspp_smoke_test was absorbed into ppsspp_health(session_id=...).
+ppsspp_smoke_test was absorbed into ppsspp_health(session_id=...).
 The implementation lives in run_smoke_checks() which health delegates to.
 No MCP tool is registered from this module.
 """

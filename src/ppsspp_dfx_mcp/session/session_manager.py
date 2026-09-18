@@ -361,9 +361,8 @@ class SessionManager:
         - ``ppsspp_session(action=wait_ready)`` — polls the CPU-start
           probe via raw session-level transport reads (lock-free, so
           health/list stay responsive during boot); no session_client.
-        - ``ppsspp_analyze_log`` / ``ppsspp_convert_address`` — no
-          session interaction.
-        - ``ppsspp_session(action=get)`` / ``ppsspp_session_list`` —
+        - ``ppsspp_analyze_log`` — no session interaction.
+        - ``ppsspp_session(action=get)`` / ``ppsspp_session(action=list)`` —
           read-only health, must stay responsive while a tool call runs.
         - fake test mode — each call owns a private FakeTransport.
         - ``ppsspp_batch_status`` / ``ppsspp_batch_cancel`` —

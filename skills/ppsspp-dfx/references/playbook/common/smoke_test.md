@@ -35,9 +35,9 @@ addresses: [game_mode]
 
 1. **启动会话** — `ppsspp_health` → `ppsspp_session(action="start", iso_path=<绝对路径>)`，取回 `session_id`。会话启动自动完成：IR Interpreter 模式确认、WS `version` 握手。
 2. **等待加载** — `ppsspp_wait_frames(frames=600~1800)`（大 ISO 首次加载更久），期间 PPSSPP 完成启动动画进入可交互态。
-3. **健康检查** — `ppsspp_smoke_test(session_id)` 返回四项：
-   - `iso_loaded` / `cpu_running` / `ws_connected` / `game_mode_valid`
-   - `overall_status: fail` 时按判定信号表逐项路由
+3. **健康检查** — `ppsspp_health(session_id=...)` 返回四项：
+   - `session_checks`：`iso_loaded` / `cpu_running` / `ws_connected` / `game_mode_valid`
+   - `overall_session_status: fail` 时按判定信号表逐项路由
 4. **游戏状态确认** — `ppsspp_read_memory(action="read_u32", address=<game_mode 地址>)`（地址 `ppsspp_list_addresses` 查询）；`0`=标题/加载，非零=已进游戏主循环。也可用预置探针：`ppsspp_state_observer(action="observe", names="game_mode")`。
 5. **日志扫描** — `ppsspp_analyze_log()`（默认读广播日志镜像 `.ppsspp-dfx/output/ppsspp.log`），过滤 ERROR/WARNING/CRASH；可加 `filter` 关键词（如 "does not exist"、"Bad"）。
 6. **FAIL 时留存现场** — `ppsspp_screenshot`（标题屏可能走 `render→vram_fallback`，正常现象）后转对应 playbook。

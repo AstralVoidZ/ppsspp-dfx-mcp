@@ -6,7 +6,7 @@ category: tools
 
 # MCP 工具面速查（静态工具 + 动态脚本工具）
 
-> 权威来源是 MCP `tools/list`；本表补充各工具的**防护语义与前置条件**，供调用前确认。工具总数以 `tools/list` 为准，本文不硬编码数量。高频五工具（`read_memory` / `disassemble` / `get_pc` / `step` / `screenshot`）的 `session_id` 可省略（唯一活跃会话自动解析；0 会话报错提示启动，多会话报 `SESSION_AMBIGUOUS` 并列出全部 id）。CPU 状态列含义见 [cpu-state-contract.md](cpu-state-contract.md)（ANY=随时可用 / RUN=必须运行中 / STEP=内部自动暂停恢复 / PAUSE=调用方须先暂停）。
+> 权威来源是 MCP `tools/list`；本表补充各工具的**防护语义与前置条件**，供调用前确认。工具总数以 `tools/list` 为准，本文不硬编码数量。八个工具（`read_memory` / `disassemble` / `step` / `screenshot` / `breakpoint`(wait/stats/trace) / `diff_memory` / `context` / `scan`）的 `session_id` 可省略（唯一活跃会话自动解析；0 会话报错提示启动，多会话报 `SESSION_AMBIGUOUS` 并列出全部 id）。CPU 状态列含义见 [cpu-state-contract.md](cpu-state-contract.md)（ANY=随时可用 / RUN=必须运行中 / STEP=内部自动暂停恢复 / PAUSE=调用方须先暂停）。
 >
 > ⚠️ **地址参数必须写全 `"0x"` 前缀**——裸数字串按十进制静默解析为错误地址且调用成功返回（规则全文见 [ppsspp-constraints.md](ppsspp-constraints.md) §C6）。
 
@@ -14,26 +14,28 @@ category: tools
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
-| `ppsspp_health` | 探测 server 存活 | 不连 PPSSPP；`tool_count` 可作自检（静态数+暴露脚本数，以 `tools/list` 为准） |
+| `ppsspp_health` | 探测 server 存活；`session_id` 可选追加四点会话电池 | 不带 session_id 不连 PPSSPP；带 `session_id` 返回 `session_checks`（iso_loaded/cpu_running/ws_connected/game_mode_valid，game_mode_valid 依赖 addresses.yaml）+ `overall_session_status`；`tool_count` 可作自检（静态数+暴露脚本数，以 `tools/list` 为准） |
 | `ppsspp_session` | start/stop/get/wait_ready | start 需 `iso_path`，`wait_ready=true` 一步等就绪（默认 75s 预算，`[BOOT_TIMEOUT]`=楔死嫌疑，勿继续重试读；等价旧 start→wait_ready 两步）；`start(resilient=true)` 自愈启动：楔死→隔离 GPU 黑名单→同 id 重启 ≤2，`recovered>0` = 现场已重置；错误码 `ISO_NOT_FOUND`/`PPSSPP_NOT_FOUND`/`PORT_CONFLICT` |
 | `ppsspp_session(action="list")` | 列会话 | 空闲 30min 会话被 GC |
-| `ppsspp_smoke_test` | 四项健康检查 | `iso_loaded/cpu_running/ws_connected/game_mode_valid`；game_mode_valid 依赖 addresses.yaml 配置 |
 
 ## 内存
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
-| `ppsspp_read_memory` | bytes/u32/string/scan | read_bytes ≤65536，`output`=value（默认，字节列表+hex text）/hex（只回 hex text，`value=null`）/file（落盘 `output/memory_reads/` 回路径+64B 预览，顶格读取必用）；read_string 内部即 read_bytes+找 NUL（max_len 默认 4096，解码触顶 `truncated=true`）；scan 区间 ≤256MiB、pattern ≤4096B、不可读块静默跳过、支持 hex/ascii |
+| `ppsspp_read_memory` | bytes/u32/string | read_bytes ≤65536，`output`=value（默认，字节列表+hex text）/hex（只回 hex text，`value=null`）/file（落盘 `output/memory_reads/` 回路径+64B 预览，顶格读取必用）；read_string 内部即 read_bytes+找 NUL（max_len 默认 4096，解码触顶 `truncated=true`） |
 | `ppsspp_write_memory` | u8/u16/u32/bytes | DESTRUCTIVE；受保护区需 `force=True`（`PROTECTED_ADDRESS`）；bytes 接受 hex 或 base64 |
+| `ppsspp_scan` | pattern/value/strings 三模式扫描 | `mode="pattern"`：hex/ascii 模式，区间 ≤256MiB；`mode="value"`：u8/u16/u32 + eq/ne/lt/gt，initial→narrow→list→drop，handle 会话绑定；`mode="strings"`：shift_jis/utf8/ascii + CJK 占比质量过滤；initial 上限 8MiB 前台 / 32MiB 后台（`background=true` 提交 detached 作业，24MB ≈40s）；不可读块静默跳过；handle 注册表进程级 4 FIFO（并行会话共享容量） |
+| `ppsspp_diff_memory` | 快照→差分定位"什么变了" | snapshot（≤8MiB，64KB 分块）→ compare（变更字节清单，内联 256+truncated）→ drop/list；handle 会话绑定，注册表进程级 4 FIFO；不可读区段式跳过 |
 
 ## 断点
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
-| `ppsspp_breakpoint` | set/remove/list/update + mem_set/mem_remove/mem_list/mem_update | 设断可 ANY 态；**可靠命中需 CPUCore=2**；CPU 断点 set/remove 后 PPSSPP 无返回，工具自动跟 list 回填；内存断点按 address+size 匹配（remove 先 list 解析真实 size），size=1/2/4 为定宽监视、更大值按区间透传给 PPSSPP；`mem_update` 无条件合并 read/write/change（PPSSPP 可选 bool 缺省=false，漏传会清零）；`change=true` 是"值变化"断点；`mem_list` 的 `hits` 计数可确认命中 |
+| `ppsspp_breakpoint` | set/remove/list/update + mem_set/mem_remove/mem_list/mem_update + wait/trace/stats | 设断可 ANY 态；**可靠命中需 CPUCore=2**；CPU 断点 set/remove 后 PPSSPP 无返回，工具自动跟 list 回填；内存断点按 address+size 匹配（remove 先 list 解析真实 size），size=1/2/4 为定宽监视、更大值按区间透传给 PPSSPP；`mem_update` 无条件合并 read/write/change（PPSSPP 可选 bool 缺省=false，漏传会清零）；`mem_remove` 对不存在目标是**错误**；`mem_list` 的 `hits` 计数可确认命中 |
+| `ppsspp_breakpoint(action="wait")` | 阻塞等断点命中（替代 gpu_stats 探针循环） | 先 set/mem_set 设防再调用；消费 `cpu.stepping` 广播（观察者专用通道），命中返回 `{hit, pc, reason, related_address, ticks}`，超时返回 `hit=false`（**非错误**，可轮询）；入口即已暂停→`hit=true, already_paused=true`；等待期**不占会话锁**（可并发读/观察，勿发 step/pause/resume） |
+| `ppsspp_breakpoint(action="trace")` | 一步定位"谁在读/写此地址"（仅内存断点） | mem_set→等命中→抓 pc/寄存器/回溯→清除断点→恢复运行一次完成；游戏须 RUN（已暂停→`already_paused=true` 不设防）；默认读访问，`read/write/size` 收窄；**执行断点**用 `action="set"`+`"wait"` 组合；等待期不占锁，勿并发其他断点/step 操作（首个广播胜出，无论来自谁）；异常路径仍保证清除断点 |
+| `ppsspp_breakpoint(action="stats")` | 窗口内命中频率统计 | 按 pc 聚合 `{pc, count, first_seen, last_seen}` + 可选探针值变化采样；只读，等待期不占锁 |
 | `ppsspp_frame_snapshot` | 一步暂停抓现场（pc+寄存器+可选探针→恢复） | 整体占锁（短）；运行态来的调用结束前恢复，已暂停的保持暂停；采集失败也不会留下冻结 |
-| `ppsspp_wait_breakpoint` | 阻塞等断点命中（替代 gpu_stats 探针循环） | 先 `breakpoint` 设防再调用；消费 `cpu.stepping` 广播，命中返回 `{hit, pc, reason, related_address, ticks}`，超时返回 `hit=false`（**非错误**，可轮询）；入口即已暂停→`hit=true, already_paused=true`；等待期**不占会话锁**（可并发读/观察，勿发 step/pause/resume） |
-| `ppsspp_trace_memory_access` | 一步定位"谁在读/写此地址" | 设防→等命中→抓 pc/寄存器/回溯→清除断点→恢复运行一次完成；游戏须 RUN（已暂停→`already_paused=true` 不设防）；`access=read/write/read_write`，size∈{1,2,4}；等待期不占锁，勿并发其他断点/step 操作（首个广播胜出，无论来自谁）；异常路径仍保证清除断点 |
 
 断点工作流见 [cpu-state-contract.md](cpu-state-contract.md) §断点命中协议。
 
@@ -41,14 +43,15 @@ category: tools
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
-| `ppsspp_step` | into/over/out/pause/resume/reset/run_until/next_hle | into/over/out 内部保证暂停态；**stepInto 首次调用只暂停不步进**；over/out/run_until 靠临时断点，永不到达→超时是预期；3 次无推进→`STEP_NO_ADVANCE`；reset 重启游戏丢全部内存态 |
-| `ppsspp_query(action='register', name='pc')` | 安全读 PC | STEP（自动暂停-恢复，trust HIGH；已暂停时保持不恢复） |
+| `ppsspp_step` | pause/resume/reset/run_until/next_hle | 运行控制语义；指令级 `into/over/out` 已移入 `ppsspp_batch_step` 的 `cpu_step` 步骤类型（count 1..1000）；**stepInto 首次调用只暂停不步进**；over/out/run_until 靠临时断点，永不到达→超时是预期；3 次无推进→`STEP_NO_ADVANCE`；reset 重启游戏丢全部内存态 |
+| `ppsspp_query(action='register', name='pc', safe=true)` | 安全读 PC | STEP（自动暂停-恢复，trust HIGH；已暂停时保持不恢复）；`safe=false` 裸读 trust LOW |
 
 ## 查询
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_query` | game_state/registers/register/backtrace/threads/modules/funcs/func_scan/func_add/func_remove | `backtrace`/`func_*` 需 PAUSE（运行态调→`CPU_STATE_ERROR`）；RUNNING 态 `registers` 的 PC 为 LOW trust；`hle.func.list` 可达 700+KB，`top_n` 默认 100 截断（传 0 取全量）；`func_remove` 只收 address |
+| `ppsspp_context` | 崩溃归因上下文包（身份+反汇编窗+回溯一次调用） | 已知函数身份按 addresses.yaml `known_functions` IDA 偏移换算（未知地址 identity=null 不报错）；`window` 为前后各 N 条（默认 8，上限 32）；`include_backtrace=true` 需短暂暂停 CPU |
 
 ## 寄存器与表达式
 
@@ -97,7 +100,7 @@ category: tools
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
-| `ppsspp_batch_step` | press/wait/state_probe/screenshot 序列编排 | 有失败步时整体 isError（`BATCH_STEP_FAILED`），按 `results[]` 排查；录制中 screenshot 步自动 skipped（非失败） |
+| `ppsspp_batch_step` | press/wait/state_probe/screenshot/cpu_step 序列编排 | 有失败步时整体 isError（`BATCH_STEP_FAILED`），按 `results[]` 排查；`cpu_step`：`{type:"cpu_step", mode:"into"/"over"/"out", count:1..1000}` 指令级批量推进；录制中 screenshot 步自动 skipped（非失败） |
 | `ppsspp_batch_status(batch_id 省略)` | 列举全部在册后台批任务（找回丢失的 batch_id / 背景活动盘点；v0.1.6 合并）| 只读无锁；按提交序返回；完结任务仅保留最近 32 个（`retention_jobs`），更早的已被淘汰 |
 | `ppsspp_batch_status` | 轮询后台批任务状态与进度（completed 携带完整 results[]） | 只读无锁，可与读工具并发；永不触碰会话锁 |
 | `ppsspp_batch_cancel` | 取消排队中/运行中的后台批任务 | 取消发生在当前步边界；取消已完结任务是错误——不确定状态先 batch_status
@@ -123,7 +126,7 @@ category: tools
 
 - `ppsspp://game-state` / `ppsspp://registers` — 只读快照，仅单活跃会话时可用（0 或多会话报 ResourceError，改用带 session_id 的工具）。
 - prompt `memory-breakpoint-wizard(address, size, purpose)` — 渲染六步内存断点工作流文本（前置检查→记录当前值→mem_set→resume→命中分析→mem_remove），可作操作清单。
-- prompt `memory-trace-wizard(address, purpose)` — 渲染"谁在读/写此地址"追踪工作流：首选 `ppsspp_trace_memory_access` 一次调用，降级为 mem_set+wait_breakpoint 手动协议；含命中现场解读（PC 停在访问指令之后、部分构建 reason/related_address 为空）。
+- prompt `memory-trace-wizard(address, purpose)` — 渲染"谁在读/写此地址"追踪工作流：首选 `ppsspp_breakpoint(action="trace")` 一次调用，降级为 mem_set + `action="wait"` 手动协议；含命中现场解读（PC 停在访问指令之后、部分构建 reason/related_address 为空）。
 - 两个 prompt 的 `address` 参数支持**补全**（服务端声明了 `completions` 能力）：候选来自 `.ppsspp-dfx/config/addresses.yaml` 的**运行时地址**，前缀匹配，可省略前导零（`8804` 能命中 `0x08804000`）。候选只返回十六进制地址串、不返回符号名——因为它就是将被写入参数的**值**。
 
 > **能力面事实**（握手声明）：server 声明 `tools` / `resources` / `prompts` / `completions` 四项；`logging`（协议已移除）与 `tasks`（SDK 仅有类型定义）不声明。`tools.list_changed` 与 `resources.subscribe` **恒为 `false` 且是有意为之**——SDK 2.2.0 的 `MCPServer` 未提供握手法入口，声明等于承诺一个发不出的通知。

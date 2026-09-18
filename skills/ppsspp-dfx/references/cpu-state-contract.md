@@ -34,14 +34,14 @@ category: protocol
 
 **`ppsspp_query(action="game_state")` 的 `paused` 字段在断点命中时保持 `false`** —— 它反映的是 UI 暂停菜单态，与 CPU stepping 独立（`game.status.paused ≠ Core_IsStepping()`）。用它等命中会永远等不到。
 
-**默认做法：`ppsspp_wait_breakpoint(session_id, timeout_s)`** —— 服务端消费 `cpu.stepping` 广播：
+**默认做法：`ppsspp_breakpoint(action="wait", timeout_s=)`** —— 服务端消费 `cpu.stepping` 广播：
 
 - 命中 → `{hit: true, pc, reason, related_address, ticks}`（精确 PC，无需解析报错文本）
 - 超时 → `{hit: false}`（**非错误**，可轮询/加大预算重试）
 - 调用时 CPU 已暂停 → `{hit: true, already_paused: true, pc}`（高信任 PC）
 - 等待期**不占会话锁**：可并发 `read_memory` / `state_observer`（勿发 step/pause/resume——CPU 必须继续跑向断点）
 
-**一步到位：`ppsspp_trace_memory_access(address, access, timeout_s, want_backtrace=)`** —— 设防→等命中→抓现场→清除断点→恢复运行，把 §3.2–§3.4 全链压缩为一次调用（要求游戏 RUNNING；异常路径仍保证清除断点）。
+**一步定位内存访问者：`ppsspp_breakpoint(action="trace", address=, read/write/size=, timeout_s=, want_backtrace=)`** —— 设防→等命中→抓现场→清除断点→恢复运行，把 §3.2–§3.4 全链压缩为一次调用（要求游戏 RUNNING；异常路径仍保证清除断点；仅内存断点，执行断点用 `action="set"`+`"wait"`）。
 
 降级 fallback（wait 工具不可用时）：调用 `ppsspp_gpu_stats`——
 
@@ -52,7 +52,7 @@ category: protocol
 
 ### 3.3 命中现场检查
 
-1. `ppsspp_get_pc` — trust HIGH；已暂停时**保持暂停不自动恢复**（后续检查仍有效）
+1. `ppsspp_query(action="register", name="pc", safe=true)` — trust HIGH；已暂停时**保持暂停不自动恢复**（后续检查仍有效）
 2. `ppsspp_query(action="registers")` — 此刻全寄存器高信任；关注 `a0`-`a3`（参数）、`ra`（返回地址）
 3. `ppsspp_disassemble(address=PC)` — 看崩溃/命中点指令流
 4. 内存断点命中时 **PC 停在访问指令之后**（访问指令已执行完毕；例：`lbu` 位于 0x...F4，命中 PC=0x...F8）
@@ -69,8 +69,8 @@ category: protocol
 **默认（一次调用替代整个循环）：**
 
 ```
-ppsspp_trace_memory_access(address, access="read_write", timeout_s=30,
-                           want_backtrace=true)
+ppsspp_breakpoint(action="trace", address=..., read=true, write=true,
+                  size=4, timeout_s=30, want_backtrace=true)
 → {hit: true, hits:[{pc, related_address, ...}], bp_removed: true, resumed: true}
 ```
 

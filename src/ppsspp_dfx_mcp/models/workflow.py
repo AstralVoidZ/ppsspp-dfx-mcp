@@ -1,10 +1,10 @@
-"""Workflow domain models (frozen dataclass) — H1 breakpoint-wait tools.
+"""Workflow domain models (frozen dataclass) — breakpoint hit-consumption.
 
-These back the two H1 composite tools (2026-09-07):
-- ppsspp_wait_breakpoint — block until a breakpoint hit (cpu.stepping
-  broadcast), lock-free subscription (R16 PARTIAL_HOLD contract)
-- ppsspp_trace_memory_access — arm a memory breakpoint, wait for the
-  hit, capture the scene, clean up, and restore CPU state in one call
+These back the consumption actions of ppsspp_breakpoint:
+- action="wait" — block until a breakpoint hit (cpu.stepping broadcast),
+  lock-free subscription
+- action="trace" — arm a memory breakpoint, wait for the hit, capture
+  the scene, clean up, and restore CPU state in one call
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class WaitBreakpointResult:
-    """Result of ``ppsspp_wait_breakpoint``.
+    """Result of ``ppsspp_breakpoint(action="wait")``.
 
     Attributes:
         hit: True when the CPU entered stepping (breakpoint hit — or it
@@ -41,7 +41,7 @@ class WaitBreakpointResult:
 
 @dataclass(frozen=True)
 class TraceAccessResult:
-    """Result of ``ppsspp_trace_memory_access``.
+    """Result of ``ppsspp_breakpoint(action="trace")``.
 
     Attributes:
         hit: True when at least one access was captured.

@@ -106,6 +106,33 @@ async def test_fifo_eviction_at_capacity(fake_diff):
     assert listed["count"] == diff_mod._MAX_SNAPSHOTS
 
 
+async def test_fifo_evicts_oldest_handle(fake_diff):
+    from ppsspp_dfx_mcp.errors import ToolError
+
+    handles = []
+    for _ in range(diff_mod._MAX_SNAPSHOTS):
+        snap = await diff_memory(action="snapshot", start="0x08804000", end="0x08804100")
+        handles.append(snap["handle"])
+    evicted = handles[0]
+    # 再拍一张，FIFO 逐出最旧的 handle
+    await diff_memory(action="snapshot", start="0x08804000", end="0x08804100")
+    with pytest.raises(ToolError) as ei:
+        await diff_memory(action="compare", handle=evicted)
+    assert "[ARGS_INVALID]" in str(ei.value)
+
+
+async def test_compare_rejects_cross_session_handle(fake_diff):
+    from ppsspp_dfx_mcp.errors import ToolError
+
+    snap = await diff_memory(
+        action="snapshot", start="0x08804000", end="0x08805000", session_id="sess-A"
+    )
+    with pytest.raises(ToolError) as ei:
+        await diff_memory(action="compare", handle=snap["handle"], session_id="sess-B")
+    assert "[ARGS_INVALID]" in str(ei.value)
+    assert "sess-A" in str(ei.value)
+
+
 async def test_range_validation(fake_diff):
     from ppsspp_dfx_mcp.errors import ToolError
 

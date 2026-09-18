@@ -92,7 +92,7 @@ async def health(
 ) -> HealthOutput:
     """PURPOSE: Probe MCP server liveness and readiness — plus an optional four-point session health battery.
 
-    USAGE: no args for the server-level probe (does NOT contact PPSSPP); pass session_id to also run the session battery (iso_loaded / cpu_running / ws_connected / game_mode_valid — absorbed from ppsspp_smoke_test in v0.1.7).
+    USAGE: no args for the server-level probe (does NOT contact PPSSPP); pass session_id to also run the session battery (iso_loaded / cpu_running / ws_connected / game_mode_valid — absorbed from the former ppsspp_smoke_test tool).
 
     BEHAVIOR: READ-ONLY. Server counters are read in-memory; the session battery (when requested) contacts PPSSPP over the session transport but never mutates state.
 

@@ -1,23 +1,13 @@
-"""Test: list_tools returns the full 33+ tool set.
+"""Test: list_tools returns the full static tool set.
 
 Verifies the MCP protocol layer (ClientSession → server → list_tools)
-returns all expected static tools. Anchors:
-- Phase 1 (2): ppsspp_health / ppsspp_session
-- Phase 2 (16): ppsspp_smoke_test / ppsspp_screenshot / etc.
-- Phase 3 (3): ppsspp_list_scripts / ppsspp_run_script / ppsspp_reload_scripts
-- Phase 4 (5): ppsspp_write_register / ppsspp_evaluate / etc.
-- Phase 5 (3): ppsspp_gpu_stats / ppsspp_gpu_record / ppsspp_search_memory_info
-- Phase 6 (1): ppsspp_replay (OpenSpec add-replay-tools)
-- Phase 7 (2): ppsspp_state_observer / ppsspp_batch_step (add-replay-tools P2)
+returns all expected static tools. The expected set is derived from the
+tool-surface baseline (tests/unit/l2_mcp_contract/tool_surface_baseline.json)
+— the same byte-level lock used by the L2 contract tests — so this file
+cannot drift from the registered surface.
 
-Total: 33 static tools (+ N dynamic ppsspp_script_<name> if manifest
-exposes any). This test only checks the static set — dynamic script
-tools are manifest-dependent and may be 0.
-
-Note: the static tool set is whatever _register_tools() in server.py
-registers. There is no "phase counter" to bump — adding a new tool
-only requires appending to _TOOL_REGISTRY + adding ToolAnnotations.
-Update EXPECTED_STATIC_TOOLS below when you add a tool.
+Dynamic ppsspp_script_<name> tools are manifest-dependent (0..N) and are
+NOT part of the expected set; the count assertions use >= for that reason.
 
 loop_scope: all tests use "session" scope to share the mcp_inspector
 fixture's session-scoped event loop (see conftest.py for rationale).
@@ -25,52 +15,23 @@ fixture's session-scoped event loop (see conftest.py for rationale).
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
-# Static tool set (from server.py _TOOL_REGISTRY). Keep in sync with
-# the server registration — when you add a tool, append it here. The
-# test asserts ALL of these are present (subset check, not strict
-# equality, so dynamic script tools don't break it).
-EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset(
-    {
-        # Phase 1 (3)
-        "ppsspp_health",
-        "ppsspp_session",
-        # Phase 2 (16)
-        "ppsspp_screenshot",
-        "ppsspp_dump",
-        "ppsspp_read_memory",
-        "ppsspp_write_memory",
-        "ppsspp_disassemble",
-        "ppsspp_breakpoint",
-        "ppsspp_step",
-        "ppsspp_query",
-        "ppsspp_press_button",
-        "ppsspp_hold_buttons",
-        "ppsspp_send_analog",
-        "ppsspp_wait_frames",
-        "ppsspp_analyze_log",
-        # Phase 3 (3)
-        "ppsspp_list_scripts",
-        "ppsspp_run_script",
-        "ppsspp_reload_scripts",
-        # Phase 4 (5)
-        "ppsspp_write_register",
-        "ppsspp_evaluate",
-        "ppsspp_assemble",
-        "ppsspp_search_disasm",
-        "ppsspp_memory_map",
-        # Phase 5 (3)
-        "ppsspp_gpu_stats",
-        "ppsspp_gpu_record",
-        "ppsspp_search_memory_info",
-        # Phase 6 (1, OpenSpec add-replay-tools)
-        "ppsspp_replay",
-        # Phase 7 (2, OpenSpec add-replay-tools P2)
-        "ppsspp_state_observer",
-        "ppsspp_batch_step",
-    }
+_BASELINE_PATH = (
+    Path(__file__).resolve().parents[1] / "unit" / "l2_mcp_contract" / "tool_surface_baseline.json"
 )
+
+
+def _expected_static_tools() -> frozenset[str]:
+    baseline = json.loads(_BASELINE_PATH.read_text(encoding="utf-8"))
+    return frozenset(baseline["tools"].keys())
+
+
+EXPECTED_STATIC_TOOLS: frozenset[str] = _expected_static_tools()
+EXPECTED_COUNT = len(EXPECTED_STATIC_TOOLS)
 
 # All tests share the session-scoped mcp_inspector fixture, so they
 # MUST run on the session-scoped event loop (loop_scope="session").
@@ -78,34 +39,33 @@ _ASYNC = pytest.mark.asyncio(loop_scope="session")
 
 
 @_ASYNC
-async def test_list_tools_returns_at_least_33_static_tools(mcp_inspector):
-    """list_tools must return at least 33 static tools.
+async def test_list_tools_returns_all_static_tools(mcp_inspector):
+    """list_tools must return at least the full static tool set.
 
     Dynamic ppsspp_script_<name> tools may push the count higher if the
-    manifest exposes scripts, but the 33 static tools must always be
-    present.
+    manifest exposes scripts, but the static set must always be present.
     """
     result = await mcp_inspector.list_tools()
     tool_names = {t.name for t in result.tools}
 
-    assert len(result.tools) >= 33, (
-        f"expected >=33 tools, got {len(result.tools)}: {sorted(tool_names)}"
+    assert len(result.tools) >= EXPECTED_COUNT, (
+        f"expected >={EXPECTED_COUNT} tools, got {len(result.tools)}: {sorted(tool_names)}"
     )
 
 
 @_ASYNC
-async def test_list_tools_includes_phase1_set(mcp_inspector):
-    """Phase 1 tools (health/session/session_list) must always be present."""
+async def test_list_tools_includes_core_set(mcp_inspector):
+    """Core protocol tools (health/session) must always be present."""
     result = await mcp_inspector.list_tools()
     tool_names = {t.name for t in result.tools}
 
     missing = {"ppsspp_health", "ppsspp_session"} - tool_names
-    assert not missing, f"Phase 1 tools missing: {sorted(missing)}"
+    assert not missing, f"core tools missing: {sorted(missing)}"
 
 
 @_ASYNC
 async def test_list_tools_includes_all_static_tools(mcp_inspector):
-    """All 33 static tools from EXPECTED_STATIC_TOOLS must be present."""
+    """Every tool in the baseline surface must be present."""
     result = await mcp_inspector.list_tools()
     tool_names = {t.name for t in result.tools}
 

@@ -1,6 +1,6 @@
 """Context view — public JSON contract for ppsspp_context (crash triage pack).
 
-v0.1.7 批 1 后半：把 crash_analysis playbook 的人工三连（查表 + 反汇编 +
+把 crash_analysis playbook 的人工三连（查表 + 反汇编 +
 回溯）压成单调用。纯客户端编排，零新 WS 事件。
 """
 

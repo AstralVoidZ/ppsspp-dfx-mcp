@@ -71,7 +71,7 @@ async def resolve_session_id(session_id: str | None) -> str:
         raise SessionAmbiguous(
             f"session_id is ambiguous — {len(sessions)} active sessions "
             f"({ids}); pass session_id explicitly or stop the extras "
-            '(ppsspp_session_list / ppsspp_session(action="stop"))'
+            '(ppsspp_session(action="list") / ppsspp_session(action="stop"))'
         )
     return sessions[0].session_id
 

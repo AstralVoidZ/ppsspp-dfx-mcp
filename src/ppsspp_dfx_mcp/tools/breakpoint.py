@@ -162,10 +162,11 @@ async def breakpoint(
                 "over a time window; optionally samples probe value \n"
                 "changes via state_observer. Read-only.\n"
                 "- 'trace': HIT-SNAPSHOT-RESUME — arm a temporary \n"
-                "breakpoint at `address`, wait for the hit, capture \n"
-                "pc/registers/backtrace, ALWAYS remove it, then resume \n"
-                "(memory access via read/write/size; exec via address \n"
-                "only).\n"
+                "MEMORY breakpoint at `address`, wait for the hit, \n"
+                "capture pc/registers/backtrace, ALWAYS remove it, then \n"
+                "resume (defaults to read access; narrow with \n"
+                "read/write/size). For EXECUTION breakpoints use \n"
+                "action='set' + 'wait' instead.\n"
                 "CPU breakpoint actions:\n"
                 "- 'set': add a CPU execution breakpoint (requires address; "
                 "enabled? defaults to True; condition? optional).\n"
@@ -308,7 +309,7 @@ async def breakpoint(
 ) -> BreakpointOutput:
     """PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.
 
-    USAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (memory watch via read/write/size; exec via address alone).
+    USAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary MEMORY breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (defaults to read access; narrow with read/write/size). For EXECUTION breakpoints use action='set' + 'wait'.
 
 
     ROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.

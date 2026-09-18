@@ -1,6 +1,6 @@
 """H1 composite breakpoint-wait implementations (2026-09-07).
 
-v0.1.7: the tool surface moved to ppsspp_breakpoint(action="wait"/"trace")
+The tool surface moved to ppsspp_breakpoint(action="wait"/"trace")
 (see tools/breakpoint.py); the functions here remain as the delegated
 implementations and are no longer registered as MCP tools:
 - wait_breakpoint — block until a breakpoint hit (cpu.stepping
@@ -94,8 +94,9 @@ async def _get_live_observer(session_id: str) -> Any:
             f"wait tools (ppsspp_trace_memory_access / "
             f"ppsspp_wait_breakpoint / ppsspp_wait_frames) require a "
             f"live PPSSPP WebSocket link; fake-mode and disk-loaded "
-            f"sessions have none. Recovery: check ppsspp_smoke_test "
-            f"(ws_connected), then start a fresh session via "
+            f"sessions have none. Recovery: check "
+            f"ppsspp_health(session_id=...) (ws_connected), then start a "
+            f"fresh session via "
             f"ppsspp_session(action='start') and retry."
         ) from e
 

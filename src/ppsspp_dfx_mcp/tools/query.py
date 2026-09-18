@@ -297,7 +297,7 @@ async def query(
 #
 # Raises:
 # ToolError: on session lookup failure or WS failure.
-# ppsspp_get_pc was absorbed into ppsspp_query in v0.1.7 (D1):
+# ppsspp_get_pc was absorbed into ppsspp_query:
 # query(action='register', name='pc', safe=true) is the same read.
 
 
