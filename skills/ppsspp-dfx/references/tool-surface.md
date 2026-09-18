@@ -42,7 +42,7 @@ category: tools
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_step` | into/over/out/pause/resume/reset/run_until/next_hle | into/over/out 内部保证暂停态；**stepInto 首次调用只暂停不步进**；over/out/run_until 靠临时断点，永不到达→超时是预期；3 次无推进→`STEP_NO_ADVANCE`；reset 重启游戏丢全部内存态 |
-| `ppsspp_get_pc` | 安全读 PC | STEP（自动暂停-恢复，trust HIGH；已暂停时保持不恢复） |
+| `ppsspp_query(action='register', name='pc')` | 安全读 PC | STEP（自动暂停-恢复，trust HIGH；已暂停时保持不恢复） |
 
 ## 查询
 

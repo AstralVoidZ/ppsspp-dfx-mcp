@@ -39,7 +39,6 @@ _SECTIONS = (
 _AUTO_SESSION_ID_TOOLS = (
     "ppsspp_read_memory",
     "ppsspp_disassemble",
-    "ppsspp_get_pc",
     "ppsspp_step",
     "ppsspp_screenshot",
     "ppsspp_diff_memory",

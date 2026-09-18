@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -38,6 +38,11 @@ def _mock_session_client(tool_module: str) -> AsyncMock:
 # ============================================================================
 # write_memory: u8 / u16 granule formats
 # ============================================================================
+
+
+@asynccontextmanager
+async def _noop_cm() -> AsyncIterator[None]:
+    yield
 
 
 class TestWriteMemoryGranules:
@@ -118,6 +123,8 @@ class TestQueryRegisterAction:
     @pytest.mark.asyncio
     async def test_forwards_name_and_returns_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = AsyncMock()
+        # safe=true（默认）走 with_stepping 暂停舞蹈 —— 桩需为异步 CM
+        mock_client.with_stepping = MagicMock(return_value=_noop_cm())
         mock_client.get_reg.return_value = {
             "category": 0,
             "register": 4,

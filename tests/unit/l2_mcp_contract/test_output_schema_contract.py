@@ -89,8 +89,11 @@ def _detect_multi_shape_tools() -> dict[str, list[str]]:
         # 函数时（如 breakpoint(action="wait") 委托 workflows.wait_breakpoint），
         # 被委托函数的源码并入扫描 —— 否则委托会绕过多形态检测。
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.ImportFrom) and node.module
-                    and node.module.startswith("ppsspp_dfx_mcp.tools.")):
+            if not (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith("ppsspp_dfx_mcp.tools.")
+            ):
                 continue
             try:
                 mod = importlib.import_module(node.module)
@@ -101,8 +104,7 @@ def _detect_multi_shape_tools() -> dict[str, list[str]]:
                 if callee is None:
                     continue
                 try:
-                    callee_tree = ast.parse(
-                        textwrap.dedent(inspect.getsource(callee)))
+                    callee_tree = ast.parse(textwrap.dedent(inspect.getsource(callee)))
                 except (OSError, TypeError, SyntaxError):
                     continue
                 classes |= _collect_response_classes(callee_tree)

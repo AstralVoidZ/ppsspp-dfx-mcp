@@ -28,7 +28,26 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `ppsspp_context`（v0.1.7 批 1 收口）：崩溃归因上下文包——known_functions
+  IDA 偏移换算身份 + 反汇编窗 + 可选回溯（with_stepping）；真机验证通过。
+- `ppsspp_breakpoint` 吸收两个消费工具（批 2，工具数 39 → 37）：
+  `ppsspp_wait_breakpoint` → `action="wait"`（严格等待，lock-free，断点保持）；
+  `ppsspp_trace_memory_access` → `action="trace"`（命中-快照-放行，必清+恢复）。
+  真机验证：wait 命中 pc 精确；trace 全链（必清/恢复/寄存器/回溯）通过。
+- `ppsspp_get_pc` 废弃（D1，工具数 37 → 36）：`query(action="register",
+  name="pc")` 升级为超集——新增 `safe` 参数（默认 true 走 with_stepping
+  暂停一致性舞蹈 trust='high'，≡ 原 get_pc；false 裸读 trust='low'，
+  零开销热路径轮询）。多形态检测器升级一级委托跟进。
+- 真机验证结论（ISO 实测）：WS 往返中位 16.7ms（n=50）；MCP 通道回传
+  64KB 字节列表 ~204ms/块（全频段扫描必须后台化且工具内联匹配）；
+  cpu.stepping 广播不含断点标识（命中归因客户端 pc↔布防表）；
+  PPSSPP 原生 condition/log 断点字段可用。
+
 ### Added
+
+
 
 - `ppsspp_diff_memory`：内存快照差分工具（v0.1.7 批 1，Glama 评审纵深 P0-1）——
   `snapshot`（64KB 分块读，单快照上限 8 MiB，注册表容量 4 FIFO）→ `compare`

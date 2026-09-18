@@ -145,7 +145,7 @@ Work through these steps in order:
    a) ppsspp_breakpoint(action="mem_set", address="{address}");
    b) loop: ppsspp_breakpoint(action='wait')(timeout_s=15) — hit=false is NOT an
       error, keep polling; the wait does NOT hold the session lock;
-   c) on hit: ppsspp_get_pc + ppsspp_query(action="registers");
+   c) on hit: ppsspp_query(action="register", name="pc") + ppsspp_query(action="registers");
    d) cleanup: ppsspp_breakpoint(action="mem_remove") then
       ppsspp_step(action="resume").
 

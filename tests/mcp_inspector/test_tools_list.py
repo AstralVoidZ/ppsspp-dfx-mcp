@@ -46,7 +46,6 @@ EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset(
         "ppsspp_breakpoint",
         "ppsspp_step",
         "ppsspp_query",
-        "ppsspp_get_pc",
         "ppsspp_press_button",
         "ppsspp_hold_buttons",
         "ppsspp_send_analog",
