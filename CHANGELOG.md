@@ -28,6 +28,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- `ppsspp_diff_memory`：内存快照差分工具（v0.1.7 批 1，Glama 评审纵深 P0-1）——
+  `snapshot`（64KB 分块读，单快照上限 8 MiB，注册表容量 4 FIFO）→ `compare`
+  （变更字节清单，内联上限 256 + truncated 标记）→ `drop`/`list`；
+  纯客户端编排，零新 WS 事件；多形态契约 partial=True 并登记
+  MULTI_SHAPE_OUTPUT_TOOLS。
+
+
 ## [0.1.5] - 2026-09-18
 
 ### Added

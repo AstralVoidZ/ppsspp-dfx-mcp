@@ -26,7 +26,7 @@ before running.
 
 ## Features
 
-- **37 static tools**, all with structured `inputSchema` / `outputSchema` — no
+- **38 static tools**, all with structured `inputSchema` / `outputSchema` — no
   unconstrained return values; every parameter is typed and documented.
 - **Dynamic script tools**: project-specific diagnostic scripts are exposed as
   `ppsspp_script_<name>` tools via `scripts.manifest.yaml`, with input types
@@ -207,7 +207,7 @@ request handler exists, so everything listed here is real):
 
 | Capability | Declared | Notes |
 |---|---------|-------|
-| `tools` | ✅ | 37 static tools + dynamic `ppsspp_script_<name>` |
+| `tools` | ✅ | 38 static tools + dynamic `ppsspp_script_<name>` |
 | `resources` | ✅ | `ppsspp://game-state`, `ppsspp://registers` (snapshots) |
 | `prompts` | ✅ | `memory-breakpoint-wizard`, `memory-trace-wizard` |
 | `completions` | ✅ | the wizards' `address` argument, candidates from `addresses.yaml` |

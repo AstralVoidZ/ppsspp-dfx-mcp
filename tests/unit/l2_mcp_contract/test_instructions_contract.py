@@ -42,6 +42,7 @@ _AUTO_SESSION_ID_TOOLS = (
     "ppsspp_get_pc",
     "ppsspp_step",
     "ppsspp_screenshot",
+    "ppsspp_diff_memory",
 )
 
 
