@@ -65,13 +65,23 @@ def _evict_oldest_if_full() -> None:
         logger.info("diff snapshot evicted (FIFO): %s", oldest)
 
 
-async def _read_range(client: Any, start: int, size: int) -> bytes:
-    """Read [start, start+size) in MAX_SINGLE_READ_BYTES chunks (client provided)."""
-    data = bytearray()
+async def _read_segments(client: Any, start: int, size: int) -> bytes:
+    """Read [start, start+size) skipping unreadable chunks (pad 0x00).
+
+    Consistent with scan's unreadable-region contract: the buffer is
+    always `size` bytes long, but chunks that fail to read are left as
+    null bytes. Compare diff results may contain false positives in
+    skipped regions — callers should narrow ranges to known-readable
+    areas for precise results.
+    """
+    data = bytearray(size)
     for offset in range(0, size, MAX_SINGLE_READ_BYTES):
         chunk = min(MAX_SINGLE_READ_BYTES, size - offset)
-        raw = await client.read_bytes(address=start + offset, size=chunk)
-        data.extend(raw)
+        try:
+            raw = await client.read_bytes(address=start + offset, size=chunk)
+            data[offset : offset + len(raw)] = raw
+        except Exception:
+            pass  # skip unreadable chunk (scan contract alignment)
     return bytes(data)
 
 
@@ -156,7 +166,7 @@ async def diff_memory(
                 )
             session_id_resolved = await resolve_session_id(session_id)
             async with session_client(session_id_resolved) as client:
-                data = await _read_range(client, start_int, size)
+                data = await _read_segments(client, start_int, size)
             _evict_oldest_if_full()
             handle = uuid.uuid4().hex[:8]
             result = DiffSnapshotResult(
@@ -188,7 +198,7 @@ async def diff_memory(
                     f"diff; snapshot it again in this session"
                 )
             async with session_client(session_id_resolved) as client:
-                current = await _read_range(client, meta.start, meta.size)
+                current = await _read_segments(client, meta.start, meta.size)
             changes: list[DiffChange] = []
             truncated = False
             for offset, (old, new) in enumerate(zip(snap_bytes, current, strict=True)):

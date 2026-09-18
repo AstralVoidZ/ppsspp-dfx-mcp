@@ -8,8 +8,11 @@ scan phases run end-to-end without PPSSPP.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from ppsspp_dfx_mcp.core.batch_jobs import get_registry
 from ppsspp_dfx_mcp.tools import scan as scan_mod
 from ppsspp_dfx_mcp.tools.scan import scan
 
@@ -43,6 +46,11 @@ def fake_scan(monkeypatch: pytest.MonkeyPatch):
     client = FakeClient()
     monkeypatch.setattr(scan_mod, "session_client", lambda session_id: FakeSessionClient(client))
     monkeypatch.setattr(scan_mod, "resolve_session_id", _resolve)
+
+    async def _alive(session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(scan_mod, "validate_session_alive", _alive)
     scan_mod._reset_value_sessions_for_tests()
     return client
 
@@ -143,3 +151,81 @@ async def test_strings_returns_entries_with_addresses(fake_scan):
     assert r["charset"] == "ascii"
     for entry in r["strings"]:
         assert set(entry) == {"address", "text"}
+
+
+async def test_background_submission_runs_to_completion(fake_scan):
+    r = await scan(
+        mode="value",
+        phase="initial",
+        value=0x41,
+        width="u8",
+        start_addr="0x08804000",
+        end_addr="0x08805000",
+        background=True,
+        session_id="sess-fake",
+    )
+    assert r["action"] == "submitted"
+    job_id = r["job_id"]
+    job = get_registry().get(job_id)
+    assert job is not None
+    for _ in range(100):
+        if job.status in ("completed", "failed", "cancelled"):
+            break
+        await asyncio.sleep(0.05)
+    assert job.status == "completed", job.error
+    assert job.result["scan_handle"]
+    assert job.result["candidates"] >= 0
+
+
+async def test_background_value_cap_lifted_to_32mib(fake_scan):
+    # 前台 8MiB 硬上限会拒绝；后台放宽到 32MiB → 提交成功
+    span = 9 * 1024 * 1024
+    r = await scan(
+        mode="value",
+        phase="initial",
+        value=1,
+        width="u32",
+        start_addr="0x08804000",
+        end_addr=f"0x{0x08804000 + span:08X}",
+        background=True,
+        session_id="sess-fake",
+    )
+    assert r["action"] == "submitted"
+    job_id = r["job_id"]
+    job = get_registry().get(job_id)
+    for _ in range(100):
+        if job.status in ("completed", "failed", "cancelled"):
+            break
+        await asyncio.sleep(0.05)
+    assert job.status == "completed", job.error
+
+
+async def test_second_background_scan_on_same_session_rejected(fake_scan):
+    r1 = await scan(
+        mode="value",
+        phase="initial",
+        value=0x41,
+        width="u8",
+        start_addr="0x08804000",
+        end_addr="0x08805000",
+        background=True,
+        session_id="sess-fake",
+    )
+    first_id = r1["job_id"]
+    first = get_registry().get(first_id)
+    with pytest.raises(scan_mod.ArgsInvalid, match="already has a background"):
+        await scan(
+            mode="value",
+            phase="initial",
+            value=0x41,
+            width="u8",
+            start_addr="0x08804000",
+            end_addr="0x08805000",
+            background=True,
+            session_id="sess-fake",
+        )
+    for _ in range(100):
+        if first.status in ("completed", "failed", "cancelled"):
+            break
+        await asyncio.sleep(0.05)
+    scan_mod._VALUE_SESSIONS.clear()
