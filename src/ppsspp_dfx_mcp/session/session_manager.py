@@ -346,7 +346,7 @@ class SessionManager:
         go through session_client.
 
         PARTIAL_HOLD (lock-free wait, locked sub-ops):
-        ``ppsspp_wait_breakpoint`` / ``ppsspp_trace_memory_access``
+        ``ppsspp_breakpoint(action="wait"/"trace")``
         acquire the lock ONLY for their short sub-operations (arm /
         probe / capture / cleanup); the breakpoint WAIT itself
         subscribes to the observer's cpu.stepping fan-out and holds NO

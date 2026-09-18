@@ -1,6 +1,6 @@
 {
  "note": "Committed tools/list baseline — regenerate with scripts/dump_tool_surface.py and review the diff alongside the description change that caused it.",
- "tool_count": 39,
+ "tool_count": 37,
  "tools": {
   "ppsspp_analyze_log": {
    "annotations": {
@@ -107,10 +107,10 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Set, remove, update, and list CPU execution breakpoints and memory watchpoints.\n\nUSAGE: action + session_id; set/remove/update manage CPU exec breakpoints (address required); mem_set/mem_remove/mem_update manage memory watchpoints (size 1/2/4+, read/write flags); list/mem_list take no address.\n\n\nROUTING: persistent breakpoint management -> here; one-shot block-until-hit -> ppsspp_wait_breakpoint; read/write access watch -> ppsspp_trace_memory_access.\nBEHAVIOR: MUTATING. Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification.\n\nRETURNS: {action, address, enabled, breakpoints[]}.",
-   "description_chars": 849,
-   "description_words": 97,
-   "input_schema_chars": 3336,
+   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (memory watch via read/write/size; exec via address alone).\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.\n\nRETURNS: management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
+   "description_chars": 1476,
+   "description_words": 179,
+   "input_schema_chars": 4372,
    "input_schema_properties": [
     "action",
     "address",
@@ -121,9 +121,12 @@
     "read",
     "session_id",
     "size",
+    "timeout_s",
+    "want_backtrace",
+    "want_registers",
     "write"
    ],
-   "input_schema_sha1": "b0cb1fbb8eae39fc4d0d2e488550ddc7f80dccb6",
+   "input_schema_sha1": "5ff6a6b882d079ad39ec29ce2b156f320fd56185",
    "output_schema_chars": 741,
    "output_schema_sha1": "accef786a28db7552ccda7c7dae548cff76721e3"
   },
@@ -134,8 +137,8 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: One-call crash-triage pack — identity + disassembly window + optional backtrace for an address.\n\nUSAGE: pass a crash PC or call target; identity resolves via addresses.yaml known_functions (IDA offset applied); disasm covers `window` instructions before/after; include_backtrace=true adds the call stack (pauses the CPU briefly).\n\nBEHAVIOR: READ-ONLY. Unknown addresses return identity=null and the raw window instead of failing; backtrace is skipped (not an error) when the CPU is running — the note field says why.\n\nROUTING: persistent breakpoints around this address -> ppsspp_breakpoint; one armed hit-capture -> ppsspp_wait_breakpoint; recurring sampling -> ppsspp_state_observer.\n\nRETURNS: {address, identity: {name, start, offset} | null, region, disasm: [{address, text}], backtrace: [...], backtrace_note}.",
-   "description_chars": 824,
+   "description": "PURPOSE: One-call crash-triage pack — identity + disassembly window + optional backtrace for an address.\n\nUSAGE: pass a crash PC or call target; identity resolves via addresses.yaml known_functions (IDA offset applied); disasm covers `window` instructions before/after; include_backtrace=true adds the call stack (pauses the CPU briefly).\n\nBEHAVIOR: READ-ONLY. Unknown addresses return identity=null and the raw window instead of failing; backtrace is skipped (not an error) when the CPU is running — the note field says why.\n\nROUTING: persistent breakpoints around this address -> ppsspp_breakpoint; one armed hit-capture -> ppsspp_breakpoint(action=\"trace\"); recurring sampling -> ppsspp_state_observer.\n\nRETURNS: {address, identity: {name, start, offset} | null, region, disasm: [{address, text}], backtrace: [...], backtrace_note}.",
+   "description_chars": 835,
    "description_words": 107,
    "input_schema_chars": 866,
    "input_schema_properties": [
@@ -662,8 +665,8 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Named memory-probe registry plus running-state observation — register probes once, then sample them cheaply every loop.\n\nUSAGE: action + session_id for observe; register needs name + address (+size 1/2/4, description); observe takes comma-separated names and samples.\n\n\nROUTING: recurring sampled probes across loops -> here; one-shot paused snapshot -> ppsspp_frame_snapshot; single-address access watch -> ppsspp_trace_memory_access.\nBEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PROCESS-wide (shared across sessions), seeded from addresses.yaml state_probes, and is NOT re-seeded after clear within the same process. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets (F-5 contract, 2026-09-08).\n\nRETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action.",
-   "description_chars": 977,
+   "description": "PURPOSE: Named memory-probe registry plus running-state observation — register probes once, then sample them cheaply every loop.\n\nUSAGE: action + session_id for observe; register needs name + address (+size 1/2/4, description); observe takes comma-separated names and samples.\n\n\nROUTING: recurring sampled probes across loops -> here; one-shot paused snapshot -> ppsspp_frame_snapshot; single-address access watch -> ppsspp_breakpoint(action=\"trace\").\nBEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PROCESS-wide (shared across sessions), seeded from addresses.yaml state_probes, and is NOT re-seeded after clear within the same process. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets (F-5 contract, 2026-09-08).\n\nRETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action.",
+   "description_chars": 984,
    "description_words": 119,
    "input_schema_chars": 2086,
    "input_schema_properties": [
@@ -699,49 +702,6 @@
    "input_schema_sha1": "7c4f78432c7fe92ed25df424a7d685d85c9fbc9b",
    "output_schema_chars": 1204,
    "output_schema_sha1": "0e6b2c852029b0eba3d4fcbe23404bd14c36ac3c"
-  },
-  "ppsspp_trace_memory_access": {
-   "annotations": {
-    "destructive_hint": false,
-    "idempotent_hint": false,
-    "open_world_hint": false,
-    "read_only_hint": false
-   },
-   "description": "PURPOSE: One-call answer to 'what code reads/writes this address' — arm a memory breakpoint, wait for the hit, capture pc (+registers/backtrace), remove the breakpoint, and resume.\n\nUSAGE: session_id + hex address; access='read'|'write'|'read_write' (default read); size 1/2/4 (default 4); timeout_s default 30; want_registers/want_backtrace optional. Game must be RUNNING (call after session wait_ready).\n\n\nROUTING: address access watch with capture -> here; execution breakpoint management -> ppsspp_breakpoint.\nBEHAVIOR: MUTATING. Arms a temporary breakpoint and always removes it (list-verified real-size removal). The lock is held only for arm/capture/cleanup — the wait is lock-free (concurrent reads OK). Do NOT run other breakpoint/step tools during the wait: the first cpu.stepping broadcast wins. An already-paused CPU short-circuits (nothing can hit). Error paths still remove the breakpoint and resume.\n\nRETURNS: {hit, already_paused, address, access, timeout_s, hits:[{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}. reason/related_address may be null on some builds; mem_hits is the attribution counter.",
-   "description_chars": 1170,
-   "description_words": 149,
-   "input_schema_chars": 1186,
-   "input_schema_properties": [
-    "access",
-    "address",
-    "session_id",
-    "size",
-    "timeout_s",
-    "want_backtrace",
-    "want_registers"
-   ],
-   "input_schema_sha1": "9d06fa0293af088159498ec011ca48057f08041e",
-   "output_schema_chars": 1526,
-   "output_schema_sha1": "72593b0657f80eb9db309300ce0d2de7d13763e4"
-  },
-  "ppsspp_wait_breakpoint": {
-   "annotations": {
-    "destructive_hint": false,
-    "idempotent_hint": false,
-    "open_world_hint": false,
-    "read_only_hint": true
-   },
-   "description": "PURPOSE: Block until a breakpoint hit (any kind) — replaces polling gpu_stats errors as a hit probe.\n\nUSAGE: session_id; timeout_s default 30. Arm a breakpoint first via ppsspp_breakpoint (set or mem_set). Use when you only need to know a hit happened; call ppsspp_trace_memory_access instead to capture the hit scene (registers/backtrace) in one step.\n\n\nROUTING: one-shot block-until-hit -> here; persistent breakpoint add/remove -> ppsspp_breakpoint; read/write access watch -> ppsspp_trace_memory_access.\nBEHAVIOR: READ-ONLY. Subscribes to the cpu.stepping broadcast and holds NO session lock — concurrent reads/observes keep working, but do NOT submit step/pause/resume during the wait. An already-paused CPU returns hit=true + already_paused=true with a high-trust pc (a manual pause is indistinguishable from a hit).\n\nRETURNS: {hit, already_paused, timeout_s, pc, reason, related_address, ticks} — timeout returns hit=false (pollable, not an error); reason/related_address may be null on some builds.",
-   "description_chars": 1006,
-   "description_words": 135,
-   "input_schema_chars": 419,
-   "input_schema_properties": [
-    "session_id",
-    "timeout_s"
-   ],
-   "input_schema_sha1": "4c029b43eff63de14f787dc0b597fba6a5633a61",
-   "output_schema_chars": 1248,
-   "output_schema_sha1": "7c2a9aedf381eee1b02ee2a02d99b67a687ce8d3"
   },
   "ppsspp_wait_frames": {
    "annotations": {
@@ -806,6 +766,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 23873,
- "total_input_schema_chars": 40798
+ "total_description_chars": 22342,
+ "total_input_schema_chars": 40229
 }

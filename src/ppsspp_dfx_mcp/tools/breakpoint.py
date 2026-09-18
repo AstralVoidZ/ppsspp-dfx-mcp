@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 __all__ = ["breakpoint"]
 
 _BP_ACTIONS: tuple[str, ...] = (
+    "wait",
+    "trace",
     "set",
     "remove",
     "list",
@@ -45,7 +47,7 @@ _BP_ACTIONS: tuple[str, ...] = (
     "mem_update",
 )
 _BP_ACTIONS_REQUIRING_ADDRESS: frozenset[str] = frozenset(
-    {"set", "remove", "update", "mem_set", "mem_remove", "mem_update"}
+    {"trace", "set", "remove", "update", "mem_set", "mem_remove", "mem_update"}
 )
 
 
@@ -89,6 +91,8 @@ async def breakpoint(
     ],
     action: Annotated[
         Literal[
+            "wait",
+            "trace",
             "set",
             "remove",
             "list",
@@ -101,6 +105,15 @@ async def breakpoint(
         Field(
             description=(
                 "Breakpoint operation. Valid values:\n"
+                "Consumption actions (lifecycle orchestration):\n"
+                "- 'wait': STRICT-WAIT — block until any breakpoint is hit "
+                "(arm nothing; set/mem_set first). Lock-free: concurrent "
+                "reads keep working. The breakpoint stays armed.\n"
+                "- 'trace': HIT-SNAPSHOT-RESUME — arm a temporary "
+                "breakpoint at `address`, wait for the hit, capture "
+                "pc/registers/backtrace, ALWAYS remove it, then resume "
+                "(memory access via read/write/size; exec via address "
+                "only).\n"
                 "CPU breakpoint actions:\n"
                 "- 'set': add a CPU execution breakpoint (requires address; "
                 "enabled? defaults to True; condition? optional).\n"
@@ -212,16 +225,61 @@ async def breakpoint(
             ),
         ),
     ] = None,
+    timeout_s: Annotated[
+        float,
+        Field(
+            default=30.0,
+            description=(
+                "Wait budget in seconds (wait / trace only; default 30, "
+                "clamped to [0.5, 300]). On timeout: hit=false — NOT an "
+                "error — so callers can poll."
+            ),
+        ),
+    ] = 30.0,
+    want_registers: Annotated[
+        bool,
+        Field(
+            default=False,
+            description=("Include the full CPU register dump in the hit (trace only)."),
+        ),
+    ] = False,
+    want_backtrace: Annotated[
+        bool,
+        Field(
+            default=False,
+            description=(
+                "Include the HLE backtrace in the hit (trace only; CPU is "
+                "paused at the hit, so the trace is valid)."
+            ),
+        ),
+    ] = False,
 ) -> BreakpointOutput:
-    """PURPOSE: Set, remove, update, and list CPU execution breakpoints and memory watchpoints.
+    """PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.
 
-    USAGE: action + session_id; set/remove/update manage CPU exec breakpoints (address required); mem_set/mem_remove/mem_update manage memory watchpoints (size 1/2/4+, read/write flags); list/mem_list take no address.
+    USAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (memory watch via read/write/size; exec via address alone).
 
 
-    ROUTING: persistent breakpoint management -> here; one-shot block-until-hit -> ppsspp_wait_breakpoint; read/write access watch -> ppsspp_trace_memory_access.
-    BEHAVIOR: MUTATING. Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification.
+    ROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.
+    BEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.
 
-    RETURNS: {action, address, enabled, breakpoints[]}."""
+    RETURNS: management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}."""
+    if action == "wait":
+        from ppsspp_dfx_mcp.tools.workflows import wait_breakpoint
+
+        return await wait_breakpoint(session_id=session_id, timeout_s=timeout_s)
+    if action == "trace":
+        from ppsspp_dfx_mcp.tools.workflows import trace_memory_access
+
+        access_v = "read_write" if (read and write) else ("write" if write else "read")
+        return await trace_memory_access(
+            session_id=session_id,
+            address=address,
+            access=access_v,
+            size=size,
+            timeout_s=timeout_s,
+            want_registers=want_registers,
+            want_backtrace=want_backtrace,
+        )
     if action not in _BP_ACTIONS:
         raise ArgsInvalid(f"invalid action={action!r}; expected one of {_BP_ACTIONS}")
     address_int = parse_address(address)

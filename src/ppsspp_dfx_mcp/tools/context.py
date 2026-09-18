@@ -135,7 +135,7 @@ async def context(
 
     BEHAVIOR: READ-ONLY. Unknown addresses return identity=null and the raw window instead of failing; backtrace is skipped (not an error) when the CPU is running — the note field says why.
 
-    ROUTING: persistent breakpoints around this address -> ppsspp_breakpoint; one armed hit-capture -> ppsspp_wait_breakpoint; recurring sampling -> ppsspp_state_observer.
+    ROUTING: persistent breakpoints around this address -> ppsspp_breakpoint; one armed hit-capture -> ppsspp_breakpoint(action="trace"); recurring sampling -> ppsspp_state_observer.
 
     RETURNS: {address, identity: {name, start, offset} | null, region, disasm: [{address, text}], backtrace: [...], backtrace_note}."""
     addr = parse_address(address)

@@ -19,7 +19,7 @@ tool's `description`/schema can state:
   fields, per-tool preconditions. Those load with the tool and cannot go stale
   here. Duplicating them is how an instructions block turns into a second,
   divergent copy of the tool surface. (Concretely: the session-lock semantics of
-  `ppsspp_wait_breakpoint` are documented on that tool; only the *cross-tool*
+  `ppsspp_breakpoint(action="wait")` are documented on that tool; only the *cross-tool*
   consequence — "the first cpu.stepping broadcast wins" — belongs here.)
 * anything a tool response carries (file paths, ids, paginated lists);
 * marketing, rationale, implementation detail.
@@ -65,7 +65,7 @@ screenshot or texture/CLUT dump already saved rather than capturing twice.
 
 ## Breakpoints
 Hits require PPSSPP CPUCore=2 (IR Interpreter) — under JIT they never fire, with
-no error. `ppsspp_wait_breakpoint` and `ppsspp_trace_memory_access` wait without
+no error. `ppsspp_breakpoint(action="wait"/"trace")` wait without
 holding the session lock, so reads and observes keep working, but the first
 `cpu.stepping` broadcast wins: arm no other breakpoint and submit no
 step/pause/resume until the wait returns. `hit=false` on timeout is pollable and

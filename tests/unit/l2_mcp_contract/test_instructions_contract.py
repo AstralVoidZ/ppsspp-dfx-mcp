@@ -201,7 +201,7 @@ class TestNoDuplicationOfToolDescriptions:
     def test_does_not_restate_tool_level_mechanics(self):
         banned = {
             "resilient=true": "start(resilient=true) 的语义在 ppsspp_session 描述里",
-            "already_paused": "已暂停 CPU 的返回语义在 ppsspp_wait_breakpoint 描述里",
+            "already_paused": "已暂停 CPU 的返回语义在 ppsspp_breakpoint(action=wait) 描述里",
             "65536": "单次读上限在 read_memory 的参数与描述里",
             "top_n": "func_list 截断参数在 ppsspp_query 描述里",
         }

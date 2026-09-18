@@ -212,11 +212,11 @@ scenarios:
     prompt: |
       帮我找出是谁在读取 0x08A0D000 这个地址，把触发点的 PC 值告诉我。
     max_turns: 12
-    expected_first_tools: [ppsspp_trace_memory_access, ppsspp_breakpoint]
+    expected_first_tools: [ppsspp_breakpoint]
     optimal_calls: 1
     param_expectations:
-      - {tool: ppsspp_trace_memory_access, param: address, expect: {exact: "0x08A0D000"}}
-      - {tool: ppsspp_trace_memory_access, param: access, expect: {exact: read}}
+      - {tool: ppsspp_breakpoint, param: address, expect: {exact: "0x08A0D000"}}
+      - {tool: ppsspp_breakpoint, param: access, expect: {exact: read}}
     gates:
       - type: first_tool
       - type: params

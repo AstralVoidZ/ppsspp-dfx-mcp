@@ -89,7 +89,7 @@ Work through these steps in order, stopping on the first error:
    at {address} again. Report: who accessed it (PC from the register
    snapshot), read or write, and the old vs new value.
 
-6. CLEAN UP — call ppsspp_breakpoint(action="mem_remove",
+6. CLEAN UP — call ppsspp_breakpoint(action='mem_remove',
    address="{address}") unless the watch should stay armed.
 """
 
@@ -98,8 +98,8 @@ Work through these steps in order, stopping on the first error:
     name="memory-trace-wizard",
     description=(
         "Guide the Agent through tracing 'what code reads/writes this "
-        "address' in PPSSPP: prefer the one-call ppsspp_trace_memory_access, "
-        "fall back to the manual ppsspp_breakpoint + ppsspp_wait_breakpoint "
+        "address' in PPSSPP: prefer the one-call ppsspp_breakpoint(action='trace'), "
+        "fall back to the manual ppsspp_breakpoint(set) + ppsspp_breakpoint(action='wait') "
         "protocol, and interpret the hit scene (PC sits AFTER the access "
         "instruction)."
     ),
@@ -133,7 +133,7 @@ Work through these steps in order:
    must have booted past the title load). Breakpoints need PPSSPP
    CPUCore=2 (IR Interpreter).
 
-2. PREFERRED — ONE CALL: ppsspp_trace_memory_access(session_id=...,
+2. PREFERRED — ONE CALL: ppsspp_breakpoint(action='trace', session_id=...,
    address="{address}", access="read_write", timeout_s=30,
    want_backtrace=true). It arms the breakpoint, waits for the hit,
    captures the scene, removes the breakpoint, and resumes — all with
@@ -143,7 +143,7 @@ Work through these steps in order:
 
 3. FALLBACK — MANUAL PROTOCOL (only if the trace tool is unavailable):
    a) ppsspp_breakpoint(action="mem_set", address="{address}");
-   b) loop: ppsspp_wait_breakpoint(timeout_s=15) — hit=false is NOT an
+   b) loop: ppsspp_breakpoint(action='wait')(timeout_s=15) — hit=false is NOT an
       error, keep polling; the wait does NOT hold the session lock;
    c) on hit: ppsspp_get_pc + ppsspp_query(action="registers");
    d) cleanup: ppsspp_breakpoint(action="mem_remove") then

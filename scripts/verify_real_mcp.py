@@ -97,7 +97,7 @@ LATENCY_BUDGET_MS: dict[str, float] = {
     # H1: the tool's whole purpose is blocking up to timeout_s —
     # the plain timeout scenario waits 1.5s by design (the race
     # scenario returns before this gate applies).
-    "ppsspp_wait_breakpoint": 5000,
+    "ppsspp_breakpoint": 5000,
     "ppsspp_step": 100,
     "ppsspp_search_disasm": 5000,
     "ppsspp_read_memory": 2000,
@@ -115,7 +115,6 @@ LATENCY_BUDGET_MS: dict[str, float] = {
     "ppsspp_analyze_log": 1000,
     # R-A (2026-09-08): budget covers the timeout-BY-DESIGN scenarios
     # (B.trace.timeout_clean waits 0.5s; B.wb.clamp_floor waits 0.5s).
-    "ppsspp_trace_memory_access": 5000,
     "ppsspp_frame_snapshot": 1000,
     # R-F: dynamic exposed script tools (offline analysis reads files).
     "ppsspp_script_check_cpu_state": 2000,
