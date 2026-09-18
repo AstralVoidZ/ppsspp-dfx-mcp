@@ -108,19 +108,29 @@ def _write_appendconfig_ini(port: int) -> Path:
     (``ppsspp_dfx_debug_<pid>_<time>.ini``). ``PpssppLauncher.stop()``
     removes it on shutdown.
 
-    Format (PPSSPP INI, section ``[SystemParam]``):
-        [SystemParam]
-        iRemoteISOPort = <port>
-        bRemoteDebuggerOnStartup = True
+    Format (PPSSPP INI, section ``[General]``):
+        [General]
+        RemoteISOPort = <port>
+        RemoteDebuggerOnStartup = True
+        RemoteDebuggerLocal = True
 
-    Returns:
-        Path to the written ini file.
+    Section and key names MUST match Config.cpp's registered sections[]
+    table exactly — ``LoadAppendedConfig()`` iterates the registered
+    settings and reads only keys found under the registered section name.
+    A mismatch (e.g. writing ``[SystemParam]`` or ``iRemoteISOPort``) is
+    silently ignored, causing PPSSPP to fall back to its global ini.
     """
-    content = f"[SystemParam]\niRemoteISOPort = {port}\nbRemoteDebuggerOnStartup = True\n"
+    content = (
+        "[General]\n"
+        f"RemoteISOPort = {port}\n"
+        "RemoteDebuggerOnStartup = True\n"
+        "RemoteDebuggerLocal = True\n"
+    )
     # 内存断点在 JIT fastmem 直写下不触发（skill §4）：设 PPSSPP_DFX_IR=1
     # 时强制 CPUCore=2 解释器模式，专供 trace/breakpoint 调试会话。
+    # CPUCore/FastMemoryAccess are registered under the [CPU] section.
     if os.environ.get("PPSSPP_DFX_IR"):
-        content += "[General]\niCpuCore = 2\nbFastMemory = False\n"
+        content += "\n[CPU]\nCPUCore = 2\nFastMemoryAccess = False\n"
     # Use both timestamp and uuid4 suffix to guarantee uniqueness even
     # when two calls land in the same millisecond on fast machines.
     import uuid

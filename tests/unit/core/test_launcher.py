@@ -103,15 +103,16 @@ class TestWriteAppendconfigIni:
         assert path.name.startswith("ppsspp_dfx_debug_")
         assert path.suffix == ".ini"
 
-    def test_content_has_systemparam_section(self, tmp_path, monkeypatch):
+    def test_content_has_general_section(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
             "ppsspp_dfx_mcp.core.launcher.tempfile.gettempdir", lambda: str(tmp_path)
         )
         path = _write_appendconfig_ini(9999)
         content = path.read_text(encoding="utf-8")
-        assert "[SystemParam]" in content
-        assert "iRemoteISOPort = 9999" in content
-        assert "bRemoteDebuggerOnStartup = True" in content
+        assert "[General]" in content
+        assert "RemoteISOPort = 9999" in content
+        assert "RemoteDebuggerOnStartup = True" in content
+        assert "RemoteDebuggerLocal = True" in content
 
 
 class TestParseNetstatWindows:

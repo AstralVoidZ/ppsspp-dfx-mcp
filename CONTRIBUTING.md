@@ -154,3 +154,22 @@ its modules are marked `integration` + `real_ppsspp`.
   snapshots the *static* registry (35 tools). Manifest scripts add dynamic
   `ppsspp_script_*` tools at runtime, so a live server's `tool_count` is
   baseline + manifest count.
+
+## PPSSPP ini key naming (config writes)
+
+When writing PPSSPP config keys programmatically (appendconfig ini,
+template ini, or any generated ppsspp.ini content), the **section name**
+and **key name** MUST match Config.cpp's registered sections[] table —
+not the C struct field name (`g_Config.iRemoteISOPort` is a struct
+field; the ini key is `RemoteISOPort` under `[General]`).
+
+`Config::LoadAppendedConfig()` iterates the registered settings and
+reads only keys found under the registered section name. A mismatch is
+**silently ignored** — PPSSPP falls back to its global ini without any
+warning or error.
+
+Authoritative source: `ConfigSetting("RemoteISOPort",
+&g_Config.iRemoteISOPort, ...)` in `Core/Config.cpp` — the first string
+argument is the ini key, the enclosing `sections[]` entry is the section
+name. See `skills/ppsspp-dfx/assets/ppsspp.ini.template` for a working
+example.
