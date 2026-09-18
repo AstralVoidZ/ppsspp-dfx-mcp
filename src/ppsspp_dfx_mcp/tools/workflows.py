@@ -263,7 +263,7 @@ async def frame_snapshot(
     USAGE: session_id; probes = optional comma-separated state_observer registry names; want_registers default true. Prefer this over a manual pause + query(registers) + resume sequence.
 
 
-    ROUTING: pause+capture+resume in one call -> here; cheap PC-only check -> ppsspp_get_pc; recurring sampled probes -> ppsspp_state_observer.
+    ROUTING: pause+capture+resume in one call -> here; cheap PC-only check -> ppsspp_query(action='register', name='pc', safe=true); recurring sampled probes -> ppsspp_state_observer.
     BEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.
 
     RETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — F-8 nullable-key contract, 2026-09-08."""

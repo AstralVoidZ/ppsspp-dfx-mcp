@@ -25,7 +25,6 @@ HOLDING_LOCK: frozenset[str] = frozenset(
         "ppsspp_write_memory",
         "ppsspp_disassemble",
         "ppsspp_query",
-        "ppsspp_get_pc",
         "ppsspp_write_register",
         "ppsspp_evaluate",
         "ppsspp_search_disasm",

@@ -54,7 +54,7 @@ pytestmark = pytest.mark.skipif(
 # Patch points: deferred imports inside run() resolve these attributes at
 # call time, so patching the source modules is stable.
 _GPU_PROBE = "ppsspp_dfx_mcp.tools.gpu_stats.gpu_stats"
-_GET_PC = "ppsspp_dfx_mcp.tools.query.get_pc"
+_GET_PC = "ppsspp_dfx_mcp.tools.query.query"  # get_pc 并入 query 后由 query 承担
 _READ_MEM = "ppsspp_dfx_mcp.tools.memory.read_memory"
 _ADDRESSES = "ppsspp_dfx_mcp.tools.script._addresses"
 
@@ -141,7 +141,18 @@ class TestDecisionMatrix:
         """gpu_stats succeeds → running + fps + high-trust PC + game_mode."""
         _inject_manifest(tmp_path)
         gpu = AsyncMock(return_value={"fps": 30.0, "vblanks_per_second": 59.9})
-        pc = AsyncMock(return_value={"pc": "0x088EF0F4", "trust_level": "high"})
+        pc = AsyncMock(
+            return_value={
+                "action": "register",
+                "data": {
+                    "category": 0,
+                    "register": "pc",
+                    "uintValue": 0x088EF0F4,
+                    "floatValue": "0.0",
+                },
+                "trust_level": "high",
+            }
+        )
         mem = AsyncMock(return_value={"value": 3})
         with (
             patch(_GPU_PROBE, gpu),
@@ -167,7 +178,18 @@ class TestDecisionMatrix:
         """CpuStateError with stepping=True → paused (breakpoint hit)."""
         _inject_manifest(tmp_path)
         gpu = AsyncMock(side_effect=_gpu_error(stepping0=True, stepping1=True))
-        pc = AsyncMock(return_value={"pc": "0x088EF0F8", "trust_level": "high"})
+        pc = AsyncMock(
+            return_value={
+                "action": "register",
+                "data": {
+                    "category": 0,
+                    "register": "pc",
+                    "uintValue": 0x088EF0F8,
+                    "floatValue": "0.0",
+                },
+                "trust_level": "high",
+            }
+        )
         mem = AsyncMock(return_value={"value": 0})
         with (
             patch(_GPU_PROBE, gpu),
@@ -187,7 +209,18 @@ class TestDecisionMatrix:
         """CpuStateError with stepping=False → freeze_suspected workflow."""
         _inject_manifest(tmp_path)
         gpu = AsyncMock(side_effect=_gpu_error(stepping0=False, stepping1=False))
-        pc = AsyncMock(return_value={"pc": "0x088EF0F4", "trust_level": "high"})
+        pc = AsyncMock(
+            return_value={
+                "action": "register",
+                "data": {
+                    "category": 0,
+                    "register": "pc",
+                    "uintValue": 0x088EF0F4,
+                    "floatValue": "0.0",
+                },
+                "trust_level": "high",
+            }
+        )
         with (
             patch(_GPU_PROBE, gpu),
             patch(_GET_PC, pc),

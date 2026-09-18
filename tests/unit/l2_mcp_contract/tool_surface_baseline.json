@@ -1,6 +1,6 @@
 {
  "note": "Committed tools/list baseline — regenerate with scripts/dump_tool_surface.py and review the diff alongside the description change that caused it.",
- "tool_count": 37,
+ "tool_count": 36,
  "tools": {
   "ppsspp_analyze_log": {
    "annotations": {
@@ -239,9 +239,9 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: One-call paused scene snapshot — pause (unless already paused), capture pc + registers + optional named probes, then resume.\n\nUSAGE: session_id; probes = optional comma-separated state_observer registry names; want_registers default true. Prefer this over a manual pause + query(registers) + resume sequence.\n\n\nROUTING: pause+capture+resume in one call -> here; cheap PC-only check -> ppsspp_get_pc; recurring sampled probes -> ppsspp_state_observer.\nBEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.\n\nRETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — F-8 nullable-key contract, 2026-09-08.",
-   "description_chars": 915,
-   "description_words": 123,
+   "description": "PURPOSE: One-call paused scene snapshot — pause (unless already paused), capture pc + registers + optional named probes, then resume.\n\nUSAGE: session_id; probes = optional comma-separated state_observer registry names; want_registers default true. Prefer this over a manual pause + query(registers) + resume sequence.\n\n\nROUTING: pause+capture+resume in one call -> here; cheap PC-only check -> ppsspp_query(action='register', name='pc', safe=true); recurring sampled probes -> ppsspp_state_observer.\nBEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.\n\nRETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — F-8 nullable-key contract, 2026-09-08.",
+   "description_chars": 955,
+   "description_words": 125,
    "input_schema_chars": 538,
    "input_schema_properties": [
     "probes",
@@ -251,24 +251,6 @@
    "input_schema_sha1": "e18b3060d8f1fe98b88b5a9c1d763a07bdc09568",
    "output_schema_chars": 912,
    "output_schema_sha1": "255035369480d208f5c98aabfdf2729573ffeca2"
-  },
-  "ppsspp_get_pc": {
-   "annotations": {
-    "destructive_hint": false,
-    "idempotent_hint": true,
-    "open_world_hint": false,
-    "read_only_hint": true
-   },
-   "description": "PURPOSE: Safely read the current Program Counter.\n\nUSAGE: session_id optional when exactly one session is active.\n\n\nROUTING: this is the cheapest trusted PC read; full register file -> ppsspp_query(action=registers); pause+capture with probes -> ppsspp_frame_snapshot.\nBEHAVIOR: READ-ONLY. Pauses CPU temporarily for read consistency, then resumes. trust_level='high'.\n\nRETURNS: {pc, trust_level}.\n",
-   "description_chars": 398,
-   "description_words": 48,
-   "input_schema_chars": 261,
-   "input_schema_properties": [
-    "session_id"
-   ],
-   "input_schema_sha1": "5db8346c1f7c0da8e6cfeec2a3a3e3545b12b5b5",
-   "output_schema_chars": 371,
-   "output_schema_sha1": "42f354b00fde39da6c74bf6286a981fb75b6f982"
   },
   "ppsspp_gpu_record": {
    "annotations": {
@@ -422,19 +404,20 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Aggregate game-state queries — game_state, registers (all or one), backtrace, threads, modules, and function-list management (funcs/func_scan/func_add/func_remove).\n\nUSAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).\n\n\nROUTING: cheapest one-shot PC read -> ppsspp_get_pc; pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; use query for game_state / backtrace / threads / modules / HLE func management.\nBEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused (pause first, or use get_pc); RUNNING-state PC/isCurrent is LOW trust.\n\nRETURNS: {action, data, trust_level} — data shape depends on the action.",
-   "description_chars": 853,
-   "description_words": 108,
-   "input_schema_chars": 1995,
+   "description": "PURPOSE: Aggregate game-state queries — game_state, registers (all or one), backtrace, threads, modules, and function-list management (funcs/func_scan/func_add/func_remove).\n\nUSAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).\n\n\nROUTING: one-shot PC read -> query(action='register', name='pc') (safe=true pauses for consistency; safe=false for hot-path polling); pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; game_state / backtrace / threads / modules / HLE func management also here.\nBEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused; running-state PC/isCurrent reads are LOW trust unless safe=true.\n\nRETURNS: {action, data, trust_level} — data shape depends on the action.",
+   "description_chars": 925,
+   "description_words": 113,
+   "input_schema_chars": 2300,
    "input_schema_properties": [
     "action",
     "address",
     "name",
+    "safe",
     "session_id",
     "thread",
     "top_n"
    ],
-   "input_schema_sha1": "482562a32ca8d6d0006e7d7a6ee4eb1bc7d1ca18",
+   "input_schema_sha1": "17a03e62fc1402f19bdee3d1a63d73eaad960ccb",
    "output_schema_chars": 1010,
    "output_schema_sha1": "224a2e0dd70e76e6e0bcfdc54a125b767bdba5a7"
   },
@@ -766,6 +749,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 22342,
- "total_input_schema_chars": 40229
+ "total_description_chars": 22056,
+ "total_input_schema_chars": 40273
 }

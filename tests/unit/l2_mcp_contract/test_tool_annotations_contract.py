@@ -80,7 +80,6 @@ class TestReadOnlyAnnotations:
         "ppsspp_read_memory",
         "ppsspp_disassemble",
         "ppsspp_query",
-        "ppsspp_get_pc",
         "ppsspp_analyze_log",
         "ppsspp_list_scripts",
         "ppsspp_evaluate",

@@ -3,7 +3,6 @@
 2 tools exposed:
 - ppsspp_query(action, ...) — aggregate query across game state, CPU
   registers, HLE backtrace, threads, modules, function tracking
-- ppsspp_get_pc(session_id) — safe PC read (stepping → query → resume)
 
 Query actions (9 total):
 - 'game_state' — PPSSPP game status (paused / running / game title)
@@ -35,12 +34,12 @@ from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
 from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
-from ppsspp_dfx_mcp.models.query import GetPcResult, QueryResult
+from ppsspp_dfx_mcp.models.query import QueryResult
 from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
+from ppsspp_dfx_mcp.session.client_helper import session_client
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
-from ppsspp_dfx_mcp.views.query import GetPcResponse, QueryResponse
+from ppsspp_dfx_mcp.views.query import QueryResponse
 
 QueryOutput = derive_output_contract(
     "QueryOutput",
@@ -56,11 +55,10 @@ QueryOutput = derive_output_contract(
         "data": dict[str, Any] | list[dict[str, Any]] | None,
     },
 )
-GetPcOutput = derive_output_contract("GetPcOutput", GetPcResponse)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["query", "get_pc"]
+__all__ = ["query"]
 
 _QUERY_ACTIONS: tuple[str, ...] = (
     "game_state",
@@ -143,6 +141,19 @@ async def query(
             description="Thread ID (backtrace action only; None = current).",
         ),
     ] = None,
+    safe: Annotated[
+        bool,
+        Field(
+            default=True,
+            description=(
+                "action=register/registers only: pause the CPU for a "
+                "consistent read (trust_level='high', same as the retired "
+                "ppsspp_get_pc) — or read without pausing "
+                "(trust_level='low', zero cost, racy while running; "
+                "for hot-path polling)."
+            ),
+        ),
+    ] = True,
     name: Annotated[
         str | None,
         Field(
@@ -182,8 +193,8 @@ async def query(
     USAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).
 
 
-    ROUTING: cheapest one-shot PC read -> ppsspp_get_pc; pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; use query for game_state / backtrace / threads / modules / HLE func management.
-    BEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused (pause first, or use get_pc); RUNNING-state PC/isCurrent is LOW trust.
+    ROUTING: one-shot PC read -> query(action='register', name='pc') (safe=true pauses for consistency; safe=false for hot-path polling); pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; game_state / backtrace / threads / modules / HLE func management also here.
+    BEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused; running-state PC/isCurrent reads are LOW trust unless safe=true.
 
     RETURNS: {action, data, trust_level} — data shape depends on the action."""
     if action not in _QUERY_ACTIONS:
@@ -214,14 +225,25 @@ async def query(
             if action == "game_state":
                 data = await client.game_status()
                 result = QueryResult(action=action, data=data, trust_level=None)
-            elif action == "registers":
-                data = await client.get_all_regs()
-                result = QueryResult(action=action, data=data, trust_level=None)
-            elif action == "register":
-                # Single-register query — a fraction of the get_all_regs
-                # payload (cpu.getReg name mode, CPUCoreSubscriber.cpp:269).
-                data = await client.get_reg(name=name, thread=thread)
-                result = QueryResult(action=action, data=data, trust_level=None)
+            elif action in ("registers", "register"):
+                # safe=true (default) walks the with_stepping pause dance —
+                # same semantics as the retired ppsspp_get_pc (trust HIGH).
+                # safe=false is a raw read: zero pause cost, racy while
+                # running (trust LOW) — the hot-path polling option.
+                if safe:
+                    async with client.with_stepping():
+                        if action == "registers":
+                            data = await client.get_all_regs()
+                        else:
+                            data = await client.get_reg(name=name, thread=thread)
+                    trust = "high"
+                else:
+                    if action == "registers":
+                        data = await client.get_all_regs()
+                    else:
+                        data = await client.get_reg(name=name, thread=thread)
+                    trust = "low"
+                result = QueryResult(action=action, data=data, trust_level=trust)
             elif action == "backtrace":
                 data = await client.backtrace(thread=thread)
                 result = QueryResult(action=action, data=data, trust_level=None)
@@ -275,45 +297,8 @@ async def query(
 #
 # Raises:
 # ToolError: on session lookup failure or WS failure.
-@mcp.tool(
-    name="ppsspp_get_pc",
-    annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-    ),
-)
-@translate_tool_errors
-async def get_pc(
-    session_id: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Active session ID; omit to auto-resolve when exactly one session is active."
-            ),
-        ),
-    ] = None,
-) -> GetPcOutput:
-    """PURPOSE: Safely read the current Program Counter.
-
-    USAGE: session_id optional when exactly one session is active.
-
-
-    ROUTING: this is the cheapest trusted PC read; full register file -> ppsspp_query(action=registers); pause+capture with probes -> ppsspp_frame_snapshot.
-    BEHAVIOR: READ-ONLY. Pauses CPU temporarily for read consistency, then resumes. trust_level='high'.
-
-    RETURNS: {pc, trust_level}.
-    """
-    session_id = await resolve_session_id(session_id)
-    logger.info(
-        "tool_call",
-        extra={"tool": "ppsspp_get_pc", "session_id": session_id},
-    )
-    try:
-        async with session_client(session_id) as client:
-            pc, trust = await client.safe_get_pc()
-        result = GetPcResult(pc=pc, trust_level=trust)
-    except Exception as e:
-        raise to_tool_error(e) from e
-    return GetPcResponse.from_result(result).model_dump(mode="json")
+# ppsspp_get_pc was absorbed into ppsspp_query in v0.1.7 (D1):
+# query(action='register', name='pc', safe=true) is the same read.
 
 
 def _apply_top_n(data: Any, top_n: int) -> Any:

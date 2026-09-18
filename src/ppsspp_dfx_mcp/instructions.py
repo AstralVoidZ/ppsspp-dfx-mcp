@@ -44,13 +44,13 @@ ppsspp_smoke_test → … → ppsspp_session(action="stop").
 disassembly calls before that point fail. Stop the session when you are done.
 
 ## session_id
-`ppsspp_read_memory`, `ppsspp_disassemble`, `ppsspp_get_pc`, `ppsspp_step`,
+`ppsspp_read_memory`, `ppsspp_disassemble`, `ppsspp_step`,
 `ppsspp_screenshot`, `ppsspp_diff_memory` and `ppsspp_context` may omit
 `session_id` when exactly ONE session is active
 (0 sessions → an error telling you to start one; 2+ → `SESSION_AMBIGUOUS`
 listing the ids). Every other tool requires it. Do not call
 `ppsspp_session(action="list")` merely to obtain an id or check state — those five resolve
-it themselves, and CPU/game state come from `ppsspp_get_pc` or
+it themselves, and CPU/game state come from `ppsspp_query` or
 `ppsspp_query(action="game_state")`.
 
 ## Addresses — one silent trap
