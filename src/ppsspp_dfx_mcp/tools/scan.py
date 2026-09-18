@@ -285,8 +285,8 @@ async def scan(
         Field(
             description=(
                 "Run as a detached background job (recommended for "
-                "full-band scans): returns a job_id immediately; poll "
-                "ppsspp_batch_status(job_id=...), cancel via "
+                "full-band scans): returns a batch_id immediately; poll "
+                "ppsspp_batch_status(batch_id=...), cancel via "
                 "ppsspp_batch_cancel. Value initial cap lifts 8 MiB → 32 MiB "
                 "in background mode."
             ),
@@ -295,13 +295,13 @@ async def scan(
 ) -> ScanOutput:
     """PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.
 
-    USAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}]. background=true submits a detached job instead (recommended for full-band scans) and returns {action:'submitted', job_id, ...} — poll ppsspp_batch_status(job_id=...).
+    USAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}]. background=true submits a detached job instead (recommended for full-band scans) and returns {action:'submitted', batch_id, ...} — poll ppsspp_batch_status(batch_id=...).
 
-    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background — full-band scans cost ~80 s per 24 MB over the MCP channel, so use background=true beyond ~1 MiB.
+    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background — a full-band 24 MB scan takes ~40 s over localhost WS (measured, 64 KiB chunks), so use background=true beyond ~1 MiB. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's scans can evict your handle under load.
 
     ROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.
 
-    RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background=true submission → {action: 'submitted', job_id, session_id, estimated_s}."""
+    RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background=true submission → {action: 'submitted', batch_id, session_id, estimated_s}."""
     session_id_resolved: str | None = None
     if mode in ("pattern", "strings") or (mode == "value" and phase in ("initial", "narrow")):
         session_id_resolved = await resolve_session_id(session_id)
@@ -377,16 +377,16 @@ async def scan(
                 job.result = resp  # 先存再抛（轮询者可见部分结果）
                 return resp
 
-            job_id = get_registry().submit(session_id_resolved, total_chunks, _bg_runner)
+            batch_id = get_registry().submit(session_id_resolved, total_chunks, _bg_runner)
             return {
                 "action": "submitted",
-                "job_id": job_id,
+                "batch_id": batch_id,
                 "session_id": session_id_resolved,
                 "estimated_s": estimated_s,
                 "hint": (
                     "poll ppsspp_batch_status(batch_id=...) — the scan keeps "
                     "running even if this client call times out; cancel via "
-                    "ppsspp_batch_cancel(job_id=...)"
+                    "ppsspp_batch_cancel(batch_id=...)"
                 ),
             }
         if mode == "pattern":
@@ -503,9 +503,9 @@ async def _scan_value(
         if total > hard_range:
             raise ArgsInvalid(
                 f"initial scan range {total} bytes exceeds the hard cap "
-                f"{hard_range} — narrow the range (full-band scans "
-                f"cost ~80 s over the MCP channel; keep ≤1 MiB per call "
-                f"or split)."
+                f"{hard_range} — narrow the range (a full-band 24 MB "
+                f"scan takes ~40 s over localhost WS; keep ≤1 MiB per "
+                f"call or split)."
             )
         async with session_client(session_id) as client:
             segments = await _read_segments(client, start_int, total)

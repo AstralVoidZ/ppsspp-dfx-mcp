@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["step"]
 
-# v0.1.7: into/over/out moved to ppsspp_batch_step cpu_step type
+# into/over/out moved to ppsspp_batch_step cpu_step type
 _STEP_ACTIONS: tuple[str, ...] = (
     "pause",
     "resume",

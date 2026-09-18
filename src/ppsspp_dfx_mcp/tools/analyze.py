@@ -4,8 +4,7 @@
 - ppsspp_analyze_log(log_path?, filter?) — filter PPSSPP log for error/warning lines
 
 Pure Python (no WS interaction): analyze_log reads from disk and can run
-without a session. (ppsspp_convert_address was un-tooled in v0.1.6 —
-see the tombstone note at the bottom of this file.)
+without a session.
 """
 
 from __future__ import annotations
@@ -214,8 +213,8 @@ async def analyze_log(
 #
 # Raises:
 # ToolError (AddrInvalid): on negative address or invalid mode.
-# ppsspp_convert_address was un-tooled in v0.1.6 (Glama surface review:
-# pure arithmetic needs no tool). Conversion = offset between
+# The former ppsspp_convert_address tool is retired (pure arithmetic
+# needs no tool). Conversion = offset between
 # addresses.yaml top_base.ppsspp / top_base.ida (defaults
 # 0x08804000 / 0x00000000): ppsspp_addr = ida_addr + offset.
 # Documented in ppsspp_list_addresses and the skill's

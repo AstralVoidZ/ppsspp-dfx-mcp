@@ -33,7 +33,8 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
 - **会话模型**：支持多个并发 PPSSPP 会话、就绪探测（`wait_ready`）与楔死自愈
   （`resilient` 启动）。
 - **面向 agent 的人体工学**：组合工具（`ppsspp_frame_snapshot`、
-  `ppsspp_trace_memory_access`、`ppsspp_batch_step`）、`session_id` 自动解析、
+  `ppsspp_breakpoint(action="wait"/"trace"/"stats")`、`ppsspp_batch_step`）、
+  `session_id` 自动解析、
   防御性错误码（`[CODE] message` 格式、CPU 冻结与连接断开的区分），错误文本内嵌
   恢复建议。
 - **后台自动化**：批量任务跑在独立的服务端任务上，不受 MCP 客户端工具调用超时的
@@ -222,6 +223,13 @@ cp examples/project.yaml examples/addresses.yaml \
 数组。`ppsspp_run_script` 的 `input` 参数是唯一注册在案的例外：其形状由被调用的
 脚本决定，因此只描述而不约束。
 
+`structuredContent` 的序列化行为以 **mcp SDK 2.2.0**（`mcp.server.mcpserver`）实测
+为准。多形态工具（同一工具不同 `action` 返回不同形状，如 `ppsspp_breakpoint` /
+`ppsspp_diff_memory` / `ppsspp_scan` / `ppsspp_session` / `ppsspp_batch_step` /
+`ppsspp_frame_snapshot` 等）的输出契约声明为 partial：完整负载始终经 `content`
+文本通道以 JSON 返回，而 `structuredContent` 对部分形态的填充行为在不同 SDK
+版本上可能不同——机器可读消费方请以文本通道 JSON 为兜底。
+
 ## 错误处理
 
 当被模拟的 CPU 冻结（死循环 / HLE 阻塞 / GPU 管线停滞）时，服务器返回
@@ -273,6 +281,20 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
   写入/汇编码——这是防误写设计，不是限制性 bug。
 - **会话状态单写者**：`~/.ppsspp-dfx/sessions.json` 跨进程共享会话登记，
   并发多个 MCP 服务器实例指向同一路径时后写覆盖。
+- **`trace` 只编排内存断点**：`ppsspp_breakpoint(action='trace')` 布防的是
+  内存访问断点（默认读访问）。执行断点的一次性等待用
+  `action='set'` + `action='wait'` 组合。
+
+## 性能参考（本机实测）
+
+参考环境：Windows x64，PPSSPP v1.20.4-605，服务器与 PPSSPP 同机（localhost WS）。
+数字随机器与游戏负载浮动，供超时预算估量，非性能承诺：
+
+| 操作 | 实测 |
+|---|---|
+| 单次 WS 往返（`game.status` 级别的轻量调用） | p50 ≈ 0.21 ms，p95 ≈ 0.28 ms（n=60） |
+| 全频段 24 MB pattern 扫描（`ppsspp_scan` `background=true`，64 KiB 分块） | ≈ 40 s（384 次分块读） |
+| 断点命中→可观测（热地址 `set` + `wait`，resume 后到 wait 确认） | p50 ≈ 11 ms（n=30） |
 
 ## 社区与支持
 

@@ -42,6 +42,17 @@ dev = [
     "ruff",
 ]
 
+# uv 默认安装 dependency-groups（uv sync / uv run），pytest 在此声明，
+# 避免 `uv run pytest` 静默回落到系统 PATH 上环境不匹配的 pytest。
+# extra `[dev]`（上方）仍保留，供 `pip install -e .[dev]`（CI）使用。
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov",
+    "ruff",
+]
+
 [project.scripts]
 ppsspp-dfx-mcp = "ppsspp_dfx_mcp.__main__:run"
 

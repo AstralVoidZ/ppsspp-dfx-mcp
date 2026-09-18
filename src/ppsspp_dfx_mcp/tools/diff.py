@@ -141,12 +141,18 @@ async def diff_memory(
 
     USAGE: diff_memory(action="snapshot", start=..., end=...) → handle; act in game; diff_memory(action="compare", handle=...) → changed-byte list; action="drop"/"list" manage handles.
 
-    BEHAVIOR: READ-ONLY. Memory is never written — only the per-server snapshot registry mutates. Large ranges are read across multiple reads; per-snapshot cap 8 MiB; registry cap 4 with FIFO eviction. compare requires the handle's exact range.
+    BEHAVIOR: READ-ONLY. Memory is never written — only the per-server snapshot registry mutates. Large ranges are read across multiple reads; per-snapshot cap 8 MiB; registry cap 4 with FIFO eviction. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's snapshots can evict yours under load. compare requires the handle's exact range.
 
     RETURNS: snapshot → {handle, start, size_bytes, checksum}; compare → {handle, start, size_bytes, changed_count, truncated, changes: [{address, old, new}]}; drop → {handle, dropped}; list → {handles: [...], count, max_snapshots}."""
     if action not in ("snapshot", "compare", "drop", "list"):
         raise ArgsInvalid(f"invalid action={action!r}")
     logger.info("tool_call", extra={"tool": "ppsspp_diff_memory", "action": action})
+
+    # Session resolution up-front for session-touching actions, matching
+    # ppsspp_scan's precedence (session errors before action-specific ones).
+    session_id_resolved: str | None = None
+    if action in ("snapshot", "compare"):
+        session_id_resolved = await resolve_session_id(session_id)
 
     try:
         if action == "snapshot":
@@ -164,7 +170,6 @@ async def diff_memory(
                     f"range size {size} bytes exceeds the per-snapshot cap "
                     f"{_MAX_SNAPSHOT_BYTES} — narrow start/end"
                 )
-            session_id_resolved = await resolve_session_id(session_id)
             async with session_client(session_id_resolved) as client:
                 data = await _read_segments(client, start_int, size)
             _evict_oldest_if_full()
@@ -189,7 +194,6 @@ async def diff_memory(
                     f"(handles are per-server-process and FIFO-evicted)"
                 )
             meta, snap_bytes, snap_session = entry
-            session_id_resolved = await resolve_session_id(session_id)
             if snap_session != session_id_resolved:
                 raise ArgsInvalid(
                     f"handle {handle!r} was snapshotted in session "

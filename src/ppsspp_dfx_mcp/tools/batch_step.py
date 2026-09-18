@@ -1,6 +1,6 @@
 """Batch step orchestration tool wrapper.
 
-4 tools exposed:
+3 tools exposed:
 - ppsspp_batch_step(session_id, steps, on_failure?, background?, ctx?)
     — execute a sequence of primitive steps in order. Foreground (default)
     runs inline; background=true submits to a detached server task that
@@ -8,13 +8,14 @@
     batch_id immediately.
 - ppsspp_batch_status(batch_id) — lock-free progress/result poll.
 - ppsspp_batch_cancel(batch_id) — request cancellation of a queued/running job.
-- ppsspp_batch_list() — survey all retained jobs (tasks/list-shaped).
+- ppsspp_batch_status(batch_id omitted) — survey all retained jobs.
 
-Step types (4):
+Step types (5):
 - 'press'        — call ppsspp_press_button (button + duration)
 - 'wait'         — call ppsspp_wait_frames (frames)
 - 'state_probe'  — call ppsspp_state_observer(action=observe) (names + samples)
 - 'screenshot'   — call ppsspp_screenshot (source / mode)
+- 'cpu_step'     — N CPU instructions (into/over/out)
 
 Recording-mode aware:
 - On entry, calls `client.replay_status()` to detect recording state.

@@ -55,7 +55,7 @@ async def test_real_server_advertises_30_plus_tools(real_mcp_inspector: ClientSe
     )
     # Phase 1 tools must always be present.
     tool_names = {t.name for t in result.tools}
-    missing = {"ppsspp_health", "ppsspp_session", "ppsspp_session_list"} - tool_names
+    missing = {"ppsspp_health", "ppsspp_session"} - tool_names
     assert not missing, f"Phase 1 tools missing: {sorted(missing)}"
 
 
@@ -137,11 +137,11 @@ async def test_real_read_memory_returns_nonzero(
 
 @_ASYNC
 @pytest.mark.real_ppsspp
-async def test_real_smoke_test_passes(
+async def test_real_health_session_battery_passes(
     real_mcp_inspector: ClientSession,
     real_mcp_session: str,
 ):
-    """ppsspp_smoke_test core checks pass against a real PPSSPP.
+    """ppsspp_health(session_id=...) session battery passes against a real PPSSPP.
 
     Verifies the three infrastructure checks (iso_loaded / cpu_running /
     ws_connected) all pass. These are the must-pass checks for a healthy
@@ -158,17 +158,19 @@ async def test_real_smoke_test_passes(
     CI environments without the project config.
     """
     result = await real_mcp_inspector.call_tool(
-        "ppsspp_smoke_test",
+        "ppsspp_health",
         {"session_id": real_mcp_session},
     )
-    assert not result.is_error, f"ppsspp_smoke_test errored: {result.content!r}"
+    assert not result.is_error, f"ppsspp_health errored: {result.content!r}"
     payload = json.loads(result.content[0].text)
-    assert "overall_status" in payload, f"smoke_test missing 'overall_status': {payload!r}"
-    assert payload["overall_status"] in ("pass", "fail"), (
-        f"unexpected overall_status: {payload['overall_status']!r}"
+    assert "overall_session_status" in payload, (
+        f"health missing 'overall_session_status': {payload!r}"
+    )
+    assert payload["overall_session_status"] in ("pass", "fail"), (
+        f"unexpected overall_session_status: {payload['overall_session_status']!r}"
     )
     # Build a per-check lookup for individual assertions below.
-    checks_list = payload.get("checks", [])
+    checks_list = payload.get("session_checks", [])
     checks_by_name = {c["name"]: c for c in checks_list}
 
     # The three infrastructure checks MUST pass — they verify the
@@ -179,7 +181,7 @@ async def test_real_smoke_test_passes(
     failed_core = [
         name for name in _MUST_PASS if not checks_by_name.get(name, {}).get("passed", False)
     ]
-    assert not failed_core, f"core smoke checks failed: {failed_core}\n" + "\n  ".join(
+    assert not failed_core, f"core health checks failed: {failed_core}\n" + "\n  ".join(
         f"{c['name']}: passed={c['passed']} detail={c['detail']}" for c in checks_list
     )
 
@@ -234,12 +236,12 @@ async def test_real_session_list_reflects_active_session(
     real_mcp_inspector: ClientSession,
     real_mcp_session: str,
 ):
-    """ppsspp_session_list contains the active session_id."""
+    """ppsspp_session(action="list") contains the active session_id."""
     result = await real_mcp_inspector.call_tool(
-        "ppsspp_session_list",
-        {},
+        "ppsspp_session",
+        {"action": "list"},
     )
-    assert not result.is_error, f"ppsspp_session_list errored: {result.content!r}"
+    assert not result.is_error, f"ppsspp_session(list) errored: {result.content!r}"
     payload = json.loads(result.content[0].text)
     session_ids = [s["session_id"] for s in payload["sessions"]]
     assert real_mcp_session in session_ids, (

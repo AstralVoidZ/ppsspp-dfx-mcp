@@ -21,7 +21,16 @@ python scripts/check_env.py --check
 # Run the test suite:
 .venv/ppsspp-dfx-mcp/Scripts/python -m pytest tests -q    # Windows
 .venv/ppsspp-dfx-mcp/bin/python -m pytest tests -q        # POSIX
+
+# Or with uv (installs the dev dependency-group automatically):
+uv sync
+uv run pytest tests -q
 ```
+
+> **Never** invoke a bare `pytest` / `uv run pytest` without the dev group
+> installed: it silently resolves to whatever `pytest` is first on `PATH`,
+> which typically runs under an interpreter with an incompatible `mcp`
+> package and fails collection with a misleading import error.
 
 ## Module docstrings (file headers)
 

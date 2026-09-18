@@ -17,8 +17,8 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 
 1. `ppsspp_health` — 探测 MCP server 存活（不连 PPSSPP）
 2. `ppsspp_session(action="start", iso_path=..., resilient=true, wait_ready=true)` — **一步启动并等就绪**（wait_ready=true 复用独立 wait_ready 的探针/预算语义，`[BOOT_TIMEOUT]`=楔死嫌疑）。可选 `resilient=true`：自愈启动——楔死证据（就绪探针耗尽/握手不受理/进程死亡）触发 关闭→隔离 GPU 后端黑名单文件→同 session_id 重启（≤2 次），响应 `recovered=N`（>0 表示现场已重置，断点需重设）
-3. `ppsspp_smoke_test(session_id)` — 启动健康四项检查（iso_loaded / cpu_running / ws_connected / game_mode_valid）
-4. 高频五工具（`read_memory` / `disassemble` / `get_pc` / `step` / `screenshot`）的 `session_id` **可省略**（唯一活跃会话自动解析；0 会话报错提示启动，多会话报 `SESSION_AMBIGUOUS` 并列出全部 id）；其余工具仍必填
+3. `ppsspp_health(session_id=...)` — 启动健康四项检查（iso_loaded / cpu_running / ws_connected / game_mode_valid）
+4. 八个工具（`read_memory` / `disassemble` / `step` / `screenshot` / `breakpoint`(wait/stats/trace) / `diff_memory` / `context` / `scan`）的 `session_id` **可省略**（唯一活跃会话自动解析；0 会话报错提示启动，多会话报 `SESSION_AMBIGUOUS` 并列出全部 id）；其余工具仍必填
 5. `ppsspp_session(action="stop", session_id=...)` — 结束（勿直接杀进程，会泄漏）
 
 约束：同一会话的工具调用被串行化（等锁超 5s 报 `SESSION_BUSY`）；`wait_frames`、`batch_step`、录制期间不要并发调用同会话；空闲 30 分钟会话被自动回收。
@@ -29,10 +29,11 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 |------|---------|----------|
 | 看指令 | `ppsspp_disassemble` / `ppsspp_search_disasm` | 禁止 `read_u32` 读代码段（JIT-IR 下得 IR 编码 0x68xxxxxx） |
 | 读变量/文本 | `ppsspp_read_memory(action="read_bytes")` + 自行 decode；大块读取（≥数 KB）加 `output="file"`（落盘回路径+64B 预览，省上下文） | `read_string` 仅用于纯 ASCII（多字节会被截断语义） |
-| 扫内存 | `ppsspp_read_memory(action="scan")` | 区间 ≤256MiB；不可读区域被静默跳过 |
-| 查 PC/寄存器 | `ppsspp_get_pc`（高信任） | RUNNING 态裸 PC 是 LOW trust（VBlank 误导） |
+| 扫内存 | `ppsspp_scan`（pattern/value/strings；全频段用 `background=true`） | 不可读区域被静默跳过；value/快照 handle 注册表进程级 4 FIFO |
+| 变量定位（什么变了） | `ppsspp_diff_memory`（snapshot→操作→compare） | handle 会话绑定；注册表进程级 4 FIFO（并行会话共享容量） |
+| 查 PC/寄存器 | `ppsspp_query(action="register", name="pc", safe=true)`（高信任） | RUNNING 态裸 PC 是 LOW trust（VBlank 误导） |
 | 暂停抓现场 | `ppsspp_frame_snapshot`（pause→pc+寄存器→resume 一次完成） | 已暂停的 CPU 保持暂停不恢复；可选 `probes` 并采观察探针 |
-| 设断点 | `ppsspp_breakpoint`（设防）+ `ppsspp_wait_breakpoint`（等命中） | 需 CPUCore=2；一步定位访问者用 `ppsspp_trace_memory_access` |
+| 设断点 | `ppsspp_breakpoint`（设防）+ `ppsspp_breakpoint(action="wait")`（等命中） | 需 CPUCore=2；一步定位访问者用 `ppsspp_breakpoint(action="trace")`（仅内存断点） |
 | 观察运行态 | `ppsspp_state_observer` / `ppsspp_batch_step` | `gpu_stats`/`gpu_record` 必须在 CPU running 时调 |
 
 ## 3. 场景路由表
@@ -52,8 +53,8 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 
 1. **地址参数**一律写全 `"0x"` 前缀 hex 字符串；返回地址以 `0x%08X` 回显。**裸数字串不会被拒绝——它按十进制解析**：`"08804000"` 变成 8804000 = `0x008656A0`，在 32 位范围内、看起来合理、但不是你要的地址，且调用成功返回。漏 `0x` 是静默错误，务必比对回显地址。
 2. **寄存器名**只用 MIPS ABI 名（`a0`/`v0`/`t9`/`sp`/`ra` + `pc`/`hi`/`lo`）；`r5` 会被归一为 `v1`，`$` 前缀自动剥除。
-3. **断点命中检测**：默认用 `ppsspp_wait_breakpoint(session_id, timeout_s)`——消费 `cpu.stepping` 广播，命中返回 `{hit:true, pc, reason, related_address}`，超时返回 `{hit:false}`（**非错误**，可轮询）；等待期间**不占会话锁**，可并发 `read_memory`/`state_observer`（但勿发 step/pause/resume）。一步到位用 `ppsspp_trace_memory_access(address, access, timeout_s, want_backtrace=)`——设防→等命中→抓现场→清除断点→恢复运行一次完成（`game_state.paused` 在命中时**不变**，它是 UI 暂停菜单态）。降级 fallback：`ppsspp_gpu_stats` 返回 `CPU_STATE_ERROR`（stepping=True）即已命中（见 cpu-state-contract §3）。
-4. **CPU/线程数据可信性**：`backtrace`/`threads`/`func_*` 查询必须先 `step(action="pause")`；`get_pc` 内部自动暂停-恢复。
+3. **断点命中检测**：默认用 `ppsspp_breakpoint(action="wait", timeout_s=)`——消费 `cpu.stepping` 广播，命中返回 `{hit:true, pc, reason, related_address}`，超时返回 `{hit:false}`（**非错误**，可轮询）；等待期间**不占会话锁**，可并发 `read_memory`/`state_observer`（但勿发 step/pause/resume）。一步定位内存访问者用 `ppsspp_breakpoint(action="trace", address=, read/write/size=, timeout_s=, want_backtrace=)`——设防→等命中→抓现场→清除断点→恢复运行一次完成（`game_state.paused` 在命中时**不变**，它是 UI 暂停菜单态；执行断点的等待用 `action="set"`+`"wait"`）。降级 fallback：`ppsspp_gpu_stats` 返回 `CPU_STATE_ERROR`（stepping=True）即已命中（见 cpu-state-contract §3）。
+4. **CPU/线程数据可信性**：`backtrace`/`threads`/`func_*` 查询必须先 `step(action="pause")`；`query(action="register", safe=true)` 内部自动暂停-恢复。
 5. **读多字节文本**用 `read_bytes` 取字节后交 `scripts/decode_text.py` 解码（`--encoding auto` 尝试 utf-8/shift_jis/gbk 并标注歧义；多字节文本禁用 `read_string`，见 §2）。
 6. **单次读上限** `read_bytes` 65536 字节，超出拆多次。
 7. **按键/等待单位是帧**（60fps），`press duration` 与 `wait frames` 上限 18000；`interval` ∈ [0.0001, 1.0]s。

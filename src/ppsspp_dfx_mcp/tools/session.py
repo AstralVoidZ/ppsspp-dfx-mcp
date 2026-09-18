@@ -200,7 +200,7 @@ async def session(
 ) -> SessionOutput:
     """PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=list / start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.
 
-    USAGE: action='list' takes no other params and returns {sessions, count} (idle sessions >30min are auto-GC'd as a side effect; NOT a per-session health probe — use ppsspp_smoke_test for that); action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).
+    USAGE: action='list' takes no other params and returns {sessions, count} (idle sessions >30min are auto-GC'd as a side effect; NOT a per-session health probe — use ppsspp_health(session_id=...) for that); action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).
 
     BEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; list/get are read-only.
 

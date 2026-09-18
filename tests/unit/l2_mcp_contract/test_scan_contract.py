@@ -165,8 +165,8 @@ async def test_background_submission_runs_to_completion(fake_scan):
         session_id="sess-fake",
     )
     assert r["action"] == "submitted"
-    job_id = r["job_id"]
-    job = get_registry().get(job_id)
+    batch_id = r["batch_id"]
+    job = get_registry().get(batch_id)
     assert job is not None
     for _ in range(100):
         if job.status in ("completed", "failed", "cancelled"):
@@ -191,8 +191,8 @@ async def test_background_value_cap_lifted_to_32mib(fake_scan):
         session_id="sess-fake",
     )
     assert r["action"] == "submitted"
-    job_id = r["job_id"]
-    job = get_registry().get(job_id)
+    batch_id = r["batch_id"]
+    job = get_registry().get(batch_id)
     for _ in range(100):
         if job.status in ("completed", "failed", "cancelled"):
             break
@@ -211,7 +211,7 @@ async def test_second_background_scan_on_same_session_rejected(fake_scan):
         background=True,
         session_id="sess-fake",
     )
-    first_id = r1["job_id"]
+    first_id = r1["batch_id"]
     first = get_registry().get(first_id)
     with pytest.raises(scan_mod.ArgsInvalid, match="already has a background"):
         await scan(

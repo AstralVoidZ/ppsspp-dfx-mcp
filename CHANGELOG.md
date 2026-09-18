@@ -7,7 +7,10 @@
 
 ## [0.1.6] - 2026-09-18
 
-### Changed（表面重构 — Glama AI 可用性评审整改：工具数 41 → 37）
+### Changed（表面重构 — Glama AI 可用性评审整改：工具数 41 → 36）
+
+净变化：8 项合并/移除 + 3 项新工具（`scan` / `diff_memory` / `context`），
+41 → 36。全部能力有等价替代路径，无删减。
 
 | v0.1.5 及之前 | v0.1.6 | 说明 |
 |---|---|---|
@@ -16,83 +19,67 @@
 | `ppsspp_dump_texture` / `ppsspp_dump_clut` | `ppsspp_dump(kind="texture"/"clut", level?)` | 二合一；`kind="clut"` 时 `level` 必须为 0；元数据统一含 `level` 字段（clut 恒为 0） |
 | `ppsspp_convert_address` | （非工具化） | 纯算术：`ppsspp_addr = ida_addr + (top_base.ppsspp - top_base.ida)`；公式移入 `ppsspp_list_addresses` 描述与技能书 `scripts/addr_convert.py` |
 | `ppsspp_memory_info_search` | `ppsspp_search_memory_info` | 改名（verb_noun 约定），参数与返回不变 |
+| `ppsspp_wait_breakpoint` | `ppsspp_breakpoint(action="wait")` | 严格等待（lock-free，断点保持布防），经观察者专用 step 确认通道 |
+| `ppsspp_trace_memory_access` | `ppsspp_breakpoint(action="trace")` | 命中-快照-放行（必清+恢复）；仅编排内存断点（默认读访问），执行断点用 `set` + `wait` 组合 |
+| `ppsspp_smoke_test` | `ppsspp_health(session_id=...)` | 四点会话电池并入健康探针：追加 `session_checks` 与 `overall_session_status`；无参形态保持零接触服务器探针语义 |
+| `ppsspp_get_pc` | `ppsspp_query(action="register", name="pc", safe=?)` | `safe=true` 走 with_stepping 暂停一致性读取（≡ 原 get_pc，trust=high）；`safe=false` 裸读（trust=low，零开销热路径轮询） |
 
-- 命名成文约定落盘 CONTRIBUTING（原子工具 verb_noun / 分发器 noun(action=) / 族内自洽）。
-- 重叠簇交叉引用：`query`/`get_pc`/`frame_snapshot`/`state_observer`/`breakpoint`/
-  `wait_breakpoint`/`trace_memory_access`/`step`/`batch_step` 等 10 处描述新增 ROUTING 节
-  （何时用我、何时改用哪个相邻工具）。
-
-### Removed
-
-- 见上表前四行（均有等价替代路径，无能力删减）。
-
-## [Unreleased]
-
-### Changed
-
-- `ppsspp_context`（v0.1.6 批 1 收口）：崩溃归因上下文包——known_functions
-  IDA 偏移换算身份 + 反汇编窗 + 可选回溯（with_stepping）；真机验证通过。
-- `ppsspp_breakpoint` 吸收两个消费工具（批 2，工具数 39 → 37）：
-  `ppsspp_wait_breakpoint` → `action="wait"`（严格等待，lock-free，断点保持）；
-  `ppsspp_trace_memory_access` → `action="trace"`（命中-快照-放行，必清+恢复）。
-  真机验证：wait 命中 pc 精确；trace 全链（必清/恢复/寄存器/回溯）通过。
-- `ppsspp_smoke_test` 并入 `ppsspp_health`（D5，工具数 36 → 35）：
-  `health(session_id=...)` 在服务器层报告上追加 `session_checks`
-  （iso_loaded/cpu_running/ws_connected/game_mode_valid 四点电池）与
-  `overall_session_status`；无参形态保持零接触服务器探针语义。
-- `ppsspp_get_pc` 废弃（D1，工具数 37 → 36）：`query(action="register",
-  name="pc")` 升级为超集——新增 `safe` 参数（默认 true 走 with_stepping
-  暂停一致性舞蹈 trust='high'，≡ 原 get_pc；false 裸读 trust='low'，
-  零开销热路径轮询）。多形态检测器升级一级委托跟进。
-- 真机验证结论（ISO 实测）：WS 往返中位 16.7ms（n=50）；MCP 通道回传
-  64KB 字节列表 ~204ms/块（全频段扫描必须后台化且工具内联匹配）；
-  cpu.stepping 广播不含断点标识（命中归因客户端 pc↔布防表）；
-  PPSSPP 原生 condition/log 断点字段可用。
-- `ppsspp_read_memory` 瘦身（批 3）：`action="scan"` 迁出至新工具
-  `ppsspp_scan(mode="pattern")`；`read_memory` 回归纯读语义。
-- `ppsspp_step` 瘦身（批 3）：`into/over/out` 移入 `ppsspp_batch_step`
-  `cpu_step` 类型（count 1..1000 指令级批量推进）；`step` 保留
-  `pause/resume/reset/run_until/next_hle`（运行控制语义）。
+- `ppsspp_read_memory` 瘦身：`action="scan"` 迁出至新工具 `ppsspp_scan`，
+  `read_memory` 回归纯读语义。
+- `ppsspp_step` 瘦身：`into/over/out` 移入 `ppsspp_batch_step` 的 `cpu_step`
+  步骤类型（count 1..1000 指令级批量推进）；`step` 保留
+  `pause/resume/reset/run_until/next_hle` 运行控制语义。
+- `diff_memory` / `scan` 的会话解析统一为**先解析会话、后校验参数**的优先序
+  （两工具在"参数错 + 无会话"并发场景抛出一致的会话类错误）。
+- 命名成文约定落盘 CONTRIBUTING（原子工具 verb_noun / 分发器 noun(action=) /
+  族内自洽）。
+- 重叠簇交叉引用：`query`/`frame_snapshot`/`state_observer`/`breakpoint`/
+  `step`/`batch_step` 等描述新增 ROUTING 节（何时用我、何时改用哪个相邻工具）。
+- 真机验证结论（ISO 实测）：MCP 全链路 WS 往返中位 16.7ms（n=50，经
+  Inspector 客户端→服务器→PPSSPP）；WS 客户端层轻量往返 p50 0.21ms（n=60，
+  localhost，见 README 性能参考）；MCP 通道回传 64KB 字节列表 ~204ms/块
+  （全频段扫描必须后台化且工具内联匹配）；cpu.stepping 广播不含断点标识
+  （命中归因客户端 pc↔布防表）；PPSSPP 原生 condition/log 断点字段可用。
 
 ### Added
 
-- `ppsspp_scan`（批 3）：三模式统一扫描器——`mode="pattern"`（字节模式搜索，
-  从 read_memory 迁入）/ `mode="value"`（Cheat-Engine 式值扫描+窄化会话，
+- `ppsspp_scan`：三模式统一扫描器——`mode="pattern"`（字节模式搜索，从
+  read_memory 迁入）/ `mode="value"`（Cheat-Engine 式值扫描+窄化会话，
   initial→narrow→list→drop，width u8/u16/u32，op eq/ne/lt/gt）/
   `mode="strings"`（charset 感知字符串采集：shift_jis/utf8/ascii +
-  min_len + CJK 占比质量过滤；random bytes 误报高——区域定位+打分必要）。
-- `ppsspp_diff_memory`（批 1）：内存快照差分——snapshot（64KB 分块读，
-  单快照 8 MiB，注册表 4 FIFO）→ compare（变更字节清单，内联 256 +
-  truncated）→ drop/list；纯客户端编排零新 WS 事件；不可读区段式跳过。
-- `ppsspp_context`（批 1）：崩溃归因上下文包——known_functions IDA 偏移
-  换算身份 + 反汇编窗 + 可选回溯（with_stepping）。
-- `ppsspp_batch_step` 新增 `cpu_step` 步骤类型（批 3 后半）：
+  min_len + CJK 占比质量过滤）。`background=true` 提交 detached 后台作业
+  （复用 batch_jobs 注册表），value initial 上限抬升至 32 MiB。
+- `ppsspp_diff_memory`：内存快照差分——snapshot（64KB 分块读，单快照
+  8 MiB，注册表 4 FIFO）→ compare（变更字节清单，内联 256 + truncated）→
+  drop/list；纯客户端编排零新 WS 事件；不可读区段式跳过。注册表为进程级
+  共享：并行会话共用同一容量与 FIFO 序。
+- `ppsspp_context`：崩溃归因上下文包——known_functions IDA 偏移换算身份 +
+  反汇编窗 + 可选回溯（with_stepping）。
+- `ppsspp_batch_step` 新增 `cpu_step` 步骤类型：
   `{type:"cpu_step", mode:"into"|"over"|"out", count:1..1000}`。
-- `ppsspp_breakpoint` 新增 `action="stats"`（批 4）：窗口内命中频率统计
-  （按 pc 聚合）+ 探针值变化采样。
+- `ppsspp_breakpoint` 新增 `action="stats"`：窗口内命中频率统计（按 pc
+  聚合）+ 探针值变化采样。
+- 工具面基线锁定（`tool_surface_baseline.json` + L2 契约测试）：36 工具的
+  描述与 schema 逐字节锁定，`scripts/dump_tool_surface.py` 再生成。
+- README「性能参考（本机实测）」与 `docs/ppsspp-build.md`「行为契约的
+  验证基线」（PPSSPP v1.20.4-605 实测口径）。
+- sync 脚本 `--check` 只读比对模式（真源 HEAD ↔ 发布仓漂移检测）。
+- pytest 进入 `[dependency-groups]` dev（uv 默认安装），杜绝
+  `uv run pytest` 静默回落系统 PATH 旧版 pytest 的假失败。
 
-### Added
+### Fixed
 
-- `ppsspp_scan`（v0.1.6 批 3）：三模式统一扫描器——
-  `mode="pattern"`（字节模式搜索，从 read_memory 迁入）/
-  `mode="value"`（Cheat-Engine 式值扫描+窄化会话，initial→narrow→list→drop）/
-  `mode="strings"`（charset 感知字符串采集：shift_jis/utf8/ascii + min_len +
-  CJK 占比质量过滤）。
-- `ppsspp_batch_step` 新增 `cpu_step` 步骤类型（v0.1.6 批 3）——
-  `{type:"cpu_step", mode:"into"|"over"|"out", count:1..1000}`；
-  指令级循环推进从 N 次人工调用变 1 次。
-- `ppsspp_breakpoint` 新增 `action="stats"`（v0.1.6 批 4）——
-  窗口内命中频率统计（按 pc 聚合），count-only 低开销路径。
+- `ppsspp_scan` 后台提交返回键统一为 `batch_id`（此前 `job_id` 与
+  `ppsspp_batch_status(batch_id=...)` 的参数名互相矛盾）。
+- `ppsspp_breakpoint(action='trace')` 描述更正：仅编排内存断点
+  （此前声称 "exec via address only"，实现中并无 exec 路径）。
+- `ppsspp_health(session_id=...)` 的会话电池自包含化：`run_smoke_checks`
+  恒返回元组，坏会话降级为 failed 项而非 INTERNAL 崩溃。
+- e2e/inspector 测试同步当前工具面（移除对已删 `ppsspp_smoke_test` /
+  `ppsspp_session_list` 的调用；期望集合改为从基线 JSON 派生，杜绝再次
+  漂移）。
 
-
-
-
-- `ppsspp_diff_memory`：内存快照差分工具（v0.1.6 批 1，Glama 评审纵深 P0-1）——
-  `snapshot`（64KB 分块读，单快照上限 8 MiB，注册表容量 4 FIFO）→ `compare`
-  （变更字节清单，内联上限 256 + truncated 标记）→ `drop`/`list`；
-  纯客户端编排，零新 WS 事件；多形态契约 partial=True 并登记
-  MULTI_SHAPE_OUTPUT_TOOLS。
-
+## [Unreleased]
 
 ## [0.1.5] - 2026-09-18
 

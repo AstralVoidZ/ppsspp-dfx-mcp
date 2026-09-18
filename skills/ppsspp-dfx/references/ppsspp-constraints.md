@@ -23,7 +23,7 @@ protocol_group: [A, B, C]
 
 `cpu.status.pc` 在 RUNNING 状态可能命中 `0x08800000-0x08804000` 区域（VBlank 处理位置）。PPSSPP 源码明文标注 "pc: inaccurate unless stepping"（`CPUCoreSubscriber.cpp:105`）。
 
-- **正确做法**：判断游戏状态用 `game_mode` 变量（地址查 addresses.yaml，经 `ppsspp_state_observer` 或 `read_memory` 读取）；查 PC 用 `ppsspp_get_pc`（内部暂停-恢复，trust HIGH）
+- **正确做法**：判断游戏状态用 `game_mode` 变量（地址查 addresses.yaml，经 `ppsspp_state_observer` 或 `read_memory` 读取）；查 PC 用 `ppsspp_query(action="register", name="pc", safe=true)`（内部暂停-恢复，trust HIGH）
 
 ### A3. `hle.thread.list.isCurrent` 在 RUNNING 态不可信
 
@@ -36,7 +36,7 @@ protocol_group: [A, B, C]
 
 `currentMIPS->pc` 仅在调度点同步，可能落后数千条指令。
 
-- **正确做法**：`ppsspp_get_pc` / 暂停后 `ppsspp_query(action="registers")`
+- **正确做法**：`ppsspp_query(action="register", name="pc", safe=true)` / 暂停后 `ppsspp_query(action="registers")`
 
 ### A5. `game.status.paused` ≠ CPU stepping
 
