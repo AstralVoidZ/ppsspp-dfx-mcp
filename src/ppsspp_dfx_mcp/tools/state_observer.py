@@ -44,6 +44,7 @@ Sample-failure semantics (samples > 1):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Annotated, Any, Literal
 
@@ -381,7 +382,10 @@ async def state_observer(
             raise ArgsInvalid(f"samples must be >= 1; got {samples}")
         target_probes = _resolve_target_probes(names)
         async with session_client(session_id) as client:
-            result = await _observe_probes(client, target_probes, samples)
+            result = await asyncio.wait_for(
+                _observe_probes(client, target_probes, samples),
+                timeout=30.0,  # 整体预算：防 PPSSPP 挂起时逐 probe 读取累积无限等待
+            )
         return StateObserverResponse.from_observe(result).model_dump(mode="json")
     except ToolError:
         raise

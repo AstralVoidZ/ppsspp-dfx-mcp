@@ -151,9 +151,14 @@ async def stop_all_sessions(session: Any) -> int:
 
     stopped = 0
     try:
-        r = await session.call_tool("ppsspp_session_list", {})
+        # v0.1.6 工具面重构：ppsspp_session_list → ppsspp_session(action="list")
+        r = await session.call_tool("ppsspp_session", {"action": "list"})
         s = getattr(r, "structured_content", None) or getattr(r, "structuredContent", None) or {}
-        for sess in s.get("sessions", []):
+        sessions = s.get("sessions", [])
+        if not sessions:
+            # 兼容 v0.1.5 及之前的旧返回形态（顶层列表）
+            sessions = s if isinstance(s, list) else []
+        for sess in sessions:
             sid = sess.get("session_id")
             if not sid:
                 continue
