@@ -65,6 +65,11 @@ DYNAMIC_INPUT_PARAMETERS: frozenset[str] = frozenset(
 # error on one branch only — invisible to a test suite that does not call
 # that branch.
 MULTI_SHAPE_OUTPUT_TOOLS: dict[str, str] = {
+    "ppsspp_breakpoint": (
+        "wait/trace 动作返回命中形状（{hit, already_paused, ...}/"
+        "{hit, hits, bp_removed, resumed, ...}），管理动作返回"
+        "{action, address, enabled, breakpoints[]}"
+    ),
     "ppsspp_diff_memory": (
         "action 分发：snapshot/compare/drop/list 各返回不同视图（partial=True 全字段可选）"
     ),

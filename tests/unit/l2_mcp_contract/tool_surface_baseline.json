@@ -127,8 +127,8 @@
     "write"
    ],
    "input_schema_sha1": "5ff6a6b882d079ad39ec29ce2b156f320fd56185",
-   "output_schema_chars": 741,
-   "output_schema_sha1": "accef786a28db7552ccda7c7dae548cff76721e3"
+   "output_schema_chars": 680,
+   "output_schema_sha1": "81297f68368d1c708ef28a720f33310f486ecf49"
   },
   "ppsspp_context": {
    "annotations": {
