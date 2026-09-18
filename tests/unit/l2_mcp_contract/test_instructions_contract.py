@@ -41,6 +41,7 @@ _AUTO_SESSION_ID_TOOLS = (
     "ppsspp_disassemble",
     "ppsspp_step",
     "ppsspp_screenshot",
+    "ppsspp_breakpoint",
     "ppsspp_diff_memory",
     "ppsspp_context",
     "ppsspp_scan",

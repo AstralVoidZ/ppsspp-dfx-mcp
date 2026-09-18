@@ -24,7 +24,11 @@ from ppsspp_dfx_mcp.address import format_address, parse_address
 from ppsspp_dfx_mcp.errors import ArgsInvalid, BreakpointError, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.breakpoint import BreakpointResult
 from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.session.client_helper import (
+    resolve_session_id,
+    session_client,
+    validate_session_alive,
+)
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
@@ -42,8 +46,6 @@ __all__ = ["breakpoint"]
 _BP_ACTIONS: tuple[str, ...] = (
     "wait",
     "trace",
-    "stats",
-    "stats",
     "stats",
     "set",
     "remove",
@@ -83,6 +85,44 @@ def _find_mem_bp(
         if size is None or int(bp.get("size", 0)) == size:
             return bp
     return None
+
+
+async def _probe_snapshot(session_id: str) -> dict[str, int]:
+    """Read every registered state probe once (name -> unsigned value).
+
+    Registry emptiness (addresses.yaml without `state_probes`) is
+    tolerated — stats is best-effort sampling, not a read contract.
+    Individual probe read failures are swallowed (value dropped).
+    """
+    from ppsspp_dfx_mcp.tools.state_observer import (
+        _observe_probes,
+        _resolve_target_probes,
+        _seed_from_yaml,
+    )
+
+    _seed_from_yaml()
+    try:
+        probes = _resolve_target_probes("")
+    except ArgsInvalid:
+        return {}
+    async with session_client(session_id) as client:
+        result = await _observe_probes(client, probes, 1)
+    return {o.name: o.value for o in result.observations if not o.error}
+
+
+async def _probe_changes(session_id: str, baseline: dict[str, int]) -> list[dict[str, Any]]:
+    """Diff registered state probes against a window-start baseline."""
+    current = await _probe_snapshot(session_id)
+    return [
+        {
+            "probe": name,
+            "old": baseline.get(name),
+            "new": current.get(name),
+            "ts": round(time.time(), 1),
+        }
+        for name in current
+        if baseline.get(name) != current.get(name)
+    ]
 
 
 @mcp.tool(
@@ -294,9 +334,11 @@ async def breakpoint(
         )
     if action == "stats":
         from ppsspp_dfx_mcp.tools.workflows import _get_live_observer
-        from ppsspp_dfx_mcp.core.game_state_observer import SteppingSubscription
+
         budget = min(max(timeout_s, 0.5), 300.0)
+        session_id = await resolve_session_id(session_id)
         await validate_session_alive(session_id)
+        probe_baseline = await _probe_snapshot(session_id)
         observer = await _get_live_observer(session_id)
         sub = observer.subscribe_stepping()
         try:
@@ -312,15 +354,26 @@ async def breakpoint(
                 pc = msg.get("pc")
                 if pc is None:
                     continue
-                e = by_pc.setdefault(pc, {"pc": f"0x{pc:08X}", "count": 0,
-                                          "first_seen": round(time.time(), 1),
-                                          "last_seen": round(time.time(), 1)})
+                e = by_pc.setdefault(
+                    pc,
+                    {
+                        "pc": f"0x{pc:08X}",
+                        "count": 0,
+                        "first_seen": round(time.time(), 1),
+                        "last_seen": round(time.time(), 1),
+                    },
+                )
                 e["count"] += 1
                 e["last_seen"] = round(time.time(), 1)
-            return {"mode": "stats", "window_s": round(budget, 1),
-                    "total_hits": sum(e["count"] for e in by_pc.values()),
-                    "by_pc": sorted(by_pc.values(), key=lambda x: -x["count"]),
-                    "note": ""}
+            probe_changes = await _probe_changes(session_id, probe_baseline)
+            return {
+                "mode": "stats",
+                "window_s": round(budget, 1),
+                "total_hits": sum(e["count"] for e in by_pc.values()),
+                "by_pc": sorted(by_pc.values(), key=lambda x: -x["count"]),
+                "probe_changes": probe_changes,
+                "note": "",
+            }
         finally:
             sub.close()
     if action not in _BP_ACTIONS:
