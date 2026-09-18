@@ -295,12 +295,14 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Probe MCP server liveness and readiness without contacting PPSSPP. Use this before any session-dependent tool to verify the server is up.\n\nUSAGE: No parameters.\n\nBEHAVIOR: READ-ONLY. Reads in-memory server counters (uptime, registered tool count, active session count). Does not contact PPSSPP and does not modify any state.\n\nRETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count.\n",
-   "description_chars": 460,
-   "description_words": 59,
-   "input_schema_chars": 64,
-   "input_schema_properties": [],
-   "input_schema_sha1": "82587d51a8f3228bea824da659cca45d04ad7eed",
+   "description": "PURPOSE: Probe MCP server liveness and readiness — plus an optional four-point session health battery.\n\nUSAGE: no args for the server-level probe (does NOT contact PPSSPP); pass session_id to also run the session battery (iso_loaded / cpu_running / ws_connected / game_mode_valid — absorbed from ppsspp_smoke_test in v0.1.7).\n\nBEHAVIOR: READ-ONLY. Server counters are read in-memory; the session battery (when requested) contacts PPSSPP over the session transport but never mutates state.\n\nRETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count — plus session_checks: [{name, passed, detail}] and overall_session_status when session_id is provided.\n",
+   "description_chars": 718,
+   "description_words": 92,
+   "input_schema_chars": 439,
+   "input_schema_properties": [
+    "session_id"
+   ],
+   "input_schema_sha1": "2ddaa5bdce10aa93d2e605fef31ba0aa97893b0f",
    "output_schema_chars": 1312,
    "output_schema_sha1": "f1c3c789ae23c9c0eba13e140e5880f3d76cf29a"
   },
@@ -428,26 +430,20 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Read memory (read_bytes / read_u32 / read_string) or scan a region for a byte pattern.\n\nUSAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); scan takes pattern (hex/ascii, ≤4096B) + start_addr/end_addr (≤256MiB) + chunk_size.\n\nBEHAVIOR: READ-ONLY. Unreadable scan blocks are skipped silently. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).\n\nRETURNS: {action, address, value, size, text, file} — value is the match list for scan. read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/).",
-   "description_chars": 835,
-   "description_words": 118,
-   "input_schema_chars": 3474,
+   "description": "PURPOSE: Read memory (read_bytes / read_u32 / read_string).\n\nUSAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); Memory scanning has moved to ppsspp_scan.\n\nBEHAVIOR: READ-ONLY. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).\n\nRETURNS: {action, address, value, size, text, file} — read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/).",
+   "description_chars": 677,
+   "description_words": 93,
+   "input_schema_chars": 1898,
    "input_schema_properties": [
     "action",
     "address",
-    "chunk_size",
-    "end_addr",
     "length",
     "max_len",
-    "max_results",
     "output",
-    "pattern",
-    "pattern_type",
     "session_id",
-    "size",
-    "start_addr"
+    "size"
    ],
-   "input_schema_sha1": "2cee8d489f256994a84b184cc770d7a720d98cac",
+   "input_schema_sha1": "13f6a377c0a4116a977fe8abff3093be389a2366",
    "output_schema_chars": 1322,
    "output_schema_sha1": "4a2a2117c470eddaa5aa232da6ce3d92121a3eaa"
   },
@@ -513,6 +509,39 @@
    "input_schema_sha1": "51780a7c95c233f17c8fc715da99f285c7961fa7",
    "output_schema_chars": 497,
    "output_schema_sha1": "b4470f59b98237e718ced6b04b4876a1f4372b9e"
+  },
+  "ppsspp_scan": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.\n\nUSAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}].\n\nBEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO). Full-band scans (24 MB) cost ~80 s over the MCP channel — keep initial ranges ≤1 MiB or expect a long call.\n\nROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.\n\nRETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}.",
+   "description_chars": 1250,
+   "description_words": 153,
+   "input_schema_chars": 3572,
+   "input_schema_properties": [
+    "charset",
+    "chunk_size",
+    "end_addr",
+    "max_results",
+    "min_len",
+    "mode",
+    "op",
+    "pattern",
+    "pattern_type",
+    "phase",
+    "quality",
+    "scan_handle",
+    "session_id",
+    "start_addr",
+    "value",
+    "width"
+   ],
+   "input_schema_sha1": "968f4686391183748903e5d894261bc7260d10dd",
+   "output_schema_chars": 1951,
+   "output_schema_sha1": "ea133189930f6c733ae627afc7a443528df6b28e"
   },
   "ppsspp_screenshot": {
    "annotations": {
@@ -608,7 +637,7 @@
    "description": "PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=list / start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.\n\nUSAGE: action='list' takes no other params and returns {sessions, count} (idle sessions >30min are auto-GC'd as a side effect; NOT a per-session health probe — use ppsspp_smoke_test for that); action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).\n\nBEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; list/get are read-only.\n\nRETURNS: action=start/get → SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version}; action=wait_ready → {action, ready, elapsed_s, probe_addr, probe_value, note}; action=list → {sessions: [SessionResponse...], count}.",
    "description_chars": 1236,
    "description_words": 165,
-   "input_schema_chars": 2715,
+   "input_schema_chars": 2725,
    "input_schema_properties": [
     "action",
     "iso_path",
@@ -618,28 +647,9 @@
     "timeout_s",
     "wait_ready"
    ],
-   "input_schema_sha1": "c1eacde71ccc792004a1ec77a45bc00ab3f4ad96",
+   "input_schema_sha1": "2c919a137e26522aa1d6701c36fda043b1e49875",
    "output_schema_chars": 1702,
    "output_schema_sha1": "042c6cc367b49cd117af35780d40d7814c1a0e72"
-  },
-  "ppsspp_smoke_test": {
-   "annotations": {
-    "destructive_hint": false,
-    "idempotent_hint": true,
-    "open_world_hint": false,
-    "read_only_hint": true
-   },
-   "description": "PURPOSE: Four-point session health check — iso_loaded, cpu_running, ws_connected, game_mode_valid.\n\nUSAGE: session_id. NOT an ISO boot-acceptance test — use session wait_ready + analyze_log for boot triage.\n\nBEHAVIOR: READ-ONLY. Battery of probes.\n\nRETURNS: {checks[{name, passed, detail}], overall_status}.",
-   "description_chars": 307,
-   "description_words": 36,
-   "input_schema_chars": 449,
-   "input_schema_properties": [
-    "checks",
-    "session_id"
-   ],
-   "input_schema_sha1": "85575b707c4c988da188643f77fe4b5bf135f56e",
-   "output_schema_chars": 865,
-   "output_schema_sha1": "beb189b47efd3ec583c8949201066170cd0a826d"
   },
   "ppsspp_state_observer": {
    "annotations": {
@@ -749,6 +759,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 22056,
- "total_input_schema_chars": 40273
+ "total_description_chars": 23099,
+ "total_input_schema_chars": 42205
 }

@@ -122,7 +122,7 @@ async def session(
                 "- 'list': list all active sessions (no other params). "
                 "Idle sessions (>30 min) are auto-GC'd as a side effect; "
                 "returns {sessions, count}. NOT a per-session health "
-                "probe — use ppsspp_smoke_test for that.\n"
+                "probe — use ppsspp_health(session_id=…) for that.\n"
                 "- 'start': launch a new PPSSPP session (requires iso_path). "
                 "Set wait_ready=true to block until the emulated CPU is up "
                 "(same probe/budget semantics as 'wait_ready').\n"

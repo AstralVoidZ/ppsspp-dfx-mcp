@@ -36,6 +36,10 @@
   `ppsspp_wait_breakpoint` → `action="wait"`（严格等待，lock-free，断点保持）；
   `ppsspp_trace_memory_access` → `action="trace"`（命中-快照-放行，必清+恢复）。
   真机验证：wait 命中 pc 精确；trace 全链（必清/恢复/寄存器/回溯）通过。
+- `ppsspp_smoke_test` 并入 `ppsspp_health`（D5，工具数 36 → 35）：
+  `health(session_id=...)` 在服务器层报告上追加 `session_checks`
+  （iso_loaded/cpu_running/ws_connected/game_mode_valid 四点电池）与
+  `overall_session_status`；无参形态保持零接触服务器探针语义。
 - `ppsspp_get_pc` 废弃（D1，工具数 37 → 36）：`query(action="register",
   name="pc")` 升级为超集——新增 `safe` 参数（默认 true 走 with_stepping
   暂停一致性舞蹈 trust='high'，≡ 原 get_pc；false 裸读 trust='low'，

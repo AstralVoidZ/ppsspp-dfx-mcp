@@ -11,10 +11,11 @@ import json
 import logging
 import platform
 import time
-from typing import Any
+from typing import Annotated, Any
 
 import pydantic
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from ppsspp_dfx_mcp import __version__
 from ppsspp_dfx_mcp.server import mcp
@@ -75,14 +76,27 @@ def _probe_sessions_file() -> str | None:
     ),
 )
 @translate_tool_errors
-async def health() -> HealthOutput:
-    """PURPOSE: Probe MCP server liveness and readiness without contacting PPSSPP. Use this before any session-dependent tool to verify the server is up.
+async def health(
+    session_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional session ID — when provided, appends "
+                "session_checks (the four-point battery: iso_loaded / "
+                "cpu_running / ws_connected / game_mode_valid, absorbed "
+                "from ppsspp_smoke_test) to the server-level report. "
+                "Omit for the zero-contact server liveness probe."
+            ),
+        ),
+    ] = None,
+) -> HealthOutput:
+    """PURPOSE: Probe MCP server liveness and readiness — plus an optional four-point session health battery.
 
-    USAGE: No parameters.
+    USAGE: no args for the server-level probe (does NOT contact PPSSPP); pass session_id to also run the session battery (iso_loaded / cpu_running / ws_connected / game_mode_valid — absorbed from ppsspp_smoke_test in v0.1.7).
 
-    BEHAVIOR: READ-ONLY. Reads in-memory server counters (uptime, registered tool count, active session count). Does not contact PPSSPP and does not modify any state.
+    BEHAVIOR: READ-ONLY. Server counters are read in-memory; the session battery (when requested) contacts PPSSPP over the session transport but never mutates state.
 
-    RETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count.
+    RETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count — plus session_checks: [{name, passed, detail}] and overall_session_status when session_id is provided.
     """
     logger.info("tool_call", extra={"tool": "ppsspp_health"})
     sessions: list[Any] = []
@@ -123,4 +137,11 @@ async def health() -> HealthOutput:
         session_count=len(sessions),
         session_error=session_error,
     )
-    return response.model_dump(mode="json")
+    out = response.model_dump(mode="json")
+    if session_id:
+        from ppsspp_dfx_mcp.tools.smoke import run_smoke_checks
+
+        checks, overall = await run_smoke_checks(session_id, checks=None)
+        out["session_checks"] = checks
+        out["overall_session_status"] = overall
+    return out

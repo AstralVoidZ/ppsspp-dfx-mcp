@@ -37,7 +37,6 @@ EXPECTED_STATIC_TOOLS: frozenset[str] = frozenset(
         "ppsspp_health",
         "ppsspp_session",
         # Phase 2 (16)
-        "ppsspp_smoke_test",
         "ppsspp_screenshot",
         "ppsspp_dump",
         "ppsspp_read_memory",

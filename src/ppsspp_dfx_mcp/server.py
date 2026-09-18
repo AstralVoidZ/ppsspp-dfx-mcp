@@ -529,6 +529,7 @@ _TOOL_MODULE_NAMES: tuple[str, ...] = (
     "replay",
     "screenshot",
     "script",
+    "scan",
     "search_disasm",
     "session",
     "smoke",

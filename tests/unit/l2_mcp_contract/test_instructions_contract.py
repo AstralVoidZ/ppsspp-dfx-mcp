@@ -43,6 +43,7 @@ _AUTO_SESSION_ID_TOOLS = (
     "ppsspp_screenshot",
     "ppsspp_diff_memory",
     "ppsspp_context",
+    "ppsspp_scan",
 )
 
 

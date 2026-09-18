@@ -93,31 +93,7 @@ class TestFullStackStringCap:
         assert size == _common.DEFAULT_STRING_CAP == 4096
 
 
-class TestFullStackScanClamp:
-    @pytest.mark.asyncio
-    async def test_huge_chunk_size_clamped_on_the_wire(self, full_stack):
-        """W4 regression, full-stack variant: a 512MB chunk_size must never
-        reach the wire — every memory.read stays ≤ 64KiB (+overlap)."""
-
-        def _zero_page(**kw: Any) -> dict:
-            return {"base64": _b64.b64encode(b"\x00" * kw["size"]).decode("ascii")}
-
-        full_stack.set_response("memory.read", _zero_page)
-        result = await read_memory(
-            session_id="sess-1",
-            action="scan",
-            pattern="DEADBEEF",
-            start_addr="0x08800000",
-            end_addr="0x08900000",  # 1 MiB → 16 chunks
-            chunk_size=512 * 1024 * 1024,
-        )
-        assert result["value"] == []
-        sizes = [c[1]["size"] for c in full_stack.calls if c[0] == "memory.read"]
-        assert sizes, "scan must issue chunked reads"
-        assert max(sizes) <= _common.MAX_SINGLE_READ_BYTES + 3, (
-            f"wire read size {max(sizes)} exceeds the 64KiB cap (+overlap) — "
-            "the tool-layer clamp leaked"
-        )
+# TestFullStackScanClamp removed — scan clamp covered by test_safety_guards_batch4
 
 
 class TestWriteGuardOrder:

@@ -20,7 +20,7 @@ from fake_transport import FakeTransport
 from ppsspp_dfx_mcp.errors import ToolError
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
 from ppsspp_dfx_mcp.tools._common import MAX_SCAN_PATTERN_BYTES
-from ppsspp_dfx_mcp.tools.memory import read_memory
+from ppsspp_dfx_mcp.tools.scan import scan
 
 # ── Tool layer: pattern cap ──────────────────────────────────────────────
 
@@ -32,17 +32,22 @@ async def test_tool_rejects_oversized_pattern(
     mock_client = AsyncMock()
     mock_client.scan_memory.return_value = []
 
+    async def fake_resolve(session_id):
+        return session_id or "sess-1"
+
+    @asynccontextmanager
     @asynccontextmanager
     async def fake_session_client(session_id: str):
         yield mock_client
 
-    monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.resolve_session_id", fake_resolve)
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.session_client", fake_session_client)
 
     oversized = "41" * (MAX_SCAN_PATTERN_BYTES + 1)  # hex → cap+1 bytes
     with pytest.raises(ToolError, match="scan cap"):
-        await read_memory(
+        await scan(
             session_id="sess-1",
-            action="scan",
+            mode="pattern",
             pattern=oversized,
             start_addr="0x08800000",
             end_addr="0x08810000",
@@ -57,16 +62,20 @@ async def test_tool_allows_pattern_at_cap(
     mock_client = AsyncMock()
     mock_client.scan_memory.return_value = []
 
+    async def fake_resolve(session_id):
+        return session_id or "sess-1"
+
     @asynccontextmanager
     async def fake_session_client(session_id: str):
         yield mock_client
 
-    monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.session_client", fake_session_client)
+    monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.resolve_session_id", fake_resolve)
 
     at_cap = "41" * MAX_SCAN_PATTERN_BYTES
-    await read_memory(
+    await scan(
         session_id="sess-1",
-        action="scan",
+        mode="pattern",
         pattern=at_cap,
         start_addr="0x08800000",
         end_addr="0x08810000",

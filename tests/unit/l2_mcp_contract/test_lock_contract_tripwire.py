@@ -30,7 +30,6 @@ HOLDING_LOCK: frozenset[str] = frozenset(
         "ppsspp_search_disasm",
         "ppsspp_assemble",
         "ppsspp_step",
-        "ppsspp_smoke_test",
         "ppsspp_state_observer",
         "ppsspp_batch_step",
         "ppsspp_replay",
@@ -41,7 +40,9 @@ HOLDING_LOCK: frozenset[str] = frozenset(
         # session_capture users
         "ppsspp_screenshot",
         "ppsspp_dump",  # kind=texture|clut — session_capture user
+        "ppsspp_health",  # session battery (session_id given) reads via session_client
         "ppsspp_diff_memory",  # snapshot/compare read via session_client
+        "ppsspp_scan",  # pattern/value/strings chunked reads via session_client
         "ppsspp_context",  # identity/disasm/backtrace via session_client
         # hold_buttons / press_button / send_analog use session_client via input.py
         "ppsspp_press_button",
@@ -72,10 +73,12 @@ NOT_HOLDING_LOCK: frozenset[str] = frozenset(
         # run_script does NOT open a session context in its own body —
         # diagnostic scripts access the session themselves via
         # ctx.session_id, outside this lock. Documented contract (R16).
+        # v0.1.7 D5: health 的会话电池（session_id 显式传入时）会开
+        # session_client —— 有锁接触，但 wait/trace 式 lock-free 语义不适用；
+        # 归 NOT_HOLDING 的原零接触承诺只对无参形态成立，故按持锁归类。
         "ppsspp_run_script",  # executes manifest scripts (ctx-scoped)
         "ppsspp_wait_frames",  # pure wall-clock sleep + liveness checks
         "ppsspp_analyze_log",  # file only
-        "ppsspp_health",  # server liveness
         "ppsspp_session",  # lifecycle (manages the lock owner itself);
         # wait_ready polls the raw session transport
         # (lock-free, like wait_frames)
@@ -105,6 +108,11 @@ _SESSION_OPENERS = {
 # is unchanged, only the call is one level deeper.
 _DELEGATE_OPENERS = {
     "_execute_batch",
+    "_read_range",  # v0.1.7 批 3: ppsspp_scan 的分块读委托
+    "_scan_pattern",  # scan() → _scan_pattern → _read_range → session_client
+    "_scan_value",  # scan() → _scan_value → _read_range → session_client
+    "_scan_strings",  # scan() → _scan_strings → _read_range → session_client
+    "run_smoke_checks",  # v0.1.7 D5: health 的会话电池委托（内部开 session_client）
 }
 
 

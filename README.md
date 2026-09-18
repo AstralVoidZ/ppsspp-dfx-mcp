@@ -24,7 +24,7 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
 
 ## 功能特性
 
-- **36 个静态工具**，全部带结构化 `inputSchema` / `outputSchema`——没有无约束的
+- **35 个静态工具**，全部带结构化 `inputSchema` / `outputSchema`——没有无约束的
   返回值，每个参数都有类型和说明。
 - **动态脚本工具**：项目专属的诊断脚本通过 `scripts.manifest.yaml` 暴露为
   `ppsspp_script_<name>` 工具，输入类型由脚本自带的 Pydantic model 决定；
@@ -190,7 +190,7 @@ cp examples/project.yaml examples/addresses.yaml \
 
 | 能力 | 声明 | 说明 |
 |---|---------|-------|
-| `tools` | ✅ | 36 个静态工具 + 动态 `ppsspp_script_<name>` |
+| `tools` | ✅ | 35 个静态工具 + 动态 `ppsspp_script_<name>` |
 | `resources` | ✅ | `ppsspp://game-state`、`ppsspp://registers`（快照） |
 | `prompts` | ✅ | `memory-breakpoint-wizard`、`memory-trace-wizard` |
 | `completions` | ✅ | 两个内存向导的 `address` 参数，候选来自 `addresses.yaml` |

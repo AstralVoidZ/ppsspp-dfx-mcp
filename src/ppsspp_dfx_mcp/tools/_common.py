@@ -65,6 +65,10 @@ DYNAMIC_INPUT_PARAMETERS: frozenset[str] = frozenset(
 # error on one branch only — invisible to a test suite that does not call
 # that branch.
 MULTI_SHAPE_OUTPUT_TOOLS: dict[str, str] = {
+    "ppsspp_scan": (
+        "三模式分发：pattern 返回匹配表，value 四相返回会话视图，"
+        "strings 返回字符串表（partial=True 全字段可选）"
+    ),
     "ppsspp_breakpoint": (
         "wait/trace 动作返回命中形状（{hit, already_paused, ...}/"
         "{hit, hits, bp_removed, resumed, ...}），管理动作返回"
