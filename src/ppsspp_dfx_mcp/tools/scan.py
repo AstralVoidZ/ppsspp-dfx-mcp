@@ -28,7 +28,11 @@ from ppsspp_dfx_mcp.address import parse_address
 from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
 from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
+from ppsspp_dfx_mcp.session.client_helper import (
+    resolve_session_id,
+    session_client,
+    validate_session_alive,
+)
 from ppsspp_dfx_mcp.tools._common import (
     MAX_SCAN_PATTERN_BYTES,
     MAX_SCAN_RANGE_BYTES,
@@ -50,7 +54,8 @@ ScanOutput = derive_output_contract(
 _VALUE_SESSIONS: dict[str, dict[str, Any]] = {}
 _MAX_VALUE_SESSIONS = 4
 _VALUE_DEFAULT_RANGE = 1 << 20  # 1 MiB initial-scan soft cap
-_VALUE_HARD_RANGE = 8 << 20  # 8 MiB hard cap (force background use later)
+_VALUE_HARD_RANGE = 8 << 20  # 8 MiB foreground hard cap
+_VALUE_BG_HARD_RANGE = 32 << 20  # 32 MiB background hard cap (full band + slack)
 _VALUE_MAX_HITS = 5000
 
 _WIDTHS = {"u8": (1, "B"), "u16": (2, "H"), "u32": (4, "I")}
@@ -231,8 +236,9 @@ async def scan(
             description=(
                 "Value-scan phase (value mode): 'initial' scans the range "
                 "for `value`; 'narrow' re-reads candidates and filters by "
-                "`op`+`value`; 'list' returns current candidates; 'drop' "
-                "releases the session."
+                "`op`+`value` (requires explicit session_id; auto-resolve "
+                "not supported for this phase); 'list' returns current "
+                "candidates; 'drop' releases the session."
             ),
         ),
     ] = None,
@@ -268,20 +274,34 @@ async def scan(
             description=(
                 "CJK-ratio quality floor for shift_jis (strings mode; "
                 "0..1, default 0.2; 0 disables). Random bytes can "
-                "chance-decode to kana — the filter keeps signal."
+                "chance-decode to kana — the filter keeps signal. "
+                "ascii/utf8 have no quality filter — expect noise in "
+                "code regions."
             ),
         ),
     ] = 0.2,
+    background: Annotated[
+        bool,
+        Field(
+            description=(
+                "Run as a detached background job (recommended for "
+                "full-band scans): returns a job_id immediately; poll "
+                "ppsspp_batch_status(job_id=...), cancel via "
+                "ppsspp_batch_cancel. Value initial cap lifts 8 MiB → 32 MiB "
+                "in background mode."
+            ),
+        ),
+    ] = False,
 ) -> ScanOutput:
     """PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.
 
-    USAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}].
+    USAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}]. background=true submits a detached job instead (recommended for full-band scans) and returns {action:'submitted', job_id, ...} — poll ppsspp_batch_status(job_id=...).
 
-    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and initial-scan hard cap is 8 MiB per call — full-band scans cost ~80 s per 24 MB over the MCP channel, so keep initial ranges ≤1 MiB or expect a long call.
+    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background — full-band scans cost ~80 s per 24 MB over the MCP channel, so use background=true beyond ~1 MiB.
 
     ROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.
 
-    RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}."""
+    RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background=true submission → {action: 'submitted', job_id, session_id, estimated_s}."""
     session_id_resolved: str | None = None
     if mode in ("pattern", "strings") or (mode == "value" and phase in ("initial", "narrow")):
         session_id_resolved = await resolve_session_id(session_id)
@@ -290,6 +310,85 @@ async def scan(
         extra={"tool": "ppsspp_scan", "mode": mode, "session_id": session_id_resolved},
     )
     try:
+        if background:
+            # ── 后台路径：校验/预解析后提交 detached 任务，立即返回 ──
+            from ppsspp_dfx_mcp.core.batch_jobs import get_registry
+
+            if not start_addr or not end_addr:
+                raise ArgsInvalid("background scans require start_addr and end_addr")
+            start_int = parse_address(start_addr)
+            end_int = parse_address(end_addr)
+            if start_int <= 0 or end_int <= start_int:
+                raise ArgsInvalid(f"invalid range: {start_addr!r}..{end_addr!r}")
+            total = end_int - start_int
+            bg_cap = _VALUE_BG_HARD_RANGE if mode == "value" else MAX_SCAN_RANGE_BYTES
+            if total > bg_cap:
+                raise ArgsInvalid(
+                    f"scan range {total} bytes exceeds the background cap "
+                    f"{bg_cap} — narrow start/end"
+                )
+            await validate_session_alive(session_id_resolved)
+            registry = get_registry()
+            existing = registry.running_job_for_session(session_id_resolved)
+            if existing is not None:
+                raise ArgsInvalid(
+                    f"session {session_id_resolved} already has a background "
+                    f"job ({existing.batch_id}) queued/running — poll "
+                    f"ppsspp_batch_status(batch_id='{existing.batch_id}') or "
+                    f"cancel it before submitting another"
+                )
+
+            total_chunks = max(1, -(-total // MAX_SINGLE_READ_BYTES))
+            estimated_s = round(total_chunks * 0.05 + 0.5, 2)
+
+            async def _bg_runner(job: Any) -> dict[str, Any]:
+                if mode == "pattern":
+                    out = await _scan_pattern(
+                        session_id_resolved,
+                        pattern,
+                        pattern_type,
+                        start_addr,
+                        end_addr,
+                        max_results,
+                        chunk_size,
+                    )
+                elif mode == "value":
+                    out = await _scan_value(
+                        session_id_resolved,
+                        "initial",
+                        value,
+                        width,
+                        op,
+                        None,
+                        start_addr,
+                        end_addr,
+                        hard_range=_VALUE_BG_HARD_RANGE,
+                    )
+                else:
+                    out = await _scan_strings(
+                        session_id_resolved,
+                        charset,
+                        start_addr,
+                        end_addr,
+                        min_len,
+                        quality,
+                    )
+                resp = out.model_dump(mode="json")
+                job.result = resp  # 先存再抛（轮询者可见部分结果）
+                return resp
+
+            job_id = get_registry().submit(session_id_resolved, total_chunks, _bg_runner)
+            return {
+                "action": "submitted",
+                "job_id": job_id,
+                "session_id": session_id_resolved,
+                "estimated_s": estimated_s,
+                "hint": (
+                    "poll ppsspp_batch_status(batch_id=...) — the scan keeps "
+                    "running even if this client call times out; cancel via "
+                    "ppsspp_batch_cancel(job_id=...)"
+                ),
+            }
         if mode == "pattern":
             return (
                 await _scan_pattern(
@@ -385,6 +484,7 @@ async def _scan_value(
     scan_handle: str | None,
     start_addr: str | None,
     end_addr: str | None,
+    hard_range: int = _VALUE_HARD_RANGE,
 ) -> ScanOutput:
     if phase is None:
         raise ArgsInvalid("mode='value' requires phase (initial/narrow/list/drop)")
@@ -400,10 +500,10 @@ async def _scan_value(
         if start_int <= 0 or end_int <= start_int:
             raise ArgsInvalid(f"invalid range: {start_addr!r}..{end_addr!r}")
         total = end_int - start_int
-        if total > _VALUE_HARD_RANGE:
+        if total > hard_range:
             raise ArgsInvalid(
                 f"initial scan range {total} bytes exceeds the hard cap "
-                f"{_VALUE_HARD_RANGE} — narrow the range (full-band scans "
+                f"{hard_range} — narrow the range (full-band scans "
                 f"cost ~80 s over the MCP channel; keep ≤1 MiB per call "
                 f"or split)."
             )

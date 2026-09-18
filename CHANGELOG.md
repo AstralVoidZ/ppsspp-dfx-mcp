@@ -48,6 +48,28 @@
   64KB 字节列表 ~204ms/块（全频段扫描必须后台化且工具内联匹配）；
   cpu.stepping 广播不含断点标识（命中归因客户端 pc↔布防表）；
   PPSSPP 原生 condition/log 断点字段可用。
+- `ppsspp_read_memory` 瘦身（批 3）：`action="scan"` 迁出至新工具
+  `ppsspp_scan(mode="pattern")`；`read_memory` 回归纯读语义。
+- `ppsspp_step` 瘦身（批 3）：`into/over/out` 移入 `ppsspp_batch_step`
+  `cpu_step` 类型（count 1..1000 指令级批量推进）；`step` 保留
+  `pause/resume/reset/run_until/next_hle`（运行控制语义）。
+
+### Added
+
+- `ppsspp_scan`（批 3）：三模式统一扫描器——`mode="pattern"`（字节模式搜索，
+  从 read_memory 迁入）/ `mode="value"`（Cheat-Engine 式值扫描+窄化会话，
+  initial→narrow→list→drop，width u8/u16/u32，op eq/ne/lt/gt）/
+  `mode="strings"`（charset 感知字符串采集：shift_jis/utf8/ascii +
+  min_len + CJK 占比质量过滤；random bytes 误报高——区域定位+打分必要）。
+- `ppsspp_diff_memory`（批 1）：内存快照差分——snapshot（64KB 分块读，
+  单快照 8 MiB，注册表 4 FIFO）→ compare（变更字节清单，内联 256 +
+  truncated）→ drop/list；纯客户端编排零新 WS 事件；不可读区段式跳过。
+- `ppsspp_context`（批 1）：崩溃归因上下文包——known_functions IDA 偏移
+  换算身份 + 反汇编窗 + 可选回溯（with_stepping）。
+- `ppsspp_batch_step` 新增 `cpu_step` 步骤类型（批 3 后半）：
+  `{type:"cpu_step", mode:"into"|"over"|"out", count:1..1000}`。
+- `ppsspp_breakpoint` 新增 `action="stats"`（批 4）：窗口内命中频率统计
+  （按 pc 聚合）+ 探针值变化采样。
 
 ### Added
 
