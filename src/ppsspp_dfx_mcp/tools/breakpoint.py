@@ -28,7 +28,11 @@ from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 
-BreakpointOutput = derive_output_contract("BreakpointOutput", BreakpointResponse)
+BreakpointOutput = derive_output_contract(
+    "BreakpointOutput",
+    BreakpointResponse,
+    partial=True,  # 多形态：wait/trace 返回命中形状，管理动作返回断点表形状
+)
 
 logger = logging.getLogger(__name__)
 

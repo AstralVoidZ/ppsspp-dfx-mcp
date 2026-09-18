@@ -52,8 +52,27 @@ def _detect_multi_shape_tools() -> dict[str, list[str]]:
     会漏掉 `XResponse(...)` 构造式，只认构造式会漏掉工厂式。两种都收集。
     """
     import ast
+    import importlib
     import inspect
     import textwrap
+
+    def _collect_response_classes(tree: ast.AST) -> set[str]:
+        """构造式 XResponse(...) 与工厂式 XResponse.from_result(...) 都收集。"""
+        classes: set[str] = set()
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id.endswith("Response")
+            ):
+                classes.add(node.func.id)
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id.endswith("Response")
+            ):
+                classes.add(node.value.id)
+        return classes
 
     found: dict[str, list[str]] = {}
     for tool in _registered_tools():
@@ -65,22 +84,28 @@ def _detect_multi_shape_tools() -> dict[str, list[str]]:
             tree = ast.parse(src)
         except (OSError, TypeError, SyntaxError):
             continue
-        classes: set[str] = set()
+        classes = _collect_response_classes(tree)
+        # v0.1.7 一级委托跟进：工具把实现委托给 ppsspp_dfx_mcp.tools.* 里的
+        # 函数时（如 breakpoint(action="wait") 委托 workflows.wait_breakpoint），
+        # 被委托函数的源码并入扫描 —— 否则委托会绕过多形态检测。
         for node in ast.walk(tree):
-            # 构造式：XResponse(...)
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id.endswith("Response")
-            ):
-                classes.add(node.func.id)
-            # 工厂式：XResponse.from_result(...)
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.value, ast.Name)
-                and node.value.id.endswith("Response")
-            ):
-                classes.add(node.value.id)
+            if not (isinstance(node, ast.ImportFrom) and node.module
+                    and node.module.startswith("ppsspp_dfx_mcp.tools.")):
+                continue
+            try:
+                mod = importlib.import_module(node.module)
+            except ImportError:
+                continue
+            for alias in node.names:
+                callee = getattr(mod, alias.name, None)
+                if callee is None:
+                    continue
+                try:
+                    callee_tree = ast.parse(
+                        textwrap.dedent(inspect.getsource(callee)))
+                except (OSError, TypeError, SyntaxError):
+                    continue
+                classes |= _collect_response_classes(callee_tree)
         if len(classes) > 1:
             found[tool.name] = sorted(classes)
     return found
