@@ -51,6 +51,18 @@
 
 ### Added
 
+- `ppsspp_scan`（v0.1.7 批 3）：三模式统一扫描器——
+  `mode="pattern"`（字节模式搜索，从 read_memory 迁入）/
+  `mode="value"`（Cheat-Engine 式值扫描+窄化会话，initial→narrow→list→drop）/
+  `mode="strings"`（charset 感知字符串采集：shift_jis/utf8/ascii + min_len +
+  CJK 占比质量过滤）。
+- `ppsspp_batch_step` 新增 `cpu_step` 步骤类型（v0.1.7 批 3）——
+  `{type:"cpu_step", mode:"into"|"over"|"out", count:1..1000}`；
+  指令级循环推进从 N 次人工调用变 1 次。
+- `ppsspp_breakpoint` 新增 `action="stats"`（v0.1.7 批 4）——
+  窗口内命中频率统计（按 pc 聚合），count-only 低开销路径。
+
+
 
 
 - `ppsspp_diff_memory`：内存快照差分工具（v0.1.7 批 1，Glama 评审纵深 P0-1）——

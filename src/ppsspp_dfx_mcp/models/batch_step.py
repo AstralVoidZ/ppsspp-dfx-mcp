@@ -77,6 +77,20 @@ class StateProbeStep(TypedDict):
     ]
 
 
+class CpuStepStep(TypedDict):
+    """{type:'cpu_step', mode, count} — N CPU instructions (into/over/out)."""
+
+    type: Literal["cpu_step"]
+    mode: Annotated[
+        Literal["into", "over", "out"],
+        Field(description="CPU stepping mode: 'into', 'over', or 'out'."),
+    ]
+    count: Annotated[
+        int,
+        Field(description="Number of CPU steps to execute (1..1000; default 1)."),
+    ]
+
+
 class ScreenshotStep(TypedDict):
     """{type:'screenshot', source?} — capture the framebuffer."""
 
@@ -90,14 +104,14 @@ class ScreenshotStep(TypedDict):
 
 
 BatchStepInput = Annotated[
-    PressStep | WaitStep | StateProbeStep | ScreenshotStep,
+    PressStep | WaitStep | StateProbeStep | ScreenshotStep | CpuStepStep,
     Field(discriminator="type"),
 ]
 
 # Authoritative step-type list — what tools/batch_step validates against.
 # The four TypedDicts each pin their 'type' via a single-value Literal;
 # the import-time assert below locks the two representations together.
-STEP_TYPES: tuple[str, ...] = ("press", "wait", "state_probe", "screenshot")
+STEP_TYPES: tuple[str, ...] = ("press", "wait", "state_probe", "screenshot", "cpu_step")
 
 assert (
     tuple(get_args(get_type_hints(t)["type"])[0] for t in get_args(get_args(BatchStepInput)[0]))

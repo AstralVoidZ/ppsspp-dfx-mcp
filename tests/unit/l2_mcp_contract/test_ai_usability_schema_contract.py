@@ -43,6 +43,7 @@ class TestBatchStepsDiscriminatedUnion:
             "wait",
             "state_probe",
             "screenshot",
+            "cpu_step",
         }
 
     async def test_step_defs_have_typed_fields(self) -> None:

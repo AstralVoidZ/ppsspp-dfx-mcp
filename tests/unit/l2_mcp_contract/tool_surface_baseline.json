@@ -89,14 +89,14 @@
    "description": "PURPOSE: Execute an ordered automation sequence of press / wait / state_probe / screenshot steps in one call, optionally on a detached background task that outlives the client timeout.\n\nUSAGE: session_id + steps:[{type: press|wait|state_probe|screenshot, ...}]; on_failure='continue'|'abort' (default continue); background=false|true.\n\n\nROUTING: ordered multi-step automation -> here; single CPU-step -> ppsspp_step; background job survey -> ppsspp_batch_status(batch_id omitted).\nBEHAVIOR: STATE-CHANGE. Foreground (default) holds the session lock for the whole batch; frames are 60fps wall-clock equivalents; sequences estimated >25s are rejected up-front with BATCH_BUDGET_EXCEEDED (the MCP client aborts tool calls at ~30s, killing the remaining steps server-side). Per-step MCP progress is reported when the client requests it. background=true validates and submits instantly, returns {action:'submitted', batch_id,...}, keeps the session lock for the batch duration, and reports progress via ppsspp_batch_status. If any foreground step fails the whole call is isError BATCH_STEP_FAILED — inspect results[] per step. Screenshots are auto-skipped during replay recording.\n\nRETURNS: foreground {total, executed, succeeded, failed, skipped, recording_mode, results[], aborted}; background {action:'submitted', batch_id, session_id, total, estimated_s, hint}.",
    "description_chars": 1360,
    "description_words": 163,
-   "input_schema_chars": 3754,
+   "input_schema_chars": 4349,
    "input_schema_properties": [
     "background",
     "on_failure",
     "session_id",
     "steps"
    ],
-   "input_schema_sha1": "904870b6b356a6d67ce754db6ff42aa25034c6c5",
+   "input_schema_sha1": "820b036f3f9ad87ddb16a741b1dee0c90110a77f",
    "output_schema_chars": 1926,
    "output_schema_sha1": "70c37ffe50240e79ee665fe9128df48084683cd2"
   },
@@ -107,10 +107,10 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (memory watch via read/write/size; exec via address alone).\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.\n\nRETURNS: management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
-   "description_chars": 1476,
-   "description_words": 179,
-   "input_schema_chars": 4372,
+   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (memory watch via read/write/size; exec via address alone).\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.\n\nRETURNS: stats → {mode:\"stats\", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}], probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
+   "description_chars": 1614,
+   "description_words": 195,
+   "input_schema_chars": 4543,
    "input_schema_properties": [
     "action",
     "address",
@@ -126,7 +126,7 @@
     "want_registers",
     "write"
    ],
-   "input_schema_sha1": "5ff6a6b882d079ad39ec29ce2b156f320fd56185",
+   "input_schema_sha1": "7b1a3905fbf4ab553e9860837443673e1ea55269",
    "output_schema_chars": 680,
    "output_schema_sha1": "81297f68368d1c708ef28a720f33310f486ecf49"
   },
@@ -686,13 +686,13 @@
    "description": "PURPOSE: Aggregate CPU step + run-state control (into / over / out, pause, resume, reset, run_until, next_hle).\n\nUSAGE: action='into' / 'over' / 'out' / 'pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.\n\n\nROUTING: single CPU-step operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences -> ppsspp_batch_step.\nBEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.\n\nRETURNS: {action, address}.\n",
    "description_chars": 616,
    "description_words": 83,
-   "input_schema_chars": 1064,
+   "input_schema_chars": 1041,
    "input_schema_properties": [
     "action",
     "address",
     "session_id"
    ],
-   "input_schema_sha1": "7c4f78432c7fe92ed25df424a7d685d85c9fbc9b",
+   "input_schema_sha1": "6c836050ac94eaf04b2012a628d5e3a910b2b68b",
    "output_schema_chars": 1204,
    "output_schema_sha1": "0e6b2c852029b0eba3d4fcbe23404bd14c36ac3c"
   },
@@ -759,6 +759,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 23099,
- "total_input_schema_chars": 42205
+ "total_description_chars": 23237,
+ "total_input_schema_chars": 42948
 }
