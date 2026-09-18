@@ -9,7 +9,7 @@
   with a quality filter — the localization-specific workhorse. Decoding
   logic lifted from the ppsspp-dfx skill's decode_text.py.
 
-v0.1.7 批 3（Glama 纵深 P0-2/P0-3）。
+v0.1.6 批 3（Glama 纵深 P0-2/P0-3）。
 """
 
 from __future__ import annotations
@@ -86,6 +86,59 @@ _DECODERS = {
     "utf8": lambda b: b.decode("utf-8"),
     "ascii": lambda b: b.decode("ascii"),
 }
+
+
+def _cmp(v: int, op: str, value: int) -> bool:
+    """Shared value-scan comparison (eq/ne/lt/gt)."""
+    if op == "eq":
+        return v == value
+    if op == "ne":
+        return v != value
+    if op == "lt":
+        return v < value
+    return v > value  # op == "gt"
+
+
+def _merge_runs(addresses: list[int], size: int) -> list[tuple[int, int, list[int]]]:
+    """Group sorted addresses into (run_start, span_bytes, [addresses]) runs.
+
+    Gaps ≤ size fold into one read (candidate offsets are still evaluated
+    exactly within the run, so grouping never changes semantics) — this is
+    what turns an O(N) narrow pass into O(runs) WS round-trips.
+    """
+    if not addresses:
+        return []
+    runs: list[tuple[int, int, list[int]]] = []
+    start = end = addresses[0]
+    members = [addresses[0]]
+    for addr in addresses[1:]:
+        if addr - end <= size:
+            end = addr
+            members.append(addr)
+            continue
+        runs.append((start, end - start + size, members))
+        start = end = addr
+        members = [addr]
+    runs.append((start, end - start + size, members))
+    return runs
+
+
+async def _read_segments(client: Any, start: int, size: int) -> list[tuple[int, bytes]]:
+    """Read [start, start+size) as readable (seg_start, bytes) segments.
+
+    Unreadable chunks are SKIPPED — the ppsspp_scan BEHAVIOR contract.
+    Segment pairs (not one flat buffer) keep addresses exact when a hole
+    splits the range.
+    """
+    segs: list[tuple[int, bytes]] = []
+    for offset in range(0, size, MAX_SINGLE_READ_BYTES):
+        chunk = min(MAX_SINGLE_READ_BYTES, size - offset)
+        try:
+            raw = await client.read_bytes(address=start + offset, size=chunk)
+        except Exception:
+            continue
+        segs.append((start + offset, bytes(raw)))
+    return segs
 
 
 def _decode_pattern(pattern: str, pattern_type: str) -> bytes:
@@ -193,7 +246,7 @@ async def scan(
     ] = "u16",
     op: Annotated[
         Literal["eq", "ne", "lt", "gt"],
-        Field(description="Narrowing comparison (value mode narrow; default eq)."),
+        Field(description="Comparison for value scans (initial + narrow; default eq)."),
     ] = "eq",
     scan_handle: Annotated[
         str | None,
@@ -224,7 +277,7 @@ async def scan(
 
     USAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}].
 
-    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO). Full-band scans (24 MB) cost ~80 s over the MCP channel — keep initial ranges ≤1 MiB or expect a long call.
+    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and initial-scan hard cap is 8 MiB per call — full-band scans cost ~80 s per 24 MB over the MCP channel, so keep initial ranges ≤1 MiB or expect a long call.
 
     ROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.
 
@@ -354,11 +407,21 @@ async def _scan_value(
                 f"cost ~80 s over the MCP channel; keep ≤1 MiB per call "
                 f"or split)."
             )
-        data = await _read_range(session_id, start_int, total)
-        candidates = _scan_width(data, start_int, value, size, fmt, op="eq")
+        async with session_client(session_id) as client:
+            segments = await _read_segments(client, start_int, total)
+        candidates: list[int] = []
+        for seg_start, blob in segments:
+            for off in range(0, len(blob) - size + 1):
+                if _cmp(struct.unpack("<" + fmt, blob[off : off + size])[0], op, value):
+                    candidates.append(seg_start + off)
+                    if len(candidates) >= _VALUE_MAX_HITS:
+                        break
+            if len(candidates) >= _VALUE_MAX_HITS:
+                break
         _evict_oldest_if_full()
         handle = uuid.uuid4().hex[:8]
         _VALUE_SESSIONS[handle] = {
+            "session_id": session_id,
             "width": width,
             "addresses": candidates,
             "created_at": time.time(),
@@ -378,8 +441,12 @@ async def _scan_value(
     if phase == "narrow":
         if value is None:
             raise ArgsInvalid("phase='narrow' requires value")
-        if session_id is None:
-            raise ArgsInvalid("phase='narrow' requires session_id")
+        if sess.get("session_id") != session_id:
+            raise ArgsInvalid(
+                f"scan_handle {scan_handle!r} belongs to session "
+                f"{sess.get('session_id')!r}, not {session_id!r} — "
+                f"drop it and re-scan in this session"
+            )
         sess["addresses"] = await _narrow_candidates(
             session_id, sess["addresses"], value, _WIDTHS[sess["width"]][0], op
         )
@@ -411,8 +478,9 @@ async def _scan_strings(
     total = end_int - start_int
     if total > MAX_SCAN_RANGE_BYTES:
         raise ArgsInvalid(f"range too large: {total} bytes (cap {MAX_SCAN_RANGE_BYTES})")
-    data = await _read_range(session_id, start_int, total)
-    run_re = _RUNS[charset]
+    async with session_client(session_id) as client:
+        segments = await _read_segments(client, start_int, total)
+    run_re = re.compile(_RUNS[charset].pattern.replace(b"{6,}", f"{{{max(min_len, 1)},}}".encode()))
     decode = _DECODERS[charset]
 
     def _jp_ratio(s: str) -> float:
@@ -422,65 +490,49 @@ async def _scan_strings(
         return cjk / len(s)
 
     strings_out: list[dict[str, Any]] = []
-    for m in run_re.finditer(data):
-        if m.end() - m.start() < min_len:
-            continue
-        try:
-            s = decode(m.group())
-        except UnicodeDecodeError:
-            continue
-        if charset == "shift_jis" and quality > 0 and _jp_ratio(s) < quality:
-            continue
-        strings_out.append({"address": start_int + m.start(), "text": s})
+    for seg_start, data in segments:
+        for m in run_re.finditer(data):
+            if m.end() - m.start() < min_len:
+                continue
+            try:
+                s = decode(m.group())
+            except UnicodeDecodeError:
+                continue
+            if charset == "shift_jis" and quality > 0 and _jp_ratio(s) < quality:
+                continue
+            strings_out.append({"address": seg_start + m.start(), "text": s})
 
     return ScanResponse.build_strings(charset, strings_out)
-
-
-def _scan_width(data: bytes, base: int, value: int, size: int, fmt: str, op: str) -> list[int]:
-    hits: list[int] = []
-    for offset in range(0, len(data) - size + 1):
-        chunk = data[offset : offset + size]
-        v = struct.unpack("<" + fmt, chunk)[0]
-        ok = (
-            v == value
-            if op == "eq"
-            else v != value
-            if op == "ne"
-            else v < value
-            if op == "lt"
-            else v > value
-        )
-        if ok:
-            hits.append(base + offset)
-        if len(hits) >= _VALUE_MAX_HITS:
-            break
-    return hits
 
 
 async def _narrow_candidates(
     session_id: str, addresses: list[int], value: int, size: int, op: str
 ) -> list[int]:
+    """Re-read candidate addresses in merged span reads: N sequential WS
+    round-trips collapse to O(runs) (candidate offsets still evaluated
+    exactly, so semantics match the per-address reader). Runs whose read
+    fails fall back to per-address reads (partial unmapped spans)."""
     if not addresses:
         return []
+    fmt = "<" + {1: "B", 2: "H", 4: "I"}[size]
     out: list[int] = []
     async with session_client(session_id) as client:
-        for addr in addresses:
+        for run_start, span, addrs in _merge_runs(addresses, size):
             try:
-                raw = await client.read_bytes(address=addr, size=size)
+                blob = bytes(await client.read_bytes(address=run_start, size=span))
             except Exception:
-                continue  # unreadable (paged out/freed) — drop silently
-            v = struct.unpack("<" + {1: "B", 2: "H", 4: "I"}[size], bytes(raw))[0]
-            ok = (
-                v == value
-                if op == "eq"
-                else v != value
-                if op == "ne"
-                else v < value
-                if op == "lt"
-                else v > value
-            )
-            if ok:
-                out.append(addr)
+                for addr in addrs:
+                    try:
+                        raw = await client.read_bytes(address=addr, size=size)
+                    except Exception:
+                        continue
+                    if _cmp(struct.unpack(fmt, bytes(raw))[0], op, value):
+                        out.append(addr)
+                continue
+            for addr in addrs:
+                off = addr - run_start
+                if _cmp(struct.unpack(fmt, blob[off : off + size])[0], op, value):
+                    out.append(addr)
     return out
 
 
@@ -489,13 +541,3 @@ def _evict_oldest_if_full() -> None:
         oldest = next(iter(_VALUE_SESSIONS))
         _VALUE_SESSIONS.pop(oldest)
         logger.info("value scan session evicted (FIFO): %s", oldest)
-
-
-async def _read_range(session_id: str, start: int, size: int) -> bytes:
-    data = bytearray()
-    async with session_client(session_id) as client:
-        for offset in range(0, size, MAX_SINGLE_READ_BYTES):
-            chunk = min(MAX_SINGLE_READ_BYTES, size - offset)
-            raw = await client.read_bytes(address=start + offset, size=chunk)
-            data.extend(raw)
-    return bytes(data)

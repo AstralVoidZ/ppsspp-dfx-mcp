@@ -517,10 +517,10 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.\n\nUSAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}].\n\nBEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO). Full-band scans (24 MB) cost ~80 s over the MCP channel — keep initial ranges ≤1 MiB or expect a long call.\n\nROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.\n\nRETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}.",
-   "description_chars": 1250,
-   "description_words": 153,
-   "input_schema_chars": 3572,
+   "description": "PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.\n\nUSAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}].\n\nBEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and initial-scan hard cap is 8 MiB per call — full-band scans cost ~80 s per 24 MB over the MCP channel, so keep initial ranges ≤1 MiB or expect a long call.\n\nROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.\n\nRETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}.",
+   "description_chars": 1335,
+   "description_words": 170,
+   "input_schema_chars": 3577,
    "input_schema_properties": [
     "charset",
     "chunk_size",
@@ -539,7 +539,7 @@
     "value",
     "width"
    ],
-   "input_schema_sha1": "968f4686391183748903e5d894261bc7260d10dd",
+   "input_schema_sha1": "d7f8cd3152ae0842bce2784aeaee4d2e14a70b8b",
    "output_schema_chars": 1951,
    "output_schema_sha1": "ea133189930f6c733ae627afc7a443528df6b28e"
   },
@@ -759,6 +759,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 23237,
- "total_input_schema_chars": 42948
+ "total_description_chars": 23322,
+ "total_input_schema_chars": 42953
 }

@@ -30,7 +30,7 @@
 
 ### Changed
 
-- `ppsspp_context`（v0.1.7 批 1 收口）：崩溃归因上下文包——known_functions
+- `ppsspp_context`（v0.1.6 批 1 收口）：崩溃归因上下文包——known_functions
   IDA 偏移换算身份 + 反汇编窗 + 可选回溯（with_stepping）；真机验证通过。
 - `ppsspp_breakpoint` 吸收两个消费工具（批 2，工具数 39 → 37）：
   `ppsspp_wait_breakpoint` → `action="wait"`（严格等待，lock-free，断点保持）；
@@ -51,21 +51,21 @@
 
 ### Added
 
-- `ppsspp_scan`（v0.1.7 批 3）：三模式统一扫描器——
+- `ppsspp_scan`（v0.1.6 批 3）：三模式统一扫描器——
   `mode="pattern"`（字节模式搜索，从 read_memory 迁入）/
   `mode="value"`（Cheat-Engine 式值扫描+窄化会话，initial→narrow→list→drop）/
   `mode="strings"`（charset 感知字符串采集：shift_jis/utf8/ascii + min_len +
   CJK 占比质量过滤）。
-- `ppsspp_batch_step` 新增 `cpu_step` 步骤类型（v0.1.7 批 3）——
+- `ppsspp_batch_step` 新增 `cpu_step` 步骤类型（v0.1.6 批 3）——
   `{type:"cpu_step", mode:"into"|"over"|"out", count:1..1000}`；
   指令级循环推进从 N 次人工调用变 1 次。
-- `ppsspp_breakpoint` 新增 `action="stats"`（v0.1.7 批 4）——
+- `ppsspp_breakpoint` 新增 `action="stats"`（v0.1.6 批 4）——
   窗口内命中频率统计（按 pc 聚合），count-only 低开销路径。
 
 
 
 
-- `ppsspp_diff_memory`：内存快照差分工具（v0.1.7 批 1，Glama 评审纵深 P0-1）——
+- `ppsspp_diff_memory`：内存快照差分工具（v0.1.6 批 1，Glama 评审纵深 P0-1）——
   `snapshot`（64KB 分块读，单快照上限 8 MiB，注册表容量 4 FIFO）→ `compare`
   （变更字节清单，内联上限 256 + truncated 标记）→ `drop`/`list`；
   纯客户端编排，零新 WS 事件；多形态契约 partial=True 并登记

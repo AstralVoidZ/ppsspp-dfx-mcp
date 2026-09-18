@@ -49,8 +49,8 @@ DiffOutput = derive_output_contract(
     partial=True,  # multi-shape: snapshot/compare/drop/list return different views
 )
 
-# handle -> (result meta, snapshot bytes)
-_SNAPSHOTS: dict[str, tuple[DiffSnapshotResult, bytes]] = {}
+# handle -> (result meta, snapshot bytes, owning session_id)
+_SNAPSHOTS: dict[str, tuple[DiffSnapshotResult, bytes, str]] = {}
 
 
 def _reset_registry_for_tests() -> None:
@@ -166,7 +166,7 @@ async def diff_memory(
                 checksum=hashlib.sha256(data).hexdigest()[:16],
                 created_at=time.time(),
             )
-            _SNAPSHOTS[handle] = (result, data)
+            _SNAPSHOTS[handle] = (result, data, session_id_resolved)
             return DiffSnapshotResponse.from_result(result).model_dump(mode="json")
 
         if action == "compare":
@@ -178,8 +178,15 @@ async def diff_memory(
                     f"unknown handle {handle!r} — use action='list' "
                     f"(handles are per-server-process and FIFO-evicted)"
                 )
-            meta, snap_bytes = entry
+            meta, snap_bytes, snap_session = entry
             session_id_resolved = await resolve_session_id(session_id)
+            if snap_session != session_id_resolved:
+                raise ArgsInvalid(
+                    f"handle {handle!r} was snapshotted in session "
+                    f"{snap_session!r}, not {session_id_resolved!r} — "
+                    f"cross-session comparison would produce a meaningless "
+                    f"diff; snapshot it again in this session"
+                )
             async with session_client(session_id_resolved) as client:
                 current = await _read_range(client, meta.start, meta.size)
             changes: list[DiffChange] = []
@@ -208,7 +215,7 @@ async def diff_memory(
 
         # action == "list"
         return DiffListResponse.build(
-            [meta for meta, _ in _SNAPSHOTS.values()], _MAX_SNAPSHOTS
+            [meta for meta, _, _ in _SNAPSHOTS.values()], _MAX_SNAPSHOTS
         ).model_dump(mode="json")
     except Exception as e:
         raise to_tool_error(e) from e
