@@ -1,6 +1,6 @@
 """Unit tests for evals/gates.py — positive AND negative per gate type.
 
-Run (from mcps/ppsspp-dfx-mcp/):
+Run (from the repository root/):
   ../.venv/ppsspp-dfx-mcp/Scripts/python.exe -m pytest evals/test_gates.py -q
 """
 

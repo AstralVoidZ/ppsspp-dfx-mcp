@@ -21,7 +21,10 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address, parse_value
-from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
+from ppsspp_dfx_mcp.core.primitives import (
+    MAX_SINGLE_READ_BYTES,
+    MAX_WRITE_BYTES,
+)
 from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.memory import (
     DisassemblyResult,
@@ -426,6 +429,14 @@ async def write_memory(
                 # decoded_bytes is guaranteed non-empty here (the
                 # pre-check above raises on empty), so no fallback re-decode.
                 raw = decoded_bytes
+                if len(raw) > MAX_WRITE_BYTES:
+                    # W10 (review v2): symmetric with the 64KiB read cap —
+                    # fail fast with the chunking instruction instead of
+                    # shipping a multi-MB WS frame.
+                    raise ArgsInvalid(
+                        f"data is {len(raw)} bytes; format='bytes' is capped "
+                        f"at {MAX_WRITE_BYTES} — write in chunks"
+                    )
                 await client.write_bytes(address=address_int, data=raw)
                 bytes_written = len(raw)
     except ToolError:
@@ -607,26 +618,3 @@ def _decode_bytes_input(data: int | str) -> bytes:
         return base64.b64decode(s, validate=True)
     except Exception as e:
         raise ArgsInvalid(f"could not decode data as hex or base64: {e}") from e
-
-
-def _decode_hex_pattern(pattern: str) -> bytes:
-    """Decode the `pattern` argument for action='scan'.
-
-    Accepts hex string (e.g. 'AABBCCDD' or '0xAABBCCDD'). Strict hex-only:
-    no base64 fallback (unlike _decode_bytes_input, scan patterns are
-    always hex by spec).
-
-    Raises:
-        ToolError: if the pattern is empty, has odd length, or contains
-            non-hex characters.
-    """
-    s = pattern.strip()
-    if s.lower().startswith("0x"):
-        s = s[2:]
-    if not s:
-        raise ArgsInvalid("pattern is empty after stripping 0x prefix")
-    if len(s) % 2 != 0:
-        raise ArgsInvalid(f"pattern must have even length (got {len(s)} chars: {s!r})")
-    if not all(c in "0123456789abcdefABCDEF" for c in s):
-        raise ArgsInvalid(f"pattern must be valid hex (got non-hex chars in {s!r})")
-    return bytes.fromhex(s)

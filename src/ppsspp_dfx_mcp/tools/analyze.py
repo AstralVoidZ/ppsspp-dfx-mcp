@@ -12,13 +12,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.config import config_dir, output_dir
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.analyze import AnalyzeLogResult, LogMatch
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.tools._common import MAX_LOG_BYTES, MAX_LOG_MATCHES, translate_tool_errors
@@ -42,23 +42,6 @@ _LOG_ALLOWED_ROOTS: tuple[Path, ...] = (
     output_dir().resolve(),
     config_dir().parent.resolve(),
 )
-
-
-def _coerce_yaml_int(value: Any) -> int:
-    """Coerce an addresses.yaml scalar to int, accepting the quoted
-    hex-string form ("0x08804000"). Mirrors client_helper.read_game_mode_addr.
-    """
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        try:
-            return int(value, 16) if value.lower().startswith("0x") else int(value)
-        except ValueError:
-            pass
-    raise ToolError(
-        f"addresses.yaml value is not a valid int: {value!r}",
-        code="CONFIG_INVALID",
-    )
 
 
 def _resolve_log_path(log_path: str) -> Path:

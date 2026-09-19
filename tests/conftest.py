@@ -25,7 +25,7 @@ import pytest
 
 # ---------- R13: run-directory guard (fail fast with the right command) --
 
-# The mcps suite MUST run from the package root (mcps/ppsspp-dfx-mcp):
+# The suite MUST run from the package root (the repository root):
 # running it from the repo root mixes the root and mcps pytest configs and
 # produces order-dependent false failures (verification round 3, G4 — a
 # git-stash control experiment proved the failures are environmental).
@@ -33,7 +33,7 @@ _PKG_ROOT = Path(__file__).resolve().parent.parent
 if Path.cwd().resolve() != _PKG_ROOT:
     raise SystemExit(
         "\n[ppsspp-dfx-mcp] mcps tests must run from the package root:\n"
-        "    cd mcps/ppsspp-dfx-mcp && python -m pytest tests\n"
+        "    cd <repo root> && python -m pytest tests\n"
         f"  current cwd: {Path.cwd()}\n"
         "  (R13 guard: cross-config runs produce unreliable results — see "
         "design_ppsspp_dfx_mcp_test_refactor_v2.md §G4)"

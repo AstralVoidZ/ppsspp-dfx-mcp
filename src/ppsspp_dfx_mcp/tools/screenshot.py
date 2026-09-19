@@ -23,7 +23,7 @@ from mcp.server.mcpserver import Image
 from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, CaptureEmpty, ToolError, to_tool_error
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_capture
 from ppsspp_dfx_mcp.tools._common import save_output_bytes, translate_tool_errors
@@ -158,7 +158,9 @@ def _resolve_capture_strategy(
             "ambiguous: provide either `source` (new) or `mode` (deprecated), not both"
         )
     if source_set:
-        assert source in ("render", "output")
+        if source not in ("render", "output"):
+            # S11 (review v2): was assert — stripped under python -O.
+            raise ArgsInvalid(f"invalid source={source!r}; expected 'render' or 'output'")
         return (source, source)
     if mode_explicit:
         logger.warning(
@@ -166,7 +168,8 @@ def _resolve_capture_strategy(
             "(Literal['render', 'output']) instead. Got mode=%r.",
             mode,
         )
-    assert mode in ("auto", "wm_command", "printwindow", "vram")
+    if mode not in ("auto", "wm_command", "printwindow", "vram"):
+        raise ArgsInvalid(f"invalid mode={mode!r}")
     return (mode, mode)
 
 
@@ -379,11 +382,11 @@ async def dump(
     # with size_bytes=0.
     if not data:
         what = "CLUT" if kind == "clut" else "texture"
-        raise ToolError(
+        # W17 (review v2): typed exception carries the CAPTURE_EMPTY code.
+        raise CaptureEmpty(
             f"dump produced no image (kind={kind}, level={level}) — no {what} "
             f"is currently bound, or the GPU capture failed; try again "
-            f"after a frame has been rendered",
-            code="CAPTURE_EMPTY",
+            f"after a frame has been rendered"
         )
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

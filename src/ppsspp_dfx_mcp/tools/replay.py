@@ -231,9 +231,12 @@ async def replay(
         int,
         Field(
             default=10000,
+            ge=100,
+            le=60000,
             description=(
                 "Total timeout in milliseconds for action='wait_complete' "
-                "(default 10000 = 10s). Ignored for all other actions."
+                "(default 10000 = 10s, clamped 100..60000). Ignored for "
+                "all other actions."
             ),
         ),
     ] = 10000,
@@ -241,9 +244,13 @@ async def replay(
         int,
         Field(
             default=100,
+            ge=10,
+            le=5000,
             description=(
                 "Polling interval in milliseconds for action='wait_complete' "
-                "(default 100ms). Ignored for all other actions."
+                "(default 100ms, clamped 10..5000 — below 10 the poll "
+                "degenerates to a busy loop on the WS). Ignored for all "
+                "other actions."
             ),
         ),
     ] = 100,
@@ -413,16 +420,43 @@ async def replay(
                 try:
                     await asyncio.to_thread(ppr_path.write_text, payload, encoding="utf-8")
                 except OSError as e:
-                    # replay_flush already consumed and
-                    # reset the recorder, so a failed write must not lose the
-                    # recording. Embed version + base64 so the caller can
-                    # recover the payload (replay input timelines are small).
+                    # replay_flush already consumed and reset the recorder,
+                    # so a failed write must not lose the recording. W22
+                    # (review v2): the payload used to be embedded in the
+                    # ToolError text — a long recording made the error
+                    # itself megabytes on the MCP text channel. Rescue it
+                    # to a server-generated file; the error names the path.
+                    rescue_name = f"replay_rescue_{time.strftime('%Y%m%d_%H%M%S')}.ppr"
+                    rescue_path = resolve_output_path("replays", rescue_name)
+                    rescued = False
+                    try:
+                        rescue_path.parent.mkdir(parents=True, exist_ok=True)
+                        rescue_doc = json.dumps(
+                            PPRFile(
+                                version=version_val,
+                                base64=b64,
+                                base_rtc=base_rtc_val,
+                                recorded_at=time.time(),
+                                session_note=session_note,
+                            ).to_dict(),
+                            indent=2,
+                        )
+                        await asyncio.to_thread(
+                            rescue_path.write_text, rescue_doc, encoding="utf-8"
+                        )
+                        rescued = True
+                    except Exception as rescue_err:  # noqa: BLE001
+                        logger.error("replay rescue write failed too: %s", rescue_err)
+                    where = (
+                        f"{rescue_path} — replay(action='load', "
+                        f"file_path='{rescue_name}') restores it"
+                        if rescued
+                        else "but could NOT be rescued to disk"
+                    )
                     raise ToolError(
                         f"failed to write .ppr file {ppr_path}: {e}. The "
                         f"recording was already flushed from PPSSPP and is "
-                        f"preserved here — replay(execute, version="
-                        f"{version_val}, base64_input=<payload>). "
-                        f"base64 (binary size={size}): {b64}",
+                        f"preserved at {where}. base64 payload size={size}.",
                         code="INTERNAL",
                     ) from e
                 result = ReplayResult(
@@ -447,7 +481,7 @@ async def replay(
                     raise ArgsInvalid(f"invalid .ppr file (JSON parse error): {e}") from e
                 try:
                     ppr = PPRFile.from_dict(raw)
-                except ValueError as e:
+                except (ValueError, TypeError) as e:
                     raise ArgsInvalid(f"invalid .ppr file: {e}") from e
                 # R4: a live executing/saving state must not mix with the
                 # new event table.

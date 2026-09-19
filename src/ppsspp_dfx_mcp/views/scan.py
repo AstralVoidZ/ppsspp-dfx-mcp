@@ -44,6 +44,13 @@ class ScanResponse(FrozenModel):
     strings: list[StringHitView] = Field(
         default_factory=list, description="Harvested strings (strings mode)."
     )
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "True when the strings hit cap was reached and remaining "
+            "matches were dropped (narrow the range or raise min_len)."
+        ),
+    )
 
     @classmethod
     def build_pattern(cls, start: int, matches: list[dict[str, Any]]) -> ScanResponse:
@@ -93,11 +100,17 @@ class ScanResponse(FrozenModel):
         return cls(mode="value", scan_handle=handle, dropped=True)
 
     @classmethod
-    def build_strings(cls, charset: str, strings: list[dict[str, Any]]) -> ScanResponse:
+    def build_strings(
+        cls,
+        charset: str,
+        strings: list[dict[str, Any]],
+        truncated: bool = False,
+    ) -> ScanResponse:
         return cls(
             mode="strings",
             charset=charset,
             count=len(strings),
+            truncated=truncated,
             strings=[
                 StringHitView(address=format_address(s["address"]), text=s["text"]) for s in strings
             ],

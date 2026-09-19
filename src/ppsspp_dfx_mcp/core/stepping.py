@@ -13,6 +13,7 @@ eliminates the broadcast-queue confirmation race that the previous
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator, Callable
@@ -172,6 +173,11 @@ class SteppingManager:
         # message — encoding last ticks). Updated lazily by pause()
         # when it probes cpu.status before issuing cpu.stepping.
         self._last_status: dict[str, Any] | None = None
+
+    @property
+    def pid(self) -> int | None:
+        """Session PID this manager pre-checks before pause (None = unknown)."""
+        return self._pid
 
     # ---------- Pause / resume primitives ----------
 
@@ -370,8 +376,6 @@ class SteppingManager:
                 # the CPU frozen in STEPPING forever. The shielded task
                 # survives the caller's cancellation; the (now-cancelled)
                 # caller can't observe its result either way.
-                import asyncio
-
                 async def _resume():
                     await self.resume()
 
@@ -383,10 +387,11 @@ class SteppingManager:
                     else:
                         # Body raised — record resume failure as a warning,
                         # but do NOT mask the original exception (V020 I12).
+                        # (CancelledError is a BaseException: it is NOT
+                        # caught by the `except Exception` below — it
+                        # propagates to the outer handler.)
                         try:
                             await asyncio.shield(_resume())
-                        except asyncio.CancelledError:
-                            raise
                         except Exception:
                             logger.warning(
                                 "with_stepping: resume failed after body "
@@ -396,11 +401,18 @@ class SteppingManager:
                 except asyncio.CancelledError:
                     # Caller cancelled mid-resume: the shielded task keeps
                     # running to completion in the background (it holds the
-                    # only reference via the event loop until done).
+                    # only reference via the event loop until done) — but
+                    # the caller's cancellation must still propagate (C2).
+                    # Swallowing it here would make the cancelled task
+                    # return success, breaking asyncio cancellation
+                    # contracts (tasks refuse to die; anyio cancel scopes
+                    # mis-account). The shield already did its one job:
+                    # the CPU returns to RUNNING regardless.
                     logger.warning(
                         "with_stepping: caller cancelled during resume; "
                         "shielded resume continues in background"
                     )
+                    raise
 
     # ---------- Safe query primitives ----------
 

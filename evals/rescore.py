@@ -6,7 +6,7 @@ in L2-03/L2-04 first_tool. gates.evaluate is pure, so
 stored tool_calls + final_answer can be re-scored against the CURRENT
 scenarios.yaml without re-running.
 
-Usage (from mcps/ppsspp-dfx-mcp/):
+Usage (from the repository root/):
   <venv python> -m evals.rescore --archive evals/runs/archive/runs-20260913-ark-baseline.jsonl
 """
 
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from runner import _gates_record
 
 from evals.gates import evaluate
 
@@ -49,7 +50,10 @@ def main() -> None:
             if sid not in wanted or r.get("variant") != "B1":
                 continue
             rescored = evaluate(meta[sid], r, fixtures_dir)
-            r["gates"] = {g["type"]: g["pass"] for g in rescored["gates"]}
+            # W14 (review v2): reuse the runner's record shape — a plain
+            # type->pass dict silently collapsed same-type gates (the
+            # exact 🔴-4 bug the runner already fixed with #N suffixes).
+            r["gates"] = _gates_record(rescored["gates"])
             r["gate_details"] = rescored["gates"]
             r["success"] = rescored["success"]
             out.write(json.dumps(r, ensure_ascii=False) + "\n")

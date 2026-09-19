@@ -186,7 +186,15 @@ def _build_exposed_wrapper(entry: Any, input_cls: Any, output_cls: Any) -> Calla
         if field_info.is_required():
             default: Any = inspect.Parameter.empty
         else:
-            default = field_info.default
+            # S14 (review v2): default_factory fields report
+            # is_required()=False but default=PydanticUndefined — the
+            # sentinel must not leak into the signature the SDK
+            # introspects to build inputSchema.
+            default = field_info.get_default(call_default_factory=True)
+            if default is inspect.Parameter.empty or str(type(default)).endswith(
+                "PydanticUndefined"
+            ):
+                default = inspect.Parameter.empty
         params.append(
             inspect.Parameter(
                 field_name,
@@ -366,21 +374,29 @@ async def _register_exposed_entry(entry: Any, project_root: Any) -> bool:
     _exposed_wrapper = _build_exposed_wrapper(entry, input_cls, output_cls)
 
     try:
-        mcp.add_tool(
-            _exposed_wrapper,
-            name=tool_name,
-            description=(
-                f"Diagnostic script '{entry.name}': {entry.description} "
-                f"(category={entry.category})."
-            ),
-            annotations=_DEFAULT_SCRIPT_ANNOTATIONS,
-        )
+        # Check + add_tool + registry write share ONE critical section:
+        # an await happened above (contract validation), so a concurrent
+        # reload/lifespan sync may have registered this name meanwhile —
+        # re-checking outside the lock would be a check-then-act race
+        # producing spurious "failed" entries in the reload report.
+        # add_tool is synchronous, so holding the threading lock here is
+        # safe (no await inside the critical section).
+        with _exposed_registry_lock:
+            if entry.name in _exposed_registry:
+                return True  # concurrent registration won the race
+            mcp.add_tool(
+                _exposed_wrapper,
+                name=tool_name,
+                description=(
+                    f"Diagnostic script '{entry.name}': {entry.description} "
+                    f"(category={entry.category})."
+                ),
+                annotations=_DEFAULT_SCRIPT_ANNOTATIONS,
+            )
+            _exposed_registry[entry.name] = tool_name
     except Exception as e:
         log.warning("failed to register exposed tool %r: %s", tool_name, e)
         return False
-
-    with _exposed_registry_lock:
-        _exposed_registry[entry.name] = tool_name
     return True
 
 
@@ -392,9 +408,12 @@ def _unregister_exposed_tool(script_name: str) -> bool:
     """
     with _exposed_registry_lock:
         tool_name = _exposed_registry.pop(script_name, None)
-    if tool_name is None:
-        return True
-    removed = mcp._tool_manager._tools.pop(tool_name, None) is not None  # noqa: SLF001 — private SDK API, isolated here
+        if tool_name is None:
+            return True
+        # SDK pop belongs in the same critical section as the registry
+        # pop: split phases would let a concurrent re-register slip its
+        # add_tool between the two pops and get silently removed.
+        removed = mcp._tool_manager._tools.pop(tool_name, None) is not None  # noqa: SLF001 — private SDK API, isolated here
     if not removed:
         log.warning(
             "exposed tool %r was not present in the SDK registry (already removed?)",
@@ -542,6 +561,7 @@ _TOOL_MODULE_NAMES: tuple[str, ...] = (
     "step",
     "workflows",
     "write_register",
+    "watch_value",
 )
 
 # Annotations for dynamic script tools (aggregate STATE-CHANGE default).

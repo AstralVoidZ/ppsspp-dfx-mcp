@@ -4,7 +4,8 @@ This module was referenced across the codebase (config.py, client_helper.py,
 integration conftest error hints) but was never implemented — this script
 fills that gap so fixtures can be regenerated against a real PPSSPP.
 
-Usage (from mcps/ppsspp-dfx-mcp, with src/ importable):
+Usage (from the repository root, with src/ importable — e.g.
+`PYTHONPATH=src python -m ppsspp_dfx_mcp.scripts.record_fixtures`):
 
     python -m ppsspp_dfx_mcp.scripts.record_fixtures \
         [--host 127.0.0.1] [--port 12345] \
@@ -18,8 +19,8 @@ it does NOT spawn PPSSPP.
 
 Default recipe records the read-only, side-effect-free events. With
 ``--extend`` a second block of game-dependent events is recorded too
-(they assume the TOP main module at 0x08804000, matching
-.ppsspp-dfx/config/addresses.yaml).
+(their addresses come from the active project config's ``top_base.ppsspp``
+via ``config.addresses()`` — the examples template resolves to 0x08804000).
 
 Output format per event (consumed by tests/contract_recorder/fixture_loader.py):
 
@@ -55,13 +56,32 @@ _SAFE_RECIPE: list[tuple[str, dict[str, Any], str]] = [
     ("memory.base", {}, "addressHex"),
 ]
 
-# Game-dependent extras (--extend): assume TOP main module at 0x08804000.
-_TOP_BASE = 0x08804000
-_EXTEND_RECIPE: list[tuple[str, dict[str, Any], str]] = [
-    ("memory.read_u32", {"address": _TOP_BASE}, "ELF magic read"),
-    ("memory.disasm", {"address": _TOP_BASE, "count": 8}, "disasm lines"),
-    ("memory.searchDisasm", {"address": _TOP_BASE, "match": "jr"}, "first match"),
-]
+
+def _extend_recipe() -> list[tuple[str, dict[str, Any], str]]:
+    """Game-dependent extras (--extend), built from the project config.
+
+    W26 (review v2): the TOP base was hardcoded to this project's
+    address, violating the package rule (scripts/__init__.py) against
+    baked-in project addresses. ``config.addresses()`` resolves
+    ``top_base.ppsspp`` from the active config — the shipped examples
+    template yields 0x08804000; a real project config yields its own.
+    """
+    from ppsspp_dfx_mcp.config import addresses as _addresses
+    from ppsspp_dfx_mcp.errors import ConfigInvalid
+
+    try:
+        top_base = int(_addresses()["top_base"]["ppsspp"])
+    except (KeyError, TypeError, ValueError) as e:
+        raise ConfigInvalid(
+            "--extend needs `top_base.ppsspp` in the active addresses.yaml "
+            "(copy examples/addresses.yaml into .ppsspp-dfx/config/ and fill "
+            "in your project's values)"
+        ) from e
+    return [
+        ("memory.read_u32", {"address": top_base}, "ELF magic read"),
+        ("memory.disasm", {"address": top_base, "count": 8}, "disasm lines"),
+        ("memory.searchDisasm", {"address": top_base, "match": "jr"}, "first match"),
+    ]
 
 
 def _write_fixture(
@@ -101,7 +121,7 @@ async def record(host: str, port: int, out_dir: Path, extend: bool) -> int:
 
         recipe = list(_SAFE_RECIPE)
         if extend:
-            recipe += _EXTEND_RECIPE
+            recipe += _extend_recipe()
 
         written = 0
         for event, params, _note in recipe:

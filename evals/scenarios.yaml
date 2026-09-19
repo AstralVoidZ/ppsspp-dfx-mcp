@@ -3,7 +3,7 @@
 # "confirm the session first" is a rational strategy when the prompt names
 # a specific session / commands a sequence (W1-W3 delta report conclusion).
 # Ground truths are fixture-driven (from_fixture) — never hardcoded.
-# Fixtures: mcps/ppsspp-dfx-mcp/tests/cassettes/fixtures (v1.20.4-605-gf0c28c6744)
+# Fixtures: tests/cassettes/fixtures (v1.20.4-605-gf0c28c6744)
 version: 2
 fixtures_dir: "../tests/cassettes/fixtures"
 
@@ -16,7 +16,7 @@ scenarios:
     prompt: |
       告诉我 CPU 当前的 PC 值（十六进制）。
     max_turns: 12
-    expected_first_tools: [ppsspp_query, ppsspp_frame_snapshot, ppsspp_get_pc, ppsspp_health, ppsspp_session]
+    expected_first_tools: [ppsspp_query, ppsspp_frame_snapshot, ppsspp_health, ppsspp_session]
     optimal_calls: 1
     gates:
       - type: first_tool
@@ -66,7 +66,7 @@ scenarios:
     prompt: |
       CPU 现在执行到哪了？告诉我 PC 的值（十六进制）。
     max_turns: 12
-    expected_first_tools: [ppsspp_query, ppsspp_frame_snapshot, ppsspp_get_pc]
+    expected_first_tools: [ppsspp_query, ppsspp_frame_snapshot]
     optimal_calls: 1
     gates:
       - type: first_tool

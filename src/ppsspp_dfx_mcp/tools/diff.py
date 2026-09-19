@@ -154,7 +154,10 @@ async def diff_memory(
     # Session resolution up-front for session-touching actions, matching
     # ppsspp_scan's precedence (session errors before action-specific ones).
     session_id_resolved: str | None = None
-    if action in ("snapshot", "compare"):
+    if action in ("snapshot", "compare", "drop", "list"):
+        # drop/list resolve too (S13): ownership of a snapshot must be
+        # enforced on every action that touches it, under the SAME
+        # resolved identity the snapshot stored.
         session_id_resolved = await resolve_session_id(session_id)
 
     try:
@@ -206,19 +209,25 @@ async def diff_memory(
                 )
             async with session_client(session_id_resolved) as client:
                 current = await _read_segments(client, meta.start, meta.size)
+            # S3 (review v2): single pass — the old code walked both
+            # buffers a second time just to count, i.e. up to 2×8MiB
+            # Python-level iterations while blocking the event loop.
+            changed_count = 0
             changes: list[DiffChange] = []
             truncated = False
             for offset, (old, new) in enumerate(zip(snap_bytes, current, strict=True)):
-                if old != new:
-                    if len(changes) < _MAX_CHANGES_INLINE:
-                        changes.append(DiffChange(meta.start + offset, old, new))
-                    else:
-                        truncated = True
+                if old == new:
+                    continue
+                changed_count += 1
+                if len(changes) < _MAX_CHANGES_INLINE:
+                    changes.append(DiffChange(meta.start + offset, old, new))
+                else:
+                    truncated = True
             result = DiffCompareResult(
                 handle=handle,
                 start=meta.start,
                 size=meta.size,
-                changed_count=sum(1 for o, n in zip(snap_bytes, current, strict=True) if o != n),
+                changed_count=changed_count,
                 truncated=truncated,
                 changes=tuple(changes),
             )
@@ -227,6 +236,17 @@ async def diff_memory(
         if action == "drop":
             if not handle:
                 raise ArgsInvalid("action='drop' requires handle")
+            entry = _SNAPSHOTS.get(handle)
+            if entry is not None:
+                _, _, snap_session = entry
+                if snap_session != session_id_resolved:
+                    # S13 (review v2): same ownership contract as compare —
+                    # dropping another session's snapshot from session A
+                    # would make session B's next compare fail confusingly.
+                    raise ArgsInvalid(
+                        f"handle {handle!r} was snapshotted in session "
+                        f"{snap_session!r}, not {session_id_resolved!r}"
+                    )
             dropped = _SNAPSHOTS.pop(handle, None) is not None
             return DiffDropResponse.build(handle, dropped).model_dump(mode="json")
 

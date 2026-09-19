@@ -10,7 +10,7 @@ trailing lines are skipped). Report sections mirror the design doc §5.4:
 5. 错误恢复明细（出现过的错误码与是否按链恢复）
 6. 效率（tool_calls / optimal_calls）
 
-Usage (from mcps/ppsspp-dfx-mcp/):
+Usage (from the repository root/):
   <venv python> -m evals.report            # 写 reports/report-<ts>.md（临时名）
   <venv python> -m evals.report --stdout   # 同时打印到终端
 """
@@ -178,8 +178,15 @@ def build_report(runs: list[dict[str, Any]], scenarios_cfg: dict[str, Any]) -> s
             code = c.get("error_code")
             if not code:
                 continue
+            # S16 (review v2): scenarios can carry one recovery gate per
+            # expected error code; picking the FIRST one mislabeled every
+            # other code's recovery. Match the gate whose detail names
+            # the code, falling back to the single-gate shape.
+            gates = r.get("gate_details") or []
+            rec_gates = [g for g in gates if g["type"] == "recovery"]
             rec_gate = next(
-                (g for g in r.get("gate_details") or [] if g["type"] == "recovery"), None
+                (g for g in rec_gates if code in str(g.get("detail", ""))),
+                rec_gates[0] if len(rec_gates) == 1 else None,
             )
             rec = "—" if rec_gate is None else ("恢复✓" if rec_gate["pass"] else "恢复✗")
             err_rows.append(

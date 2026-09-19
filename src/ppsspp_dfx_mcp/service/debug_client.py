@@ -40,11 +40,13 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
+from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES, MAX_WRITE_BYTES
 from ppsspp_dfx_mcp.core.registers import normalize_reg_name
 from ppsspp_dfx_mcp.core.stepping import SteppingManager, ThreadSnapshot
 from ppsspp_dfx_mcp.core.transport import WsTransport
 from ppsspp_dfx_mcp.core.ws_contract import get_contract
 from ppsspp_dfx_mcp.errors import (
+    ArgsInvalid,
     CpuStateError,
     StepNoAdvanceError,
     StepOutError,
@@ -116,6 +118,16 @@ class PpssppDebugClient:
             game_state_observer=game_state_observer,
         )
 
+    @property
+    def pid(self) -> int | None:
+        """Session PID backing this client (None for bare-test clients).
+
+        Consumers use it to disambiguate OS-level resources that are
+        NOT keyed by session — e.g. CaptureService filters EnumWindows
+        by PID so a two-session setup never screenshots the wrong game.
+        """
+        return self._stepping.pid
+
     # ======================================================================
     # Stepping delegation (task 3.4)
     # ======================================================================
@@ -160,12 +172,27 @@ class PpssppDebugClient:
         resp = await self._transport.call("memory.read_u32", address=address)
         return int(resp.get("value", 0))
 
-    async def read_bytes(self, address: int, size: int) -> bytes:
-        """Read arbitrary-length memory region.
+    async def read_bytes(self, address: int, size: int, *, allow_large: bool = False) -> bytes:
+        """Read memory, capped at MAX_SINGLE_READ_BYTES unless opted out.
+
+        W10 (review v2): the cap is now enforced HERE, not only at the
+        tool layer — PPSSPP's unbounded read is documented (see
+        read_string) to produce multi-megabyte responses that kill the
+        WebSocket, and every direct caller of debug_client deserves the
+        same protection. `allow_large=True` is the sanctioned escape for
+        the one known large reader (CaptureService's VRAM framebuffer
+        fallback reads a fixed 557KB stride against live builds that
+        tolerate it); anything new reaching for it needs the same
+        justification.
 
         PPSSPP `memory.read` response field is `base64` (not `data`).
         Falls back to `data` field for compatibility.
         """
+        if size > MAX_SINGLE_READ_BYTES and not allow_large:
+            raise ArgsInvalid(
+                f"read size {size} exceeds {MAX_SINGLE_READ_BYTES} — chunk "
+                f"the read (unbounded reads kill the WebSocket)"
+            )
         resp = await self._transport.call("memory.read", address=address, size=size)
         b64 = resp.get("base64", "")
         return base64.b64decode(b64) if b64 else b""
@@ -225,7 +252,15 @@ class PpssppDebugClient:
         await self._transport.call("memory.write_u32", address=address, value=value)
 
     async def write_bytes(self, address: int, data: bytes) -> None:
-        """Write arbitrary-length bytes to address (base64-encoded)."""
+        """Write bytes to address, capped at MAX_WRITE_BYTES.
+
+        W10 (review v2): the base64 payload travels the same WS frame as
+        reads — an unbounded write hits the same transport limits and
+        (bonus) does its 1.33× b64encode on the event loop thread.
+        Callers chunk.
+        """
+        if len(data) > MAX_WRITE_BYTES:
+            raise ArgsInvalid(f"write size {len(data)} exceeds {MAX_WRITE_BYTES} — chunk the write")
         b64 = base64.b64encode(data).decode("ascii")
         await self._transport.call("memory.write", address=address, base64=b64)
 
@@ -430,6 +465,7 @@ class PpssppDebugClient:
         """
         if use_broadcast:
             step_filter = self._build_step_filter(pre_pc, pre_ticks)
+            broadcast_deadline = time.monotonic() + timeout_ms / 1000.0
             try:
                 return await self._wait_step_broadcast(timeout_ms=timeout_ms, filter=step_filter)
             except TimeoutError:
@@ -446,8 +482,17 @@ class PpssppDebugClient:
                     "%dms — falling back to legacy wait_for_state poll",
                     timeout_ms,
                 )
+        # W5 (review v2): the broadcast window already burned its full
+        # timeout_ms; handing the legacy poll the FULL budget again made
+        # the worst case 2×timeout with the per-session lock held the
+        # whole time. The legacy poll inherits only what is left.
+        remaining_ms = (
+            max(250, int((broadcast_deadline - time.monotonic()) * 1000))
+            if use_broadcast
+            else timeout_ms
+        )
         return await self._confirm_step_completed_legacy(
-            timeout_ms=timeout_ms, interval_ms=interval_ms
+            timeout_ms=remaining_ms, interval_ms=interval_ms
         )
 
     @staticmethod
@@ -585,8 +630,11 @@ class PpssppDebugClient:
                 )
             await self._transport.fire_and_forget(event)
         if not saw_broadcast:
+            # W5 (review v2): inherit the remaining budget, not the full
+            # timeout again (the broadcast loop already consumed it).
+            remaining_ms = max(250, int((deadline - time.monotonic()) * 1000))
             return await self._confirm_step_completed_legacy(
-                timeout_ms=timeout_ms, interval_ms=interval_ms
+                timeout_ms=remaining_ms, interval_ms=interval_ms
             )
         raise TimeoutError(f"step not confirmed within {timeout_ms}ms")
 

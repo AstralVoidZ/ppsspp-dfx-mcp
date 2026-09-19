@@ -182,6 +182,18 @@ class ScanNoMatch(ToolError):
     code = "SCAN_NO_MATCH"
 
 
+class CaptureEmpty(ToolError):
+    """Dump/screenshot strategy produced no image (nothing bound yet)."""
+
+    code = "CAPTURE_EMPTY"
+
+
+class ProtectedAddress(ToolError):
+    """Write target overlaps a protected code/kernel range (force=True overrides)."""
+
+    code = "PROTECTED_ADDRESS"
+
+
 class StepInvalid(ToolError):
     """Batch step argument failed structural validation (type/field/value)."""
 
@@ -619,10 +631,10 @@ def to_tool_error(exc: Exception) -> ToolError:
     msg_lower = msg.lower()
 
     # asyncio.TimeoutError / TimeoutError → comprehensive judgment.
-    # Note: asyncio.TimeoutError is NOT a subclass of TimeoutError on
-    # CPython 3.11+ (its MRO is asyncio.exceptions.TimeoutError → Exception),
-    # so both must be checked explicitly.
-    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+    # Since Python 3.11, asyncio.TimeoutError IS built-in TimeoutError
+    # (the names are aliases of the same class), so one isinstance
+    # suffices on this project's >=3.13 floor.
+    if isinstance(exc, TimeoutError):
         return _translate_timeout_error(exc, msg)
 
     # ConnectionError → WsDisconnected.
@@ -656,7 +668,13 @@ def to_tool_error(exc: Exception) -> ToolError:
             f"{msg} — Hint: this operation requires CPU stepping. "
             f"Use step(action='pause') to pause the CPU before retrying."
         )
-    if "is stepping" in msg_lower or "stepping" in msg_lower:
+    # W18 (review v2): the bare "stepping" catch-all translated ANY
+    # error message that happened to contain the word (a diagnostic
+    # script's own failure, a third-party warning) into CPU_STATE_ERROR
+    # with a "resume" hint — steering the agent to the wrong remedy.
+    # Only message shapes that actually mean "CPU is paused" get the
+    # hint now; everything else falls through to the generic wrap.
+    if "is stepping" in msg_lower or "cpu is stepping" in msg_lower:
         return CpuStateError(
             f"{msg} — Hint: this operation requires CPU running. "
             f"Use step(action='resume') to resume the CPU before retrying."

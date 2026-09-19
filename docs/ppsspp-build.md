@@ -53,7 +53,7 @@ real-wire 验证即走此路径）。
 
 ## 4. 连不上？
 
-按 README 的[故障排查速查表](README.md#故障排查速查表)处理，高频三项：
+按 README 的[故障排查速查表](../README.md#故障排查速查表)处理，高频三项：
 
 1. 设置开关没开（或开启后重启过 PPSSPP 但 ini 未保存）；
 2. 端口不一致（PPSSPP ini vs `PPSSPP_DFX_WS_PORT`）；

@@ -218,11 +218,18 @@ async def session(
         if action == "start":
             if not iso_path:
                 raise ArgsInvalid("iso_path is required when action=start")
+            # S10 (review v2): the start branch used to be the one path
+            # that skipped the zero check — resilient mode's readiness
+            # gate would then probe address 0 (the NUL page) instead of
+            # a real CPU-liveness signal.
+            probe_int_start = parse_address(probe_addr)
+            if probe_int_start == 0:
+                raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
             sess = await session_manager.start_session(
                 iso_path,
                 resilient=resilient,
                 ready_timeout_s=clamped_timeout,
-                probe_addr=parse_address(probe_addr),
+                probe_addr=probe_int_start,
             )
             if wait_ready and test_mode() != "fake":
                 # G5: one-call boot — same probe/budget semantics as

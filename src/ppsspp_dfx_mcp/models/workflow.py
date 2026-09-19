@@ -37,6 +37,11 @@ class WaitBreakpointResult:
     reason: str | None = None
     related_address: int | None = None
     ticks: float | None = None
+    # 🔴-1/D1 条件过滤器扩展：
+    condition: str | None = None  # 命中时已通过的条件表达式
+    condition_filtered: int = 0  # 该地址此前被过滤掉的假命中数
+    filtered_hits: int = 0  # wait 超时路径的过滤命中总数
+    storm_break: bool = False  # 风暴熔断触发（断点已自动撤防）
 
 
 @dataclass(frozen=True)

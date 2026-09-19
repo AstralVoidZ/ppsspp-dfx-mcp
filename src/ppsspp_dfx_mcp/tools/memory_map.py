@@ -78,8 +78,6 @@ async def memory_map(
         raise to_tool_error(e) from e
 
     mapping = response if isinstance(response, dict) else {}
-    if not isinstance(mapping, dict):
-        mapping = {}
 
     result = MemoryMapResult(mapping=mapping)
     return MemoryMapResponse.from_result(result).model_dump(mode="json")

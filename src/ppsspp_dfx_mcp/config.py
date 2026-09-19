@@ -199,7 +199,16 @@ def _load_yaml_value(filename: str, key: str, default: Any = None) -> Any:
 
 def configure_logging() -> None:
     """Configure stderr-only logging with optional JSON format."""
-    level = getattr(logging, log_level(), logging.INFO)
+    level_name = log_level().upper()
+    level = getattr(logging, level_name, None)
+    if not isinstance(level, int):
+        # S9 (review v2): a typo like INF0 used to fall back to INFO with
+        # no trace — validate_config covers file fields, not this env var.
+        logging.getLogger(__name__).warning(
+            "PPSSPP_DFX_LOG_LEVEL=%r is not a valid level; falling back to INFO",
+            log_level(),
+        )
+        level = logging.INFO
     handler = logging.StreamHandler(sys.stderr)
     if log_format() == "json":
         from ppsspp_dfx_mcp.logging import JsonFormatter

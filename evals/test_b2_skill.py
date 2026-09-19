@@ -1,6 +1,6 @@
 """Unit tests for B2 support — pseudo-call gating + skill file reader.
 
-Run (from mcps/ppsspp-dfx-mcp/):
+Run (from the repository root/):
   ../.venv/ppsspp-dfx-mcp/Scripts/python.exe -m pytest evals/test_b2_skill.py -q
 """
 

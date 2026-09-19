@@ -294,3 +294,70 @@ class TestDumpTextureOrchestration:
         events = [ev for ev, _ in cap_transport.fire_and_forget_calls]
         assert "cpu.stepping" in events
         assert "cpu.resume" in events
+
+
+class TestImageComplete:
+    """W23 guard: freshly written screenshot files must be complete.
+
+    The WM_COMMAND strategy used to accept any new file larger than 100
+    bytes after a fixed 0.15s wait — on a slow disk that hands back a
+    truncated PNG (which still has a valid IHDR, so downstream decoders
+    fail with no retry). Completeness is now the format's end-of-stream
+    marker after a stable-size window.
+    """
+
+    PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+    def test_complete_png_accepted(self):
+        from ppsspp_dfx_mcp.service.capture import _image_complete
+
+        png = self.PNG_MAGIC + b"x" * 200 + b"\x00\x00\x00\x00IEND\xaeB`\x82"
+        assert _image_complete(png, ".png") is True
+
+    def test_truncated_png_rejected(self):
+        from ppsspp_dfx_mcp.service.capture import _image_complete
+
+        png = self.PNG_MAGIC + b"x" * 500  # head intact, no IEND tail
+        assert _image_complete(png, ".png") is False
+
+    def test_complete_jpeg_accepted(self):
+        from ppsspp_dfx_mcp.service.capture import _image_complete
+
+        jpg = b"\xff\xd8\xff\xe0" + b"x" * 200 + b"\xff\xd9"
+        assert _image_complete(jpg, ".jpg") is True
+
+    def test_truncated_jpeg_rejected(self):
+        from ppsspp_dfx_mcp.service.capture import _image_complete
+
+        jpg = b"\xff\xd8\xff\xe0" + b"x" * 500  # no EOI marker
+        assert _image_complete(jpg, ".jpg") is False
+
+    def test_tiny_file_rejected_regardless_of_suffix(self):
+        from ppsspp_dfx_mcp.service.capture import _image_complete
+
+        assert _image_complete(b"IEND", ".png") is False
+        assert _image_complete(b"", ".png") is False
+
+    def test_unknown_suffix_falls_back_to_size(self):
+        from ppsspp_dfx_mcp.service.capture import _image_complete
+
+        assert _image_complete(b"x" * 101, ".bmp") is True
+        assert _image_complete(b"x" * 10, ".bmp") is False
+
+
+class TestClientPidExposure:
+    """W23 support: CaptureService filters windows by the session PID.
+
+    PpssppDebugClient must expose the pid it was constructed with so
+    _find_ppsspp_window can disambiguate two concurrent PPSSPP sessions.
+    """
+
+    def test_client_pid_property_delegates_to_stepping_manager(self):
+        transport = FakeTransport()
+        client = PpssppDebugClient(transport, pid=4242)
+        assert client.pid == 4242
+
+    def test_client_pid_defaults_to_none(self):
+        transport = FakeTransport()
+        client = PpssppDebugClient(transport)
+        assert client.pid is None

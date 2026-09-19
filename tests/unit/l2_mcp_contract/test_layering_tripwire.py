@@ -7,7 +7,7 @@ inversions it was written against (core/batch_jobs, core/stepping,
 service/debug_client importing tools._common / session_manager) must
 never regrow.
 
-Run (from mcps/ppsspp-dfx-mcp/):
+Run (from the repository root/):
     <venv python> -m pytest tests/unit/l2_mcp_contract/test_layering_tripwire.py -q
 """
 

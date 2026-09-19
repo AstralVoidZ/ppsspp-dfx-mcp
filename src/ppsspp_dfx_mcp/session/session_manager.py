@@ -131,7 +131,15 @@ def _load_sessions() -> dict[str, Session]:
                 # tell a restored session from a fresh one.
                 sess = dataclasses.replace(sess, extra={**sess.extra, "restored": True})
                 result[sid] = sess
-            except TypeError:
+            except TypeError as e:
+                # W21 (review v2): a silent `continue` makes the entry
+                # vanish with zero diagnostics — the operator cannot tell
+                # corruption from a successful load. Log and drop.
+                log.warning(
+                    "sessions.json: dropping malformed entry %r (schema mismatch): %s",
+                    sid,
+                    e,
+                )
                 continue
     return result
 
@@ -147,7 +155,10 @@ def _save_sessions(sessions: dict[str, Session]) -> None:
     path = sessions_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {sid: _session_to_dict(s) for sid, s in sessions.items()}
-    tmp = path.with_name(path.name + ".tmp")
+    # W21 (review v2): a fixed tmp name is a cross-process clobber point
+    # (two server processes on one state dir would eat each other's
+    # write). The pid keeps concurrent writers from colliding.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
@@ -188,7 +199,13 @@ def _session_to_dict(sess: Session) -> dict[str, Any]:
         "last_active_at": sess.last_active_at.isoformat(),
         "exec_count": sess.exec_count,
         "ws_connected": sess.ws_connected,
-        "extra": sess.extra,
+        # W4 (review v2): `restored` is stamped onto every entry by
+        # _load_sessions (runtime provenance) and cleared for sessions
+        # started in THIS process. Persisting it would write the stamp
+        # back onto still-running in-process sessions via any
+        # load-modify-save (touch / another session's stop), so the
+        # flag must live in memory only.
+        "extra": {k: v for k, v in sess.extra.items() if k != "restored"},
     }
 
 
@@ -336,6 +353,28 @@ class _ReentrantSessionLock:
 
     def __repr__(self) -> str:
         return f"<_ReentrantSessionLock owner={self._owner!r} depth={self._depth}>"
+
+
+class _ClosingLock(_ReentrantSessionLock):
+    """Permanently-held sentinel lock for sessions being stopped (W3).
+
+    Installed by stop_session phase 1 under the session id. Its
+    acquire() waits until cancelled — with SESSION_BUSY_TIMEOUT_S the
+    caller surfaces a clean SessionBusy instead of racing a dying
+    session through a fresh uncontended lock. Never released; phase 3
+    removes it from `_session_locks` once the entry is gone.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._closed = asyncio.Event()
+
+    async def acquire(self) -> bool:
+        await self._closed.wait()
+        return False  # pragma: no cover — _closed is never set
+
+
+_CLOSING_LOCK = _ClosingLock()
 
 
 class SessionManager:
@@ -542,6 +581,35 @@ class SessionManager:
                     quarantined = quarantine_gpu_backend_blacklist(launcher_exe)
                 if attempt + 1 < attempts:
                     await asyncio.to_thread(wedge_cooldown)
+            except BaseException as e:
+                # W2 (review v2): any failure escaping _start_once AFTER
+                # the process launched (e.g. SessionNotFound from a
+                # concurrent stop racing the CPU-ready gate, caller
+                # cancellation mid-boot) must not leak the live process.
+                # The launcher is still tracked at this point, so the
+                # wedged-attempt teardown (stop + discard entry) is the
+                # correct cleanup for every non-wedge outcome too.
+                # IsoNotFound / PortConflict already self-clean inside
+                # _start_once; the teardown is an idempotent no-op there.
+                log.warning(
+                    "resilient start: non-wedge failure during attempt "
+                    "%d/%d for session %s (%s) — tearing down launched "
+                    "process to prevent an orphan",
+                    attempt + 1,
+                    attempts,
+                    session_id,
+                    type(e).__name__,
+                )
+                try:
+                    await self._teardown_wedged_attempt(session_id)
+                except Exception:
+                    log.exception(
+                        "resilient start: teardown after failure also "
+                        "failed for session %s — the PPSSPP process may "
+                        "be orphaned",
+                        session_id,
+                    )
+                raise
         await self._discard_session_entry(session_id)
         raise BootTimeout(
             f"emulated CPU did not start after {attempts} launch "
@@ -882,10 +950,14 @@ class SessionManager:
             launcher = self._launchers.pop(session_id, None)
             transport = self._transports.pop(session_id, None)
             observer = self._observers.pop(session_id, None)
-            # Drop the per-session tool-call lock too — the session
-            # is going away; in-flight tool calls holding the lock fail fast
-            # on the closed transport and release it.
-            self._session_locks.pop(session_id, None)
+            # Install the permanently-held closing sentinel (W3, review
+            # v2). In-flight tool calls still hold the OLD lock and fail
+            # fast on the closed transport; a NEW caller arriving between
+            # phase 1 and phase 3 would otherwise get a brand-new,
+            # uncontended lock via session_lock()'s setdefault and race
+            # the dying session. With the sentinel they block until the
+            # SESSION_BUSY timeout and get a clean SessionBusy instead.
+            self._session_locks[session_id] = _CLOSING_LOCK
             sess_snapshot = sess
 
         # Phase 1.5: close session-level transport + observer. Done
@@ -922,6 +994,11 @@ class SessionManager:
             sessions = await _load_sessions_async()
             sessions.pop(session_id, None)
             await _save_sessions_async(sessions)
+            # Entry is gone — get_session_state now raises SessionNotFound
+            # for new callers, so the closing sentinel has served its
+            # purpose and must not leak into the lock dict.
+            if self._session_locks.get(session_id) is _CLOSING_LOCK:
+                self._session_locks.pop(session_id, None)
 
         return sess_snapshot.with_stopped()
 
@@ -1115,6 +1192,7 @@ class SessionManager:
         # Each launcher.stop / _force_kill_pid can take 5+ seconds for
         # a hung process; running them outside the lock prevents blocking
         # all other session operations.
+        kill_failed: dict[str, str] = {}
         for sid in expired:
             # Close observer then transport first (same order as
             # stop_session phase 1.5) — best-effort, outside the lock.
@@ -1126,16 +1204,27 @@ class SessionManager:
             if transport is not None:
                 with contextlib.suppress(Exception):
                     await transport.close()
+            # W1 (review v2): a FAILED kill must NOT advance to entry
+            # deletion — suppress-and-continue here produced an orphan
+            # process that GC can never see again (its sessions.json
+            # entry is what makes the next scan retry possible). Keep
+            # the entry and let the next GC cycle retry.
             launcher = expired_launchers[sid]
-            if launcher is not None:
-                with contextlib.suppress(Exception):
+            try:
+                if launcher is not None:
                     await asyncio.to_thread(launcher.stop)
-            else:
-                pid = expired_pids[sid]
-                if pid is not None:
-                    with contextlib.suppress(Exception):
+                else:
+                    pid = expired_pids[sid]
+                    if pid is not None:
                         await asyncio.to_thread(_kill_stale_pid_safe, pid)
-            stopped_ids.append(sid)
+            except Exception as e:
+                kill_failed[sid] = str(e)
+                log.warning(
+                    "gc: kill failed for session %s — keeping entry for retry next cycle: %s",
+                    sid,
+                    e,
+                )
+        stopped_ids = [sid for sid in expired if sid not in kill_failed]
 
         # Phase 3: brief lock to update sessions.json.
         async with self._lock:

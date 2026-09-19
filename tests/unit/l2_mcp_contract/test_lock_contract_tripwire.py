@@ -41,6 +41,7 @@ HOLDING_LOCK: frozenset[str] = frozenset(
         "ppsspp_screenshot",
         "ppsspp_dump",  # kind=texture|clut — session_capture user
         "ppsspp_health",  # session battery (session_id given) reads via session_client
+        "ppsspp_watch_value",  # 🔴-1/D2 value watch: read-polling loop, holds lock for the whole poll
         "ppsspp_diff_memory",  # snapshot/compare read via session_client
         "ppsspp_scan",  # pattern/value/strings chunked reads via session_client
         "ppsspp_context",  # identity/disasm/backtrace via session_client

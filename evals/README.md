@@ -35,7 +35,7 @@
 
 - 解释器：项目 venv 的 python（httpx 等三方 HTTP 库不在依赖内，runner 用标准库 urllib）。
 - 密钥：`evals/llm_api.json`（已 gitignore），形如 `{provider: {options: {baseURL, apiKey}, models}}`；路径可用 `config.yaml` 的 `llm_api_path` 或环境变量 `PPSSPP_DFX_EVALS_LLM_API_PATH` 覆盖。provider+模型在 `config.yaml` 指定。
-- 变体：B1=工具面+instructions（默认）；B0=剥离 instructions（消融）；B2=skill 伪工具（已实现，`test_b2_skill.py`，需 `PPSSPP_DFX_SKILL_DIR` 指向 skill 目录）。real 模式（R1-R2 真机场景）用 `--mode real`（需 `PPSSPP_DFX_TEST_EXE_PATH` / `PPSSPP_DFX_TEST_ISO_PATH`）。
+- 变体：B1=工具面+instructions（默认）；B0=剥离 instructions（消融）；B2=skill 伪工具（已实现，`test_b2_skill.py`，需 `PPSSPP_DFX_SKILL_DIR` 指向 skill 目录）。real 模式（R1-R2 真机场景）由场景卡的 `mode: real` 字段驱动（需 `PPSSPP_DFX_TEST_EXE_PATH` / `PPSSPP_DFX_TEST_ISO_PATH` 环境变量，未设则对应场景自动 skip）。
 - L3 方案题（L3-01/L3-02）关键词门禁只是预筛，正式评分需按 `judge_prompt.md` 派发 subagent（位置交换两次）。
 - 每 run 一行 JSONL，含四项 provenance 哈希（git commit / tool_surface / instructions / fixtures），resume 按 (scenario, model, variant, run_idx) 去重。
 

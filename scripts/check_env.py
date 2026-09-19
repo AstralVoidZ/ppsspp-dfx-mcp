@@ -40,7 +40,7 @@ PROJECT_DIR = PACKAGE_ROOT
 VENV_DIR = WORKSPACE_ROOT / ".venv" / "ppsspp-dfx-mcp"
 VENV_DIR_REL = ".venv/ppsspp-dfx-mcp"
 VENV_PYTHON_REL = ("Scripts/python.exe", "bin/python")  # Windows / POSIX
-DOCTOR_REL = "mcps/ppsspp-dfx-mcp/scripts/check_env.py"
+DOCTOR_REL = "scripts/check_env.py"
 MIN_SDK = (2, 1, 1)
 
 _SDK_PROBE = "import importlib.metadata as m; print(m.version('mcp'))"
@@ -113,7 +113,7 @@ def _version_tuple(text: str) -> tuple[int, ...]:
 def _remediation() -> str:
     return (
         f"  修复：python {DOCTOR_REL} --bootstrap\n"
-        f"        （创建 {VENV_DIR_REL} 并安装 mcps/ppsspp-dfx-mcp[dev]）"
+        f"        （创建 {VENV_DIR_REL} 并安装 ppsspp-dfx-mcp[dev]）"
     )
 
 

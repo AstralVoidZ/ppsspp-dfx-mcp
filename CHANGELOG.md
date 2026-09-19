@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+### Added（D1 方案 B / D2 方案 B——代码审查后追加）
+
+- **`ppsspp_watch_value`（新工具，36→37）**: 值变化轮询观察——纯读、
+  零暂停；热读地址"谁/何时改了值"需求的观察点替代（D2 命中风暴的
+  结构性消除）；变化记录含 frame/相对时间/old/new，上限 64 条。
+- **条件求值器（🔴-1/D1 方案 B）**: `breakpoint set/update` 带
+  condition 时不再下发给 PPSSPP（IR 模式寄存器条件被静默忽略——实测
+  s1==0x711 恒假仍触发），改由 MCP 侧命中时用 `cpu.evaluate` 求值：
+  假 → 自动 resume 并计入 `filtered_hits`；真 → 保持暂停并在响应携带
+  `condition`/`condition_filtered`。
+- **wait 风暴熔断**: ≥10 次命中间隔 <1s 自动撤除断点并返回
+  `storm_break=true` + note（D2 命中风暴的保护性响应）。
+
 ### Fixed（实机盲测回归修复：D3 / D8-MCP / D11 + 接口契约面 S1）
 
 - **D3 会话锁同任务可重入**：`batch_step` 全程持锁期间内嵌 `screenshot`
@@ -32,7 +45,7 @@
 真机活体验证（批内嵌 screenshot 3/3 成功、新会话 restored=0、
 func_add verified=true）。
 
-## [Unreleased] — S2 批（cpu_step 实现 + 契约补强 + 评测卡修复）
+<!-- merged S2 batch (below) into the single Unreleased section -->
 
 ### Added
 
@@ -142,8 +155,6 @@ func_add verified=true）。
   `ppsspp_session_list` 的调用；期望集合改为从基线 JSON 派生，杜绝再次
   漂移）。
 
-## [Unreleased]
-
 ## [0.1.5] - 2026-09-18
 
 ### Added
@@ -159,6 +170,8 @@ func_add verified=true）。
 
 - 英文 README（`README.md` 转为英文主门面，中文迁至 `README.zh-CN.md`，
   双语切换器）——面向 MCP 全球受众。
+  （勘误，review v2：v0.1.5 起实际布局为 `README.md`（中文主门面）+
+  `README.en.md`（英文辅文档）；本条所述文件名与现状不符。）
 - MCP Registry 元数据：`server.json`（官方 Registry 发布格式）与 README
   的 `mcp-name` 所有权标记。
 

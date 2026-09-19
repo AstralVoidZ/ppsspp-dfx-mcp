@@ -656,7 +656,7 @@ class TestW5SaveFailureRecovery:
     base64 so the already-consumed recording is recoverable."""
 
     @pytest.mark.asyncio
-    async def test_save_write_failure_embeds_payload(
+    async def test_save_write_failure_rescues_payload_to_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         import ppsspp_dfx_mcp.tools._common as common
@@ -682,6 +682,16 @@ class TestW5SaveFailureRecovery:
                 file_path="rec.ppr",
             )
         msg = str(exc_info.value)
+        # W22 (review v2): the payload itself must NOT ride the error
+        # text — a long recording made the error megabytes. It is
+        # rescued to a server-generated .ppr next to the target instead.
         assert "failed to write .ppr file" in msg
-        assert "version=7" in msg
-        assert "AAEC" in msg  # payload recoverable from the error
+        assert "AAEC" not in msg
+        import json as _json
+
+        rescued = list((tmp_path / "replays").glob("replay_rescue_*.ppr"))
+        assert len(rescued) == 1, msg
+        doc = _json.loads(rescued[0].read_text(encoding="utf-8"))
+        assert doc["version"] == 7
+        assert doc["base64"] == "AAEC"
+        assert "replay_rescue_" in msg and "load" in msg

@@ -56,6 +56,26 @@ class WaitBreakpointResponse(FrozenModel):
         default=None,
         description="CoreTiming tick count at the hit.",
     )
+    condition: str | None = Field(
+        default=None,
+        description="🔴-1: MCP-enforced condition expression that held at "
+        "the hit (register conditions are enforced by the server because "
+        "PPSSPP IR-mode drops them).",
+    )
+    condition_filtered: int = Field(
+        default=0,
+        description="Falsy hits auto-resumed before this true hit.",
+    )
+    filtered_hits: int = Field(
+        default=0,
+        description="Total condition-false hits auto-resumed during the "
+        "wait window (timeout path only).",
+    )
+    storm_break: bool = Field(
+        default=False,
+        description="True when ≥10 hits arrived within 1s gaps and the "
+        "breakpoint was auto-removed (hit-storm protection).",
+    )
 
     @classmethod
     def from_result(cls, result: WaitBreakpointResult, timeout_s: float) -> WaitBreakpointResponse:
@@ -67,6 +87,10 @@ class WaitBreakpointResponse(FrozenModel):
             reason=result.reason,
             related_address=_hex_or_none(result.related_address),
             ticks=result.ticks,
+            condition=result.condition,
+            condition_filtered=result.condition_filtered,
+            filtered_hits=result.filtered_hits,
+            storm_break=result.storm_break,
         )
 
 
