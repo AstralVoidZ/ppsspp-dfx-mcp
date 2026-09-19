@@ -314,6 +314,9 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 runner、报告）入手。
 
 ```bash
+# 前置：pytest 在 dev 依赖组中（默认安装不含）——二选一：
+#   uv sync                                # 装入 dependency-groups（含 pytest）
+#   pip install -e ".[dev]"                # 或装 dev extra
 # 全量测试套件（单元 + 契约 + 集成；约 1500 个测试）：
 .venv/ppsspp-dfx-mcp/Scripts/python -m pytest tests -q
 
