@@ -506,3 +506,37 @@ def test_file_saved(tmp_path):
     assert ok["success"] is True
     assert missing["success"] is False
     assert nocall["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# 🔴-4: two answer_contains gates must each be scored independently
+# ---------------------------------------------------------------------------
+
+
+def test_two_answer_contains_gates_scored_independently():
+    """Regression: _gate_answer_contains used to re-fetch the FIRST
+    answer_contains gate for every gate of that type, silently never
+    scoring the second (L3-02's recovery keyword gate)."""
+    sc = {
+        "gates": [
+            {"type": "answer_contains", "values": ["empty"]},
+            {"type": "answer_contains", "mode": "any",
+             "values": ["wait_frames", "press", "batch"]},
+        ],
+    }
+    run = _run(_call("ppsspp_screenshot"))
+    run["final_answer"] = "It returned empty because nothing renders."
+
+    result = evaluate(sc, run, None)
+    details = result["gates"]
+    assert details[0]["pass"] is True
+    assert details[1]["pass"] is False, "second gate must be scored on its own values"
+    assert result["success"] is False
+
+    run["final_answer"] = (
+        "It returned empty because nothing renders. "
+        "Use ppsspp_wait_frames to advance, then retry."
+    )
+    result = evaluate(sc, run, None)
+    assert result["success"] is True
+    assert all(g["pass"] for g in result["gates"])

@@ -73,7 +73,7 @@ async def _lifespan(_app: MCPServer) -> AsyncIterator[None]:
     # module files understated the static surface. The authoritative
     # count lives in tool_surface_baseline.json, never in prose.
     static_tools = registered_tool_count()
-    _load_manifest_and_register_exposed()
+    await _load_manifest_and_register_exposed()
     log.info(
         "lifespan: registered %d tools (static=%d + dynamic=%d)",
         registered_tool_count(),
@@ -261,7 +261,7 @@ def _build_exposed_wrapper(entry: Any, input_cls: Any, output_cls: Any) -> Calla
     return _exposed_wrapper
 
 
-def _load_manifest_and_register_exposed() -> None:
+async def _load_manifest_and_register_exposed() -> None:
     """Load the script manifest at startup and register exposed scripts.
 
     Best-effort: a missing or malformed manifest logs a warning and skips
@@ -282,7 +282,7 @@ def _load_manifest_and_register_exposed() -> None:
         log.warning("lifespan: manifest load failed; exposed scripts skipped: %s", e)
         return
 
-    report = sync_exposed_tools()
+    report = await sync_exposed_tools()
     log.info(
         "lifespan: registered %d/%d exposed script tools "
         "(added=%d, removed=%d, skipped_skeleton=%d, failed=%d)",
@@ -315,7 +315,7 @@ def registered_exposed_names() -> set[str]:
         return set(_exposed_registry.keys())
 
 
-def _register_exposed_entry(entry: Any, project_root: Any) -> bool:
+async def _register_exposed_entry(entry: Any, project_root: Any) -> bool:
     """Pre-flight + register one exposed script as a dynamic tool.
 
     Returns True when the tool was registered (or already present),
@@ -345,8 +345,12 @@ def _register_exposed_entry(entry: Any, project_root: Any) -> bool:
     # via ppsspp_run_script, which surfaces a cleaner error). Uses
     # the shared `validate_script_contract` helper so lifespan and
     # run_script share the same contract validation logic (P1-11).
+    # 🟡6: the import executes the script's top-level code — same
+    # event-loop-freeze hazard run_script guards against with to_thread.
     try:
-        _module, input_cls, output_cls, _fn = validate_script_contract(entry, project_root)
+        _module, input_cls, output_cls, _fn = await asyncio.to_thread(
+            validate_script_contract, entry, project_root
+        )
     except Exception as e:
         log.warning(
             "skipping exposed script %r (contract/import error): %s",
@@ -399,7 +403,9 @@ def _unregister_exposed_tool(script_name: str) -> bool:
     return True
 
 
-def sync_exposed_tools() -> dict[str, Any]:
+async def sync_exposed_tools() -> dict[str, Any]:
+    # 🟡6: async so reload/lifespan callers don't run untrusted module
+    # imports on the event loop thread (see _register_exposed_entry).
     """Reconcile the dynamic tool registry with the manifest.
 
     Desired set = manifest entries with exposed=true AND status=migrated
@@ -440,7 +446,7 @@ def sync_exposed_tools() -> dict[str, Any]:
     for name, entry in desired.items():
         if name in current:
             continue
-        if _register_exposed_entry(entry, project_root):
+        if await _register_exposed_entry(entry, project_root):
             if name in registered_exposed_names():
                 added.append(name)
         else:

@@ -78,7 +78,9 @@ def _resolve_log_path(log_path: str) -> Path:
     return resolved
 
 
-def _filter_log_lines(path: Path, keywords: list[str]) -> list[LogMatch]:
+def _filter_log_lines(
+    path: Path, keywords: list[str], required: str | None = None
+) -> list[LogMatch]:
     """Stream-filter a log file for keyword lines (worker-thread target).
 
     Hard caps: files larger than MAX_LOG_BYTES are rejected up front;
@@ -91,6 +93,10 @@ def _filter_log_lines(path: Path, keywords: list[str]) -> list[LogMatch]:
     matches: list[LogMatch] = []
     with path.open("r", encoding="utf-8", errors="replace") as f:
         for i, line in enumerate(f, 1):
+            # 🟡13: 'all' narrowing in-stream — the 500-cap then applies to
+            # POST-narrow matches instead of silently dropping later hits.
+            if required is not None and required not in line:
+                continue
             if any(kw in line for kw in keywords):
                 matches.append(LogMatch(line_no=i, text=line.rstrip("\r\n")))
                 if len(matches) >= MAX_LOG_MATCHES:
@@ -193,6 +199,11 @@ async def analyze_log(
         },
     )
 
+    if limit < 0:
+        # 🟢12: negative limit was silently ignored (= no cap).
+        raise ArgsInvalid(f"limit must be >= 0 (got {limit})")
+    # 🟡13: 'all' narrows in the stream pass; 'any' keeps legacy additive OR.
+    required = filter if (filter and filter_mode == "all") else None
     keywords = list(_DEFAULT_KEYWORDS)
     if filter and filter_mode != "all":
         # Legacy 'any' mode: the filter is ADDITIVE (severity OR filter).
@@ -205,7 +216,7 @@ async def analyze_log(
         # thread with hard byte/match caps — the previous implementation
         # read the entire file into memory synchronously (OOM risk on
         # huge files, event-loop stall, unbounded match list).
-        matches = await asyncio.to_thread(_filter_log_lines, path, keywords)
+        matches = await asyncio.to_thread(_filter_log_lines, path, keywords, required)
         source = str(path)
     else:
         # The fallback builds a fresh
@@ -218,7 +229,7 @@ async def analyze_log(
         # lines land in output/ppsspp.log as they are broadcast.
         mirror_path = output_dir() / "ppsspp.log"
         if mirror_path.is_file():
-            matches = await asyncio.to_thread(_filter_log_lines, mirror_path, keywords)
+            matches = await asyncio.to_thread(_filter_log_lines, mirror_path, keywords, required)
             source = str(mirror_path)
         else:
             matches = []
@@ -228,13 +239,7 @@ async def analyze_log(
             )
 
     total = len(matches)
-    if filter and filter_mode == "all":
-        # Narrow: severity keyword AND filter (ISS-007 — the legacy 'any'
-        # append made the filter additive, which callers read as a no-op
-        # when their term appears alongside the noise).
-        matches = [m for m in matches if filter in m.text]
-        total = len(matches)
-    truncated = bool(limit and limit > 0 and total > limit)
+    truncated = bool(limit > 0 and total > limit)
     if truncated:
         matches = matches[:limit]
 

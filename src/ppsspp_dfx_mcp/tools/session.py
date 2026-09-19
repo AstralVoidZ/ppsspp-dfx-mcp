@@ -13,7 +13,7 @@ exceptions to ToolError. No business logic here.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -34,15 +34,17 @@ from ppsspp_dfx_mcp.views.session import (
     WaitReadyResponse,
 )
 
-SessionOutput = derive_output_contract(
-    "SessionOutput",
-    SessionResponse,
-    # 多形态：action='wait_ready' 返回 WaitReadyResponse，字段集完全不同
-    # （见 tools/_common.MULTI_SHAPE_OUTPUT_TOOLS）。SDK 会拿这个契约校验返回值，
-    # required 集合会在 wait_ready 分支上硬失败，故全字段可选。
-    partial=True,
-)
-SessionListOutput = derive_output_contract("SessionListOutput", SessionListResponse)
+# 🔴-1 联合契约：SDK 的 convert_result 会把契约未声明的键从
+# structuredContent 中剥掉（partial=True 只是"校验通过"，键仍会丢）。
+# 因此把每个分支的形状（各自 partial 派生 = 全可选）合并成一个 union
+# TypedDict，键集为三者的并集。
+_SessionResponseOut = derive_output_contract("SessionResponseOut", SessionResponse, partial=True)
+_WaitReadyOut = derive_output_contract("WaitReadyOut", WaitReadyResponse, partial=True)
+_SessionListOut = derive_output_contract("SessionListOut", SessionListResponse, partial=True)
+
+
+class SessionOutput(_SessionResponseOut, _WaitReadyOut, _SessionListOut, total=False):
+    """Union contract: start/get | wait_ready | list branch shapes."""
 
 logger = logging.getLogger(__name__)
 
@@ -259,11 +261,3 @@ async def session(
         raise to_tool_error(e) from e
     return SessionResponse.from_session(sess).model_dump(mode="json")
 
-    # Former docstring (kept as comment; description is now the TDQS docstring):
-    # List all active PPSSPP sessions (no parameters).
-    #
-    # Returns sessions with health info (pid_alive, ws_connected, exec_count,
-    # idle_s). Idle sessions (>30min) are auto-GC'd as a side effect.
-    # ppsspp_session_list was merged into ppsspp_session(action="list") in
-    # v0.1.6 (Glama surface review: tool-count reduction, noun+action dispatch).
-    return SessionListResponse.from_sessions(sessions).model_dump(mode="json")

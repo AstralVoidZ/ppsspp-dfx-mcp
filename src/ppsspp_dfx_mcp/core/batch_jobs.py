@@ -74,6 +74,8 @@ def estimate_batch_seconds(steps: list[dict[str, Any]]) -> float:
                wait_frames_chunked)
     - state_probe: 0.25s per sample
     - screenshot: 1.0s flat
+    - cpu_step: count × 0.05s (pause probe + step + broadcast confirm per
+      instruction, ISS-001) + 0.5s for the with_stepping pause/resume dance
 
     Malformed steps cost 0 — validation happens before estimation.
     """
@@ -88,6 +90,16 @@ def estimate_batch_seconds(steps: list[dict[str, Any]]) -> float:
                 duration / 60.0 + _PRESS_OVERHEAD_S
                 if isinstance(duration, (int, float)) and duration >= 0
                 else _PRESS_OVERHEAD_S
+            )
+        elif stype == "cpu_step":
+            # 🟡9: previously cost 0 — a [{cpu_step count=1000}] batch
+            # passed the 25s foreground budget gate, then burned minutes
+            # of wall clock (and got cancelled by the ~30s client).
+            count = step.get("count", 1)
+            total += (
+                count * 0.05 + 0.5
+                if isinstance(count, (int, float)) and count >= 1
+                else 0.5
             )
         elif stype == "wait":
             frames = step.get("frames", 0)

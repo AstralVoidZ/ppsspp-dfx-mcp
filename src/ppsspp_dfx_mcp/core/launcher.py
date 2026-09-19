@@ -150,15 +150,27 @@ def _write_appendconfig_ini(port: int) -> Path:
 # session.ws_url reflects reality. Cross-platform helpers below.
 
 
-def _parse_netstat_windows(output: str, pid: int) -> list[int]:
+def _parse_netstat_windows(
+    output: str, pid: int
+) -> list[int]:
     """Parse Windows ``netstat -ano -p tcp`` output, returning listening
     TCP ports owned by ``pid``.
 
     Sample line:
         TCP    127.0.0.1:11242     0.0.0.0:0     LISTENING     12345
     """
+    binds = _parse_netstat_windows_with_binds(output, pid)
+    return [port for port, _bind in binds]
+
+
+def _parse_netstat_windows_with_binds(
+    output: str, pid: int
+) -> list[tuple[int, str]]:
+    """Same as _parse_netstat_windows, but also returns the bind address
+    per port (🟡8: a 0.0.0.0 bind exposes the unauthenticated debugger to
+    the network — the caller must be able to detect and warn)."""
     pid_str = str(pid)
-    ports: list[int] = []
+    binds: list[tuple[int, str]] = []
     for line in output.splitlines():
         parts = line.split()
         if len(parts) < 5:
@@ -171,11 +183,12 @@ def _parse_netstat_windows(output: str, pid: int) -> list[int]:
         if ":" not in local_addr:
             continue
         port_str = local_addr.rsplit(":", 1)[1]
+        bind_ip = local_addr.rsplit(":", 1)[0]
         try:
-            ports.append(int(port_str))
+            binds.append((int(port_str), bind_ip))
         except ValueError:
             continue
-    return ports
+    return binds
 
 
 def _parse_ss_or_netstat_posix(output: str, pid: int) -> list[int]:
@@ -300,6 +313,47 @@ def _get_listening_ports_for_pid(pid: int) -> list[int]:
     if sys.platform == "win32":
         return _get_listening_ports_for_pid_windows(pid)
     return _get_listening_ports_for_pid_posix(pid)
+
+
+def _get_listening_binds_for_pid_windows(pid: int) -> list[tuple[int, str]]:
+    """(🟡8) listening (port, bind_ip) pairs for pid on Windows."""
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return []
+    return _parse_netstat_windows_with_binds(result.stdout or "", pid)
+
+
+def warn_if_debugger_exposed_externally(pid: int, port: int) -> None:
+    """🟡8: warn when the debugger port is NOT bound to loopback.
+
+    PPSSPP's debugger is unauthenticated (see SECURITY.md); a wildcard
+    bind exposes memory read/write + input injection to the network.
+    Windows desktop silently ignores --appendconfig, so RemoteDebuggerLocal
+    in our generated ini is dead config there — this runtime check is the
+    only reliable detection.
+    """
+    if pid <= 0:
+        return
+    for bport, bip in _get_listening_binds_for_pid_windows(pid):
+        if bport != port:
+            continue
+        if bip not in ("127.0.0.1", "::1"):
+            logger.warning(
+                "WSDBG-EXPOSED: PPSSPP debugger on port %d is bound to "
+                "'%s' (not loopback). The debugger is UNAUTHENTICATED — "
+                "any reachable host can read/write emulated memory. Set "
+                "RemoteDebuggerLocal=True in the GLOBAL ppsspp.ini "
+                "(Windows desktop ignores --appendconfig).",
+                port, bip,
+            )
+        return
 
 
 def _discover_listening_port_for_pid(
@@ -500,6 +554,11 @@ class PpssppLauncher:
                 self.ws_port,
             )
             self.ws_port = discovered
+        # 🟡8: detect a non-loopback debugger bind (Windows desktop
+        # ignores our RemoteDebuggerLocal=True, so this runtime check is
+        # the only reliable detection of an unauthenticated debugger
+        # exposed to the network).
+        warn_if_debugger_exposed_externally(self._proc.pid, discovered)
         return self._is_port_listening()
 
     def _is_port_listening(self) -> bool:

@@ -121,7 +121,7 @@ async def press_button(
 ) -> ButtonPressOutput:
     """PURPOSE: Simulate a single PSP button press for a duration.
 
-    USAGE: session_id + button required; duration optional (default 10 frames). Valid button names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.
+    USAGE: session_id + button required; duration optional (default 1 frame). Valid button names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.
 
     BEHAVIOR: STATE-CHANGE. Sends input events to PPSSPP. Button state returns to released after the duration elapses.
 

@@ -19,7 +19,7 @@ import re
 import struct
 import time
 import uuid
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypedDict
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -44,11 +44,20 @@ from ppsspp_dfx_mcp.views.scan import ScanResponse
 
 logger = logging.getLogger(__name__)
 
-ScanOutput = derive_output_contract(
-    "ScanOutput",
-    ScanResponse,
-    partial=True,  # 多形态：三模式 + value 四相各自返回不同视图
-)
+_ScanResponseOut = derive_output_contract("ScanResponseOut", ScanResponse, partial=True)
+
+
+class _BackgroundSubmitKeys(TypedDict, total=False):
+    """背景提交分支返回裸 dict（不走 ScanResponse）—— 🔴-1 键保全社会 here。"""
+    action: str
+    batch_id: str
+    session_id: str
+    estimated_s: float
+    hint: str
+
+
+class ScanOutput(_ScanResponseOut, _BackgroundSubmitKeys, total=False):
+    """Union contract: pattern/value/strings + background-submit shapes."""
 
 # ── value-scan session registry ──────────────────────────────────────────
 _VALUE_SESSIONS: dict[str, dict[str, Any]] = {}
@@ -311,6 +320,15 @@ async def scan(
     )
     try:
         if background:
+            # 🟡10: the background runner hardcodes phase='initial'. A
+            # narrow/list/drop request submitted as background would be
+            # silently rewritten into a fresh initial scan — reject it
+            # instead of corrupting the caller's scan session.
+            if mode == "value" and phase is not None and phase != "initial":
+                raise ArgsInvalid(
+                    f"background value scans only support phase='initial' "
+                    f"(got {phase!r}) — run narrow/list/drop in the foreground"
+                )
             # ── 后台路径：校验/预解析后提交 detached 任务，立即返回 ──
             from ppsspp_dfx_mcp.core.batch_jobs import get_registry
 
