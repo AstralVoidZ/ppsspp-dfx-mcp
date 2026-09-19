@@ -22,10 +22,9 @@ tests).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
-
-import asyncio
 
 import pytest
 import yaml

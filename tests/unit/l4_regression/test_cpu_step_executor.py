@@ -23,6 +23,7 @@ def _mock_client(mode: str, pcs: list[str]) -> AsyncMock:
     client = AsyncMock()
     stepper = AsyncMock(side_effect=[{"pc": pc, "ticks": 1000 + i} for i, pc in enumerate(pcs)])
     setattr(client, f"step_{mode}", stepper)
+
     # The executor wraps stepping in with_stepping — provide a no-op CM.
     @asynccontextmanager
     async def fake_ws():

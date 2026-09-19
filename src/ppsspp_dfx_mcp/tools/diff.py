@@ -43,7 +43,6 @@ _MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024  # 8 MiB per snapshot
 _MAX_SNAPSHOTS = 4  # FIFO eviction
 _MAX_CHANGES_INLINE = 256  # changes beyond this are truncated (count kept)
 
-from ppsspp_dfx_mcp.views.diff import DiffCompareResponse, DiffDropResponse
 _DiffSnapshotOut = derive_output_contract("DiffSnapshotOut", DiffSnapshotResponse, partial=True)
 _DiffCompareOut = derive_output_contract("DiffCompareOut", DiffCompareResponse, partial=True)
 _DiffDropOut = derive_output_contract("DiffDropOut", DiffDropResponse, partial=True)

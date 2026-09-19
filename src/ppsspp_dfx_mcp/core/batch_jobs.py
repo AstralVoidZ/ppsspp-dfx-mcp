@@ -96,11 +96,7 @@ def estimate_batch_seconds(steps: list[dict[str, Any]]) -> float:
             # passed the 25s foreground budget gate, then burned minutes
             # of wall clock (and got cancelled by the ~30s client).
             count = step.get("count", 1)
-            total += (
-                count * 0.05 + 0.5
-                if isinstance(count, (int, float)) and count >= 1
-                else 0.5
-            )
+            total += count * 0.05 + 0.5 if isinstance(count, (int, float)) and count >= 1 else 0.5
         elif stype == "wait":
             frames = step.get("frames", 0)
             interval = step.get("interval")

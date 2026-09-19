@@ -150,9 +150,7 @@ def _write_appendconfig_ini(port: int) -> Path:
 # session.ws_url reflects reality. Cross-platform helpers below.
 
 
-def _parse_netstat_windows(
-    output: str, pid: int
-) -> list[int]:
+def _parse_netstat_windows(output: str, pid: int) -> list[int]:
     """Parse Windows ``netstat -ano -p tcp`` output, returning listening
     TCP ports owned by ``pid``.
 
@@ -163,9 +161,7 @@ def _parse_netstat_windows(
     return [port for port, _bind in binds]
 
 
-def _parse_netstat_windows_with_binds(
-    output: str, pid: int
-) -> list[tuple[int, str]]:
+def _parse_netstat_windows_with_binds(output: str, pid: int) -> list[tuple[int, str]]:
     """Same as _parse_netstat_windows, but also returns the bind address
     per port (🟡8: a 0.0.0.0 bind exposes the unauthenticated debugger to
     the network — the caller must be able to detect and warn)."""
@@ -351,7 +347,8 @@ def warn_if_debugger_exposed_externally(pid: int, port: int) -> None:
                 "any reachable host can read/write emulated memory. Set "
                 "RemoteDebuggerLocal=True in the GLOBAL ppsspp.ini "
                 "(Windows desktop ignores --appendconfig).",
-                port, bip,
+                port,
+                bip,
             )
         return
 

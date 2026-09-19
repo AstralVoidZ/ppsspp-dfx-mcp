@@ -520,8 +520,7 @@ def test_two_answer_contains_gates_scored_independently():
     sc = {
         "gates": [
             {"type": "answer_contains", "values": ["empty"]},
-            {"type": "answer_contains", "mode": "any",
-             "values": ["wait_frames", "press", "batch"]},
+            {"type": "answer_contains", "mode": "any", "values": ["wait_frames", "press", "batch"]},
         ],
     }
     run = _run(_call("ppsspp_screenshot"))
@@ -534,8 +533,7 @@ def test_two_answer_contains_gates_scored_independently():
     assert result["success"] is False
 
     run["final_answer"] = (
-        "It returned empty because nothing renders. "
-        "Use ppsspp_wait_frames to advance, then retry."
+        "It returned empty because nothing renders. Use ppsspp_wait_frames to advance, then retry."
     )
     result = evaluate(sc, run, None)
     assert result["success"] is True

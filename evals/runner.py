@@ -604,7 +604,6 @@ def _done_keys(out_path: Path) -> set[tuple[str, str, str, int]]:
     return keys
 
 
-
 def _gates_record(gates: list[dict[str, Any]]) -> dict[str, bool]:
     """type -> pass, with duplicate types disambiguated (type, type#2...)."""
     seen: dict[str, int] = {}
@@ -614,6 +613,7 @@ def _gates_record(gates: list[dict[str, Any]]) -> dict[str, bool]:
         seen[t] = seen.get(t, 0) + 1
         out[t if seen[t] == 1 else f"{t}#{seen[t]}"] = bool(g["pass"])
     return out
+
 
 async def _async_main(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
