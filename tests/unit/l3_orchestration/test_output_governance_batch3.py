@@ -303,7 +303,15 @@ class TestQueryTopNTruncation:
         """func_scan with top_n=3 returns 3 entries."""
         mock_client = AsyncMock()
         mock_client.func_scan.return_value = {}
-        mock_client.func_list.return_value = {"functions": [{"name": f"f_{i}"} for i in range(100)]}
+        # Addresses inside the scanned 64KB window (0x08804000..+0x10000):
+        # the executor now filters hle.func.list to the requested range
+        # (ISS-008), so fixture entries must live inside it.
+        base = 0x08804000
+        mock_client.func_list.return_value = {
+            "functions": [
+                {"name": f"f_{i}", "address": base + i * 4} for i in range(100)
+            ]
+        }
 
         @asynccontextmanager
         async def fake_session_client(

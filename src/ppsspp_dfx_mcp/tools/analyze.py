@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -120,9 +120,10 @@ async def analyze_log(
             default=None,
             description=(
                 "Path to the log file to analyze. S3 whitelist: must be a "
-                "file under the server-managed .ppsspp-dfx tree "
-                "(.ppsspp-dfx/output/ or .ppsspp-dfx/config/); arbitrary "
-                "filesystem paths are rejected. If None, reads the "
+                "file anywhere inside the server-managed .ppsspp-dfx tree "
+                "(the whole tree is allowed, wider than output/ or "
+                "config/ — verified against the runtime whitelist); "
+                "arbitrary filesystem paths are rejected. If None, reads the "
                 "server-mirrored PPSSPP broadcast log "
                 "(.ppsspp-dfx/output/ppsspp.log — the running game's own "
                 "ERROR/WARNING lines, captured while a session runs)."
@@ -134,11 +135,38 @@ async def analyze_log(
         Field(
             default=None,
             description=(
-                "Additional keyword to filter for (in addition to "
-                "ERROR/WARNING/CRASH). Case-sensitive substring match."
+                "Additional keyword to filter for. Case-sensitive "
+                "substring match; combined with the severity keywords "
+                "per filter_mode."
             ),
         ),
     ] = None,
+    filter_mode: Annotated[
+        Literal["any", "all"],
+        Field(
+            default="any",
+            description=(
+                "'any' (default, legacy): a line matches if it contains "
+                "a severity keyword OR the filter. 'all': a line must "
+                "contain a severity keyword AND the filter — use this "
+                "to narrow (e.g. filter='GPU', filter_mode='all' → only "
+                "GPU-related ERROR/WARNING/CRASH lines)."
+            ),
+        ),
+    ] = "any",
+    limit: Annotated[
+        int,
+        Field(
+            default=0,
+            description=(
+                "Cap the returned match list (0 = no cap beyond the "
+                "hard internal cap). When truncation happens the "
+                "response carries total_matches (pre-truncation count) "
+                "and truncated=true — use this on long logs instead of "
+                "receiving 200KB+ of matches."
+            ),
+        ),
+    ] = 0,
     session_id: Annotated[
         str | None,
         Field(
@@ -153,15 +181,22 @@ async def analyze_log(
 
     BEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.
 
-    RETURNS: {log_path, matches: [{line_no, text}...], count, filter}.
+    RETURNS: {log_path, matches: [{line_no, text}...], count, filter, filter_mode, total_matches, truncated}.
     """
     logger.info(
         "tool_call",
-        extra={"tool": "ppsspp_analyze_log", "log_path": log_path, "filter": filter},
+        extra={
+            "tool": "ppsspp_analyze_log",
+            "log_path": log_path,
+            "filter": filter,
+            "filter_mode": filter_mode,
+        },
     )
 
     keywords = list(_DEFAULT_KEYWORDS)
-    if filter:
+    if filter and filter_mode != "all":
+        # Legacy 'any' mode: the filter is ADDITIVE (severity OR filter).
+        # Callers who read it as a narrowing condition want filter_mode='all'.
         keywords.append(filter)
 
     if log_path:
@@ -192,11 +227,25 @@ async def analyze_log(
                 f"is written while a session runs)"
             )
 
+    total = len(matches)
+    if filter and filter_mode == "all":
+        # Narrow: severity keyword AND filter (ISS-007 — the legacy 'any'
+        # append made the filter additive, which callers read as a no-op
+        # when their term appears alongside the noise).
+        matches = [m for m in matches if filter in m.text]
+        total = len(matches)
+    truncated = bool(limit and limit > 0 and total > limit)
+    if truncated:
+        matches = matches[:limit]
+
     result = AnalyzeLogResult(
         log_path=source,
         matches=matches,
         count=len(matches),
         filter=filter or "",
+        filter_mode=filter_mode,
+        total_matches=total,
+        truncated=truncated,
     )
     return AnalyzeLogResponse.from_result(result).model_dump(mode="json")
 

@@ -286,6 +286,62 @@ def _version_fingerprint(transport: Any) -> dict[str, Any]:
     return fp
 
 
+class _ReentrantSessionLock:
+    """Per-session tool-call lock with same-task reentrancy.
+
+    Cross-task exclusion is unchanged — one task at a time owns the
+    session, so concurrent tool calls still serialize (or fail with
+    SessionBusy after SESSION_BUSY_TIMEOUT_S, exactly as before). What
+    changed: a task that already owns the lock may acquire it again
+    without blocking, counted by depth.
+
+    Why: a batch_step holds the lock for its whole body, and its
+    embedded screenshot step opens session_client again in the SAME
+    task. With a plain asyncio.Lock that nested acquire deadlocked
+    against itself and failed with SESSION_BUSY after the 5s wait —
+    the documented step type was unconditionally unusable (D3).
+    Same-task reentry preserves every exclusion guarantee while
+    letting nested tool calls through.
+
+    release() must be called by the owning task (enforced), and the
+    acquire/wait protocol stays compatible with
+    ``asyncio.wait_for(lock.acquire(), timeout=...)`` — cancellation
+    while waiting leaves ownership untouched.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._owner: asyncio.Task | None = None
+        self._depth = 0
+
+    async def acquire(self) -> None:
+        task = asyncio.current_task()
+        if task is not None and self._owner is task:
+            self._depth += 1
+            return
+        await self._lock.acquire()
+        self._owner = asyncio.current_task()
+        self._depth = 1
+
+    def release(self) -> None:
+        if self._depth == 0 or self._owner is not asyncio.current_task():
+            raise RuntimeError(
+                "session lock released by a task that does not own it"
+            )
+        self._depth -= 1
+        if self._depth == 0:
+            self._owner = None
+            self._lock.release()
+
+    def locked(self) -> bool:
+        return self._owner is not None
+
+    def __repr__(self) -> str:
+        return (
+            f"<_ReentrantSessionLock owner={self._owner!r} depth={self._depth}>"
+        )
+
+
 class SessionManager:
     """Session lifecycle manager with per-session launcher ownership.
 
@@ -328,11 +384,11 @@ class SessionManager:
         # briefly or fails with SessionBusy (see SESSION_BUSY_TIMEOUT_S).
         # stop_session / gc_idle_sessions pop the entry alongside the
         # transport/observer.
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_locks: dict[str, _ReentrantSessionLock] = {}
         # Protects load-modify-save sequences against concurrent writes.
         self._lock = asyncio.Lock()
 
-    def session_lock(self, session_id: str) -> asyncio.Lock:
+    def session_lock(self, session_id: str) -> "_ReentrantSessionLock":
         """Return the per-session tool-call lock, creating it on first use.
 
         get-or-create without awaits, so it is atomic within the event loop.
@@ -378,7 +434,7 @@ class SessionManager:
         and fails when a tool opens a session context without being in
         the documented HOLDING or PARTIAL_HOLD set.
         """
-        return self._session_locks.setdefault(session_id, asyncio.Lock())
+        return self._session_locks.setdefault(session_id, _ReentrantSessionLock())
 
     async def start_session(
         self,
@@ -642,6 +698,11 @@ class SessionManager:
                     if cur is not None:
                         extra = dict(cur.extra)
                         extra["ppsspp_version"] = _version_fingerprint(transport)
+                        # _load_sessions() stamps restored=True on every
+                        # record it reads — including the one this call just
+                        # created and persisted (D11). This session was born
+                        # in-process, so it is not a restored session.
+                        extra["restored"] = False
                         sess = dataclasses.replace(cur, extra=extra)
                         sessions[session_id] = sess
                         await _save_sessions_async(sessions)
@@ -727,6 +788,9 @@ class SessionManager:
                 extra = dict(cur.extra)
                 extra["recovered"] = attempt
                 extra["ppsspp_version"] = _version_fingerprint(transport)
+                # Same D11 rationale: the relaunch is in-process, so the
+                # reloaded record's restored=True stamp is cleared.
+                extra["restored"] = False
                 updated = dataclasses.replace(cur, extra=extra)
                 sessions[session_id] = updated
                 await _save_sessions_async(sessions)

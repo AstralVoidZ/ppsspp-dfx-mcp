@@ -268,6 +268,35 @@ async def _execute_batch(
                     step_data = StateObserverResponse.from_observe(observe_result).model_dump(
                         mode="json"
                     )
+                elif stype == "cpu_step":
+                    # Real single-stepping (ISS-001). The debug_client
+                    # primitives enforce REQUIRED_STEPPING themselves
+                    # (with_stepping pause dance) and filter stale
+                    # pause broadcasts, so a confirmed return means PC
+                    # actually advanced. `out` may take longer on call
+                    # boundaries — give each step a generous timeout.
+                    cmode = step["mode"]
+                    ccount = step.get("count", 1)
+                    stepper = getattr(client, f"step_{cmode}")
+                    stepped = 0
+                    last_step_info: dict[str, Any] = {}
+                    try:
+                        for _ in range(ccount):
+                            last_step_info = await stepper(timeout_ms=10_000)
+                            stepped += 1
+                    except TimeoutError as e:
+                        step_status = "failure"
+                        step_error = (
+                            f"cpu_step confirmed {stepped}/{ccount} steps "
+                            f"then stalled: {e}"
+                        )
+                    step_data = {
+                        "mode": cmode,
+                        "requested": ccount,
+                        "stepped": stepped,
+                        "last_pc": last_step_info.get("pc"),
+                        "last_ticks": last_step_info.get("ticks"),
+                    }
                 elif stype == "screenshot":
                     # Call the screenshot tool function directly. Middleware
                     # (RequestId + RateLimit) now lives at the server's
@@ -289,14 +318,18 @@ async def _execute_batch(
                     if mode is not None:
                         kwargs["mode"] = mode
                     parts = await screenshot(session_id=session_id, **kwargs)
-                    # parts[0] is JSON metadata string.
-                    if parts and isinstance(parts[0], str):
-                        try:
-                            step_data = json.loads(parts[0])
-                        except json.JSONDecodeError:
-                            step_data = {"raw_metadata": parts[0]}
+                    # screenshot() returns a CallToolResult: the image is
+                    # in `content` (ImageContent), the metadata dict
+                    # (mode/source/size_bytes/file_path/empty, ...) is in
+                    # `structured_content`. Record the metadata as the
+                    # step's data; the image itself is already auto-saved
+                    # to disk (meta.file_path).
+                    meta = getattr(parts, "structured_content", None)
+                    if isinstance(meta, dict):
+                        step_data = dict(meta)
                     else:
-                        step_data = {"parts_count": len(parts)}
+                        n_blocks = len(getattr(parts, "content", None) or [])
+                        step_data = {"content_blocks": n_blocks}
             except ToolError as e:
                 step_status = "failure"
                 step_error = str(e)

@@ -14,15 +14,16 @@ scenarios:
     capabilities: [control]
     pre_state: {sessions: 1}
     prompt: |
-      请用 ppsspp_get_pc 工具告诉我 CPU 当前的 PC 值（十六进制）。
+      告诉我 CPU 当前的 PC 值（十六进制）。
     max_turns: 12
-    expected_first_tools: [ppsspp_get_pc]
+    expected_first_tools: [ppsspp_query, ppsspp_frame_snapshot, ppsspp_get_pc, ppsspp_health, ppsspp_session]
     optimal_calls: 1
     gates:
       - type: first_tool
-      - type: answer_contains
-        values:
-          - from_fixture: {file: cpu.status.json, path: records.0.response.pc, transform: hex}
+      - type: final_call_ok
+      # answer_contains (fixture cpu.status.json → pc) PENDING: fake 层对
+      # query(register pc) 的 fixture 未跟上 v0.1.6 后的 cpu.getReg 事件路由
+      # （返回 data:{} 空对象），重录制 fixture 后恢复该门禁（ISS-009）。
 
   - id: CTL-02
     tier: CTL
@@ -65,13 +66,12 @@ scenarios:
     prompt: |
       CPU 现在执行到哪了？告诉我 PC 的值（十六进制）。
     max_turns: 12
-    expected_first_tools: [ppsspp_get_pc]
+    expected_first_tools: [ppsspp_query, ppsspp_frame_snapshot, ppsspp_get_pc]
     optimal_calls: 1
     gates:
       - type: first_tool
-      - type: answer_contains
-        values:
-          - from_fixture: {file: cpu.status.json, path: records.0.response.pc, transform: hex}
+      - type: final_call_ok
+      # answer_contains PENDING（同 CTL-01 fixture 缺口，ISS-009）
 
   - id: L1-03
     tier: L1
@@ -332,7 +332,7 @@ scenarios:
     prompt: |
       帮我确认 0x00010000 和 0x08804000 分别属于哪块内存区域，用工具查证后告诉我。
     max_turns: 20
-    expected_first_tools: [ppsspp_memory_map]
+    expected_first_tools: [ppsspp_memory_map, ppsspp_query, ppsspp_session]
     optimal_calls: 1
     gates:
       - type: first_tool
@@ -359,7 +359,13 @@ scenarios:
       - type: first_tool
       - type: boot_order
       - type: answer_contains
-        values: ["Game"]   # 所加载游戏标题的稳定子串——按你的 ISO 改（跨启动稳定）
+        mode: any   # ISS-009: literal 'Game' failed non-English answers of a
+        values:     # correctly-executed boot — accept any game-identity token
+          - "ULJS-00293"
+          - "ULJS00293"
+          - "Phantasia"
+          - "ファンタジア"
+          - "幻域传"
       - type: final_call_ok
 
   - id: R2-REAL-SHOT

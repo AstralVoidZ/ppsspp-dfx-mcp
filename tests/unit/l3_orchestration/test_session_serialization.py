@@ -118,13 +118,26 @@ async def test_session_busy_after_timeout(
     monkeypatch.setattr(client_helper, "SESSION_BUSY_TIMEOUT_S", 0.05)
 
     lock = mgr.session_lock("s1")
-    await lock.acquire()
+    # The lock is same-task reentrant (D3): hold it in a DIFFERENT task so
+    # the session_client call below genuinely contends.
+    holder_ready = asyncio.Event()
+    release_lock = asyncio.Event()
+
+    async def hold_lock() -> None:
+        await lock.acquire()
+        holder_ready.set()
+        await release_lock.wait()
+        lock.release()
+
+    holder = asyncio.create_task(hold_lock())
     try:
+        await asyncio.wait_for(holder_ready.wait(), timeout=1.0)
         with pytest.raises(SessionBusy):
             async with client_helper.session_client_with_transport("s1"):
                 pass  # pragma: no cover — must not be reached
     finally:
-        lock.release()
+        release_lock.set()
+        await asyncio.gather(holder, return_exceptions=True)
 
 
 @pytest.mark.asyncio

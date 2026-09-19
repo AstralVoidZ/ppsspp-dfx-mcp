@@ -204,7 +204,7 @@ async def session(
 
     BEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; list/get are read-only.
 
-    RETURNS: action=start/get → SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version}; action=wait_ready → {action, ready, elapsed_s, probe_addr, probe_value, note}; action=list → {sessions: [SessionResponse...], count}."""
+    RETURNS: action=start/get → SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, restored (1 = session record was restored from sessions.json after a server restart, 0 = created in this process), ppsspp_version}; action=wait_ready → {action, ready, elapsed_s, probe_addr, probe_value, note} — elapsed_s is THIS call's wait duration, not the start→ready total; action=list → {sessions: [SessionResponse...], count}."""
     if action not in _VALID_ACTIONS:
         raise ArgsInvalid(f"invalid action={action!r}; expected one of {_VALID_ACTIONS}")
 

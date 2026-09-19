@@ -12,6 +12,9 @@ Actions (P0+P1, 10 total):
 - 'time_get'     → get base RTC
 - 'time_set'     → set base RTC (requires value)
 - 'save'         → flush + time_get + write .ppr file (requires file_path;
+#                    NOTE: both 'flush' and 'save' CONSUME the recording
+#                    buffer — after a flush, a following save fails with
+#                    REPLAY_EMPTY; record again to save;
                    S2: bare file name, always under .ppsspp-dfx/output/replays/)
 - 'load'         → read .ppr + execute (requires file_path; same containment)
 - 'wait_complete'→ poll replay.status until executing=False

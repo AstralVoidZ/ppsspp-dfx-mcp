@@ -532,7 +532,6 @@ _TOOL_MODULE_NAMES: tuple[str, ...] = (
     "scan",
     "search_disasm",
     "session",
-    "smoke",
     "state_observer",
     "step",
     "workflows",

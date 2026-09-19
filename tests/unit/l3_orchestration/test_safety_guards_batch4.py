@@ -32,41 +32,48 @@ class TestDisassembleCountZero:
     """L3: disassemble(count=0) returns empty result without calling PPSSPP."""
 
     @pytest.mark.asyncio
-    async def test_count_zero_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """count=0 → empty instructions, client.disasm NOT called."""
+    async def test_count_zero_defaults_to_ten(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """M2 (2026-09-19): count=0 falls back to the documented default 10.
+
+        The original D-19 lock sent count<=0 straight through as an empty
+        result; a live session read that as "unmapped memory". The guard's
+        real purpose — never send count=0 to PPSSPP ("Missing end
+        parameter") — is preserved by remapping to the default instead.
+        """
         mock_client = AsyncMock()
+        mock_client.disasm.return_value = [
+            {"address": 0x08804000 + i * 4, "text": f"nop{i}"} for i in range(10)
+        ]
 
         @asynccontextmanager
-        @asynccontextmanager
-        async def fake_resolve(session_id):
-            yield session_id or "sess-1"
-
         async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.resolve_session_id", fake_resolve)
-        monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.session_client", fake_session_client)
+        async def fake_resolve(session_id):
+            return session_id or "sess-1"
+
+        monkeypatch.setattr(
+            "ppsspp_dfx_mcp.tools.memory.resolve_session_id", fake_resolve
+        )
+        monkeypatch.setattr(
+            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
+        )
         result = await disassemble(session_id="sess-1", address=0x08804000, count=0)
 
-        assert result["count"] == 0
-        assert result["instructions"] == []
-        assert not mock_client.disasm.await_count, (
-            "D-19: count=0 must NOT call client.disasm — PPSSPP returns "
-            "'Missing end parameter' error for count=0."
-        )
+        assert result["count"] == 10
+        assert len(result["instructions"]) == 10
+        assert mock_client.disasm.await_count == 1
+        # The PPSSPP-facing count must be the remapped default, never 0.
+        assert mock_client.disasm.await_args.kwargs.get("count", 10) == 10
 
     @pytest.mark.asyncio
     async def test_count_negative_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """count=-1 → empty result, client.disasm NOT called."""
         mock_client = AsyncMock()
 
-        @asynccontextmanager
-        @asynccontextmanager
-        async def fake_resolve(session_id):
-            yield session_id or "sess-1"
-
         async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.resolve_session_id", fake_resolve)
-        monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.session_client", fake_session_client)
+        monkeypatch.setattr(
+            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
+        )
