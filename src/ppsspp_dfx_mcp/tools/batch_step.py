@@ -64,7 +64,7 @@ from ppsspp_dfx_mcp.tools._common import (
     wait_frames_chunked,
 )
 from ppsspp_dfx_mcp.tools.input import _PPSSPP_ALL_BUTTONS
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.batch_step import (
     BatchListResponse,
     BatchStatusResponse,
@@ -73,18 +73,19 @@ from ppsspp_dfx_mcp.views.batch_step import (
 )
 from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
 
-BatchStepOutput = derive_output_contract(
-    "BatchStepOutput",
-    BatchStepResponse,
-    # 多形态：background=True 返回 BatchSubmitResponse（见
-    # tools/_common.MULTI_SHAPE_OUTPUT_TOOLS）。SDK 会拿这个契约校验返回值，
-    # required 集合会在后台提交分支上硬失败，故全字段可选。
-    partial=True,
+# 🔴-1: 联合契约必须扁平——func_metadata 不展开多继承 TypedDict，
+# 只有第一个父类的键进入 outputSchema，其余分支的键被 structuredContent
+# 静默剥离。flatten_union 生成单层全可选 TypedDict，跨 SDK 版本一致。
+_BatchStepResponseOut = derive_output_contract("BatchStepResponseOut", BatchStepResponse, partial=True)
+_BatchSubmitResponseOut = derive_output_contract("BatchSubmitResponseOut", BatchSubmitResponse, partial=True)
+_BatchStatusResponseOut = derive_output_contract("BatchStatusResponseOut", BatchStatusResponse, partial=True)
+_BatchListResponseOut = derive_output_contract("BatchListResponseOut", BatchListResponse, partial=True)
+
+BatchStepOutput = flatten_union(
+    "BatchStepOutput", _BatchStepResponseOut, _BatchSubmitResponseOut
 )
-BatchStatusOutput = derive_output_contract(
-    "BatchStatusOutput",
-    BatchStatusResponse,
-    partial=True,  # 多形态：batch_id 省略走 BatchListResponse 分支
+BatchStatusOutput = flatten_union(
+    "BatchStatusOutput", _BatchStatusResponseOut, _BatchListResponseOut
 )
 BatchListOutput = derive_output_contract("BatchListOutput", BatchListResponse)
 
@@ -279,21 +280,27 @@ async def _execute_batch(
                     stepper = getattr(client, f"step_{cmode}")
                     stepped = 0
                     last_step_info: dict[str, Any] = {}
-                    try:
-                        for _ in range(ccount):
-                            last_step_info = await stepper(timeout_ms=10_000)
-                            stepped += 1
-                    except TimeoutError as e:
-                        step_status = "failure"
-                        step_error = (
-                            f"cpu_step confirmed {stepped}/{ccount} steps then stalled: {e}"
-                        )
+                    # 🔴-3: with_stepping restores RUNNING for the rest of
+                    # the batch — later press/wait steps must not act on a
+                    # frozen CPU.
+                    async with client.with_stepping():
+                        try:
+                            for _ in range(ccount):
+                                last_step_info = await stepper(timeout_ms=10_000)
+                                stepped += 1
+                        except TimeoutError as e:
+                            step_status = "failure"
+                            step_error = (
+                                f"cpu_step confirmed {stepped}/{ccount} steps "
+                                f"then stalled: {e}"
+                            )
                     step_data = {
                         "mode": cmode,
                         "requested": ccount,
                         "stepped": stepped,
                         "last_pc": last_step_info.get("pc"),
                         "last_ticks": last_step_info.get("ticks"),
+                        "resumed_after": True,
                     }
                 elif stype == "screenshot":
                     # Call the screenshot tool function directly. Middleware

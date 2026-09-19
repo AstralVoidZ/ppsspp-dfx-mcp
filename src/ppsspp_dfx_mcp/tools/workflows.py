@@ -535,5 +535,20 @@ async def trace_memory_access(
         raise
     finally:
         if bp_armed:
-            await _remove_mem_bp_quietly(session_id, addr)
+            # 🟡4: shielded — a cancelled caller must not leave the temp
+            # mem BP armed in PPSSPP (it would keep pausing the CPU on
+            # every access long after this tool returned).
+            import asyncio
+
+            async def _cleanup():
+                await _remove_mem_bp_quietly(session_id, addr)
+
+            try:
+                await asyncio.shield(_cleanup())
+            except asyncio.CancelledError:
+                logger.warning(
+                    "trace cleanup: caller cancelled during temporary "
+                    "breakpoint removal; shielded removal continues in "
+                    "background"
+                )
         subscription.close()

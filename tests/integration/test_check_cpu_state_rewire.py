@@ -25,6 +25,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import asyncio
+
 import pytest
 import yaml
 
@@ -285,6 +287,6 @@ class TestExposure:
     def test_sync_registers_rewired_script(self, tmp_path: Path):
         """status=migrated + exposed=true → sync registers the tool."""
         _inject_manifest(tmp_path)
-        report = sync_exposed_tools()
+        report = asyncio.run(sync_exposed_tools())
         assert report["added"] == ["check_cpu_state"]
         assert "check_cpu_state" in registered_exposed_names()
