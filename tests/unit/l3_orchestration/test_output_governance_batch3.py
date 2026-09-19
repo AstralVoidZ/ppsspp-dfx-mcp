@@ -308,9 +308,7 @@ class TestQueryTopNTruncation:
         # (ISS-008), so fixture entries must live inside it.
         base = 0x08804000
         mock_client.func_list.return_value = {
-            "functions": [
-                {"name": f"f_{i}", "address": base + i * 4} for i in range(100)
-            ]
+            "functions": [{"name": f"f_{i}", "address": base + i * 4} for i in range(100)]
         }
 
         @asynccontextmanager

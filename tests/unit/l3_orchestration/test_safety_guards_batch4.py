@@ -52,12 +52,8 @@ class TestDisassembleCountZero:
         async def fake_resolve(session_id):
             return session_id or "sess-1"
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.resolve_session_id", fake_resolve
-        )
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.resolve_session_id", fake_resolve)
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)
         result = await disassemble(session_id="sess-1", address=0x08804000, count=0)
 
         assert result["count"] == 10
@@ -74,6 +70,4 @@ class TestDisassembleCountZero:
         async def fake_session_client(session_id: str) -> AsyncIterator[AsyncMock]:
             yield mock_client
 
-        monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client
-        )
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.memory.session_client", fake_session_client)

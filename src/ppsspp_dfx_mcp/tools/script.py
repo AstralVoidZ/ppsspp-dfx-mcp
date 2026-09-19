@@ -48,8 +48,8 @@ from ppsspp_dfx_mcp.errors import (
 )
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.spec.script_manifest import (
-    ScriptEntry,
     VALID_SCRIPT_CATEGORIES,
+    ScriptEntry,
     get_manifest,
 )
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
@@ -313,8 +313,7 @@ def list_scripts(
         # Fail like list_addresses does for unknown sections, listing the
         # valid values so the caller can self-correct.
         raise ArgsInvalid(
-            f"unknown category {category!r}; valid categories: "
-            f"{sorted(VALID_SCRIPT_CATEGORIES)}"
+            f"unknown category {category!r}; valid categories: {sorted(VALID_SCRIPT_CATEGORIES)}"
         )
     try:
         manifest = get_manifest()

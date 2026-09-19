@@ -325,9 +325,7 @@ class _ReentrantSessionLock:
 
     def release(self) -> None:
         if self._depth == 0 or self._owner is not asyncio.current_task():
-            raise RuntimeError(
-                "session lock released by a task that does not own it"
-            )
+            raise RuntimeError("session lock released by a task that does not own it")
         self._depth -= 1
         if self._depth == 0:
             self._owner = None
@@ -337,9 +335,7 @@ class _ReentrantSessionLock:
         return self._owner is not None
 
     def __repr__(self) -> str:
-        return (
-            f"<_ReentrantSessionLock owner={self._owner!r} depth={self._depth}>"
-        )
+        return f"<_ReentrantSessionLock owner={self._owner!r} depth={self._depth}>"
 
 
 class SessionManager:
@@ -388,7 +384,7 @@ class SessionManager:
         # Protects load-modify-save sequences against concurrent writes.
         self._lock = asyncio.Lock()
 
-    def session_lock(self, session_id: str) -> "_ReentrantSessionLock":
+    def session_lock(self, session_id: str) -> _ReentrantSessionLock:
         """Return the per-session tool-call lock, creating it on first use.
 
         get-or-create without awaits, so it is atomic within the event loop.

@@ -550,9 +550,7 @@ async def disassemble(
     # M2: PPSSPP fills placeholder "-" text for unmapped/invalid addresses
     # instead of erroring. Surface that explicitly — a wall of "-" silently
     # read as "valid empty code" misled a live session (blind-test C1).
-    if instructions and all(
-        str(ins.get("text", "")).strip() in ("-", "") for ins in instructions
-    ):
+    if instructions and all(str(ins.get("text", "")).strip() in ("-", "") for ins in instructions):
         response["note"] = (
             "all instructions are placeholders ('-') — the address range "
             "is likely unmapped or unreadable, not empty code"

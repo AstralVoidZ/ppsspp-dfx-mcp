@@ -31,7 +31,10 @@ class AnalyzeLogResponse(FrozenModel):
     )
     count: int = Field(default=0, description="Number of matches (after limit truncation).")
     filter: str = Field(default="", description="User-supplied keyword filter.")
-    filter_mode: str = Field(default="any", description="Filter combination mode: 'any' (legacy OR) or 'all' (severity AND filter).")
+    filter_mode: str = Field(
+        default="any",
+        description="Filter combination mode: 'any' (legacy OR) or 'all' (severity AND filter).",
+    )
     total_matches: int = Field(default=0, description="Match count before limit truncation.")
     truncated: bool = Field(default=False, description="True when limit truncated the match list.")
 
