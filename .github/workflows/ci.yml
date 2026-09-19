@@ -59,6 +59,8 @@ jobs:
       # 其余（单元 + 契约 + fixture 化集成）必须三平台全绿。
       - name: Run test suite
         run: python -m pytest tests -q
+    - name: evals gate engine (pure unit, no API)
+      run: python -m pytest evals/test_gates.py evals/test_b2_skill.py -q
 
   ci-ok:
     name: ci-ok
