@@ -250,9 +250,10 @@ async def breakpoint(
                 "Memory breakpoint watch size in bytes (mem_set / mem_remove / "
                 "mem_update; default 4). Fixed-width watches use 1/2/4; "
                 "larger sizes are passed through to PPSSPP as a range "
-                "watch. PPSSPP matches memory breakpoints by address+size "
-                "pair, so remove/update must pass the exact size recorded "
-                "at set time."
+                "watch. NOTE (verified): mem_remove matches by ADDRESS "
+                "only — a wrong or omitted size still removes the "
+                "breakpoint at that address, so keep the size you set "
+                "for bookkeeping, not for matching."
             ),
         ),
     ] = 4,
@@ -315,7 +316,7 @@ async def breakpoint(
     ROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.
     BEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.
 
-    RETURNS: stats → {mode:"stats", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}], probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}."""
+    RETURNS: stats → {mode:"stats", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}."""
     if action == "wait":
         from ppsspp_dfx_mcp.tools.workflows import wait_breakpoint
 

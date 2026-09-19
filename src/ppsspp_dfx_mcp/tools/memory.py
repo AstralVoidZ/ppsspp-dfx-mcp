@@ -500,9 +500,13 @@ async def disassemble(
     RETURNS: {address, count, instructions: [{address, text}...]}.
     """
     session_id = await resolve_session_id(session_id)
-    # count <= 0 → return an empty result without calling PPSSPP.
+    # M2: count=0 falls back to the documented default (10) — the previous
+    # empty-result behavior read as "unmapped memory". Negative counts
+    # still short-circuit to an empty result without calling PPSSPP.
     address_int = parse_address(address)
-    if count <= 0:
+    if count == 0:
+        count = 10
+    if count < 0:
         logger.info(
             "tool_call",
             extra={
@@ -542,7 +546,18 @@ async def disassemble(
     result = DisassemblyResult(
         address=address_int, count=len(instructions), instructions=instructions
     )
-    return DisassemblyResponse.from_result(result).model_dump(mode="json")
+    response = DisassemblyResponse.from_result(result).model_dump(mode="json")
+    # M2: PPSSPP fills placeholder "-" text for unmapped/invalid addresses
+    # instead of erroring. Surface that explicitly — a wall of "-" silently
+    # read as "valid empty code" misled a live session (blind-test C1).
+    if instructions and all(
+        str(ins.get("text", "")).strip() in ("-", "") for ins in instructions
+    ):
+        response["note"] = (
+            "all instructions are placeholders ('-') — the address range "
+            "is likely unmapped or unreadable, not empty code"
+        )
+    return response
 
 
 def _simplify_disasm_line(line: dict[str, Any]) -> dict[str, Any]:

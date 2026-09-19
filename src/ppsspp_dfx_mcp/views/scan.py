@@ -37,7 +37,7 @@ class ScanResponse(FrozenModel):
     dropped: bool = Field(default=False, description="True when the session was dropped.")
     # strings
     charset: str = Field(default="", description="Charset used (strings mode).")
-    count: int = Field(default=0, description="String count (strings mode).")
+    count: int = Field(default=0, description="Hit count (pattern & strings modes; matches the value/strings list in this response).")
     strings: list[StringHitView] = Field(
         default_factory=list, description="Harvested strings (strings mode)."
     )
@@ -50,6 +50,10 @@ class ScanResponse(FrozenModel):
             address=format_address(start),
             value=matches,
             size=len(matches),
+            # M13: `count` used to stay 0 in pattern mode (it was
+            # strings-only), which read as "no matches" to callers
+            # keying on count. Populate it for both modes.
+            count=len(matches),
         )
 
     @classmethod

@@ -109,15 +109,17 @@ async def step(
         Field(
             description=(
                 "CPU step / run-state operation. Valid values:\n"
-                "- 'into': step into (including delay slot).\n"
-                "- 'over': step over (skip function calls).\n"
-                "- 'out': step out of current function.\n"
                 "- 'pause': pause CPU (enter stepping mode).\n"
                 "- 'resume': resume CPU (exit stepping mode).\n"
                 "- 'reset': reset the game (reboot).\n"
                 "- 'run_until': run until the specified address is reached "
                 "(requires address).\n"
-                "- 'next_hle': step to next HLE callback."
+                "- 'next_hle': step to next HLE callback.\n"
+                "NOTE: single-stepping (into/over/out) lives in "
+                "ppsspp_batch_step as the 'cpu_step' step type "
+                "(mode='into'|'over'|'out', count 1..1000) — it requires "
+                "the CPU to enter stepping mode, which the executor "
+                "handles automatically."
             ),
         ),
     ],
@@ -128,7 +130,10 @@ async def step(
             description=(
                 "Target address, as a hex string (e.g. '0x08804000'). "
                 "Required for action='run_until'; "
-                "ignored for all other actions."
+                "ignored for all other actions. run_until is "
+                "fire-and-forget: it returns immediately with no hit "
+                "confirmation — poll PC or set a breakpoint to observe "
+                "arrival."
             ),
         ),
     ] = "0x0",

@@ -9,18 +9,20 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Filter a PPSSPP log file for ERROR / WARNING / CRASH lines.\n\nUSAGE: log_path optional (defaults to the server-mirrored PPSSPP broadcast log at .ppsspp-dfx/output/ppsspp.log, written while a session runs); filter optional (keyword); session_id optional.\n\nBEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.\n\nRETURNS: {log_path, matches: [{line_no, text}...], count, filter}.\n",
-   "description_chars": 407,
-   "description_words": 54,
-   "input_schema_chars": 939,
+   "description": "PURPOSE: Filter a PPSSPP log file for ERROR / WARNING / CRASH lines.\n\nUSAGE: log_path optional (defaults to the server-mirrored PPSSPP broadcast log at .ppsspp-dfx/output/ppsspp.log, written while a session runs); filter optional (keyword); session_id optional.\n\nBEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.\n\nRETURNS: {log_path, matches: [{line_no, text}...], count, filter, filter_mode, total_matches, truncated}.\n",
+   "description_chars": 446,
+   "description_words": 57,
+   "input_schema_chars": 1711,
    "input_schema_properties": [
     "filter",
+    "filter_mode",
+    "limit",
     "log_path",
     "session_id"
    ],
-   "input_schema_sha1": "4e68b1b153f8bb079497b35b1241c3fd2ba0cd14",
-   "output_schema_chars": 929,
-   "output_schema_sha1": "09b8f49668d611d2b3be1c01050646d7627a628a"
+   "input_schema_sha1": "a05cb14e3f9169eeec23ffca6d6ff5efc8229b08",
+   "output_schema_chars": 1386,
+   "output_schema_sha1": "1af59cf7b2cba8801b8e14be9073d9907d1b7d6b"
   },
   "ppsspp_assemble": {
    "annotations": {
@@ -107,10 +109,10 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary MEMORY breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (defaults to read access; narrow with read/write/size). For EXECUTION breakpoints use action='set' + 'wait'.\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.\n\nRETURNS: stats → {mode:\"stats\", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}], probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
-   "description_chars": 1670,
-   "description_words": 202,
-   "input_schema_chars": 4609,
+   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary MEMORY breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (defaults to read access; narrow with read/write/size). For EXECUTION breakpoints use action='set' + 'wait'.\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.\n\nRETURNS: stats → {mode:\"stats\", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
+   "description_chars": 1726,
+   "description_words": 210,
+   "input_schema_chars": 4673,
    "input_schema_properties": [
     "action",
     "address",
@@ -126,7 +128,7 @@
     "want_registers",
     "write"
    ],
-   "input_schema_sha1": "a1ce113157f3bb8c23571ac97d06d6f366580626",
+   "input_schema_sha1": "58874af6b3c06e8cbc48f3d75932e923c2326586",
    "output_schema_chars": 680,
    "output_schema_sha1": "81297f68368d1c708ef28a720f33310f486ecf49"
   },
@@ -303,8 +305,8 @@
     "session_id"
    ],
    "input_schema_sha1": "2ddaa5bdce10aa93d2e605fef31ba0aa97893b0f",
-   "output_schema_chars": 1312,
-   "output_schema_sha1": "f1c3c789ae23c9c0eba13e140e5880f3d76cf29a"
+   "output_schema_chars": 1975,
+   "output_schema_sha1": "97e8c3ec1648531442147ce049bba0163588e446"
   },
   "ppsspp_hold_buttons": {
    "annotations": {
@@ -389,13 +391,13 @@
    "description": "PURPOSE: Simulate a single PSP button press for a duration.\n\nUSAGE: session_id + button required; duration optional (default 10 frames). Valid button names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sends input events to PPSSPP. Button state returns to released after the duration elapses.\n\nRETURNS: {button, duration}.\n",
    "description_chars": 405,
    "description_words": 65,
-   "input_schema_chars": 513,
+   "input_schema_chars": 611,
    "input_schema_properties": [
     "button",
     "duration",
     "session_id"
    ],
-   "input_schema_sha1": "7d306cc4121a8074a54fd0e785355f41000baf29",
+   "input_schema_sha1": "eb68a931fcedc239ae5f19ddb6cda472c2ea2e9e",
    "output_schema_chars": 286,
    "output_schema_sha1": "4ccfacfb401f465620d260960a9c7309eaad171c"
   },
@@ -406,20 +408,21 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Aggregate game-state queries — game_state, registers (all or one), backtrace, threads, modules, and function-list management (funcs/func_scan/func_add/func_remove).\n\nUSAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).\n\n\nROUTING: one-shot PC read -> query(action='register', name='pc') (safe=true pauses for consistency; safe=false for hot-path polling); pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; game_state / backtrace / threads / modules / HLE func management also here.\nBEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused; running-state PC/isCurrent reads are LOW trust unless safe=true.\n\nRETURNS: {action, data, trust_level} — data shape depends on the action.",
-   "description_chars": 925,
-   "description_words": 113,
-   "input_schema_chars": 2300,
+   "description": "PURPOSE: Aggregate game-state queries — game_state, registers (all or one), backtrace, threads, modules, and function-list management (funcs/func_scan/func_add/func_remove).\n\nUSAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).\n\n\nROUTING: one-shot PC read -> query(action='register', name='pc') (safe=true pauses for consistency; safe=false for hot-path polling); pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; game_state / backtrace / threads / modules / HLE func management also here.\nBEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. Verified on a live game: threads / modules / funcs / func_scan respond while the CPU is RUNNING (no pause needed); running-state PC/isCurrent reads are LOW trust unless safe=true (which pauses briefly for a consistent, high-trust read).\n\nRETURNS: {action, data, trust_level} — data shape depends on the action.",
+   "description_chars": 1048,
+   "description_words": 137,
+   "input_schema_chars": 2685,
    "input_schema_properties": [
     "action",
     "address",
     "name",
     "safe",
     "session_id",
+    "size",
     "thread",
     "top_n"
    ],
-   "input_schema_sha1": "17a03e62fc1402f19bdee3d1a63d73eaad960ccb",
+   "input_schema_sha1": "8fe5adc92e3164d5d8221dcabd8e7e1b1e5976c8",
    "output_schema_chars": 1010,
    "output_schema_sha1": "224a2e0dd70e76e6e0bcfdc54a125b767bdba5a7"
   },
@@ -541,8 +544,8 @@
     "width"
    ],
    "input_schema_sha1": "1826e38eed8b4f817c76981ee3084180928e0c1b",
-   "output_schema_chars": 1951,
-   "output_schema_sha1": "ea133189930f6c733ae627afc7a443528df6b28e"
+   "output_schema_chars": 2008,
+   "output_schema_sha1": "53088447872bd9baf22085a836e42ab61892935e"
   },
   "ppsspp_screenshot": {
    "annotations": {
@@ -635,9 +638,9 @@
     "open_world_hint": true,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=list / start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.\n\nUSAGE: action='list' takes no other params and returns {sessions, count} (idle sessions >30min are auto-GC'd as a side effect; NOT a per-session health probe — use ppsspp_health(session_id=...) for that); action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).\n\nBEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; list/get are read-only.\n\nRETURNS: action=start/get → SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, ppsspp_version}; action=wait_ready → {action, ready, elapsed_s, probe_addr, probe_value, note}; action=list → {sessions: [SessionResponse...], count}.",
-   "description_chars": 1248,
-   "description_words": 165,
+   "description": "PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=list / start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.\n\nUSAGE: action='list' takes no other params and returns {sessions, count} (idle sessions >30min are auto-GC'd as a side effect; NOT a per-session health probe — use ppsspp_health(session_id=...) for that); action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).\n\nBEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; list/get are read-only.\n\nRETURNS: action=start/get → SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, restored (1 = session record was restored from sessions.json after a server restart, 0 = created in this process), ppsspp_version}; action=wait_ready → {action, ready, elapsed_s, probe_addr, probe_value, note} — elapsed_s is THIS call's wait duration, not the start→ready total; action=list → {sessions: [SessionResponse...], count}.",
+   "description_chars": 1431,
+   "description_words": 195,
    "input_schema_chars": 2725,
    "input_schema_properties": [
     "action",
@@ -687,13 +690,13 @@
    "description": "PURPOSE: Aggregate CPU step + run-state control (into / over / out, pause, resume, reset, run_until, next_hle).\n\nUSAGE: action='into' / 'over' / 'out' / 'pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.\n\n\nROUTING: single CPU-step operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences -> ppsspp_batch_step.\nBEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.\n\nRETURNS: {action, address}.\n",
    "description_chars": 616,
    "description_words": 83,
-   "input_schema_chars": 1041,
+   "input_schema_chars": 1264,
    "input_schema_properties": [
     "action",
     "address",
     "session_id"
    ],
-   "input_schema_sha1": "6c836050ac94eaf04b2012a628d5e3a910b2b68b",
+   "input_schema_sha1": "0a2e87fb98cca8ac17d35f3eee1fecf9241224e9",
    "output_schema_chars": 1204,
    "output_schema_sha1": "0e6b2c852029b0eba3d4fcbe23404bd14c36ac3c"
   },
@@ -746,20 +749,20 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Set a CPU register (GPR/FPU/VFPU names, plus pc/hi/lo).\n\nUSAGE: session_id + name (MIPS ABI names only — 'r5' normalizes to 'v1') + value (hex).\n\nBEHAVIOR: DESTRUCTIVE. Pauses and resumes the CPU automatically (REQUIRED_STEPPING handled internally) — no manual pause needed.\n\nRETURNS: {name, value, response, text}.",
-   "description_chars": 324,
-   "description_words": 46,
-   "input_schema_chars": 792,
+   "description": "PURPOSE: Set a CPU register (GPR/FPU/VFPU names, plus pc/hi/lo).\n\nUSAGE: session_id + name (MIPS ABI names preferred; numeric aliases like 'r5' normalize to the GPR of that index, i.e. r5 -> a1) + value (hex).\n\nBEHAVIOR: DESTRUCTIVE. Pauses and resumes the CPU automatically (REQUIRED_STEPPING handled internally) — no manual pause needed.\n\nRETURNS: {name, value, response, text}.",
+   "description_chars": 380,
+   "description_words": 56,
+   "input_schema_chars": 828,
    "input_schema_properties": [
     "name",
     "session_id",
     "value"
    ],
-   "input_schema_sha1": "75fe54c10ea5155a2ba1bf367326741e82ebfc99",
+   "input_schema_sha1": "e55baf92b4113f6407469419eedd48169fb11caa",
    "output_schema_chars": 641,
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 23961,
- "total_input_schema_chars": 43484
+ "total_description_chars": 24418,
+ "total_input_schema_chars": 45062
 }

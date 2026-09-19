@@ -12,7 +12,7 @@ Query actions (9 total):
 - 'modules' — list all loaded HLE modules
 - 'funcs' — list registered HLE function tracking entries
 - 'func_scan' — scan all trackable HLE functions
-- 'func_add' — add HLE function tracking (name? / address?)
+- 'func_add' — add HLE function tracking (name? / address?; size defaults to 4 — an omitted size creates an unusable zero-size function on PPSSPP <= v1.20.4-1845, and the response carries a verified flag)
 - 'func_remove' — remove HLE function tracking (address required;
   PPSSPP's hle.func.remove protocol only accepts `address`, no `name` —
   see HLESubscriber.cpp:L38, L319-363)
@@ -175,6 +175,19 @@ async def query(
             ),
         ),
     ] = "0x0",
+    size: Annotated[
+        int | None,
+        Field(
+            default=None,
+            description=(
+                "Function size in bytes, 'func_add' only. When omitted the "
+                "server sends no size — on PPSSPP builds where the omit "
+                "path underflows (v1.20.4-1845 and earlier) this produces "
+                "an unusable zero-size function, so this tool defaults to "
+                "sending 4. Pass an explicit size to override."
+            ),
+        ),
+    ] = None,
     top_n: Annotated[
         int,
         Field(
@@ -194,7 +207,7 @@ async def query(
 
 
     ROUTING: one-shot PC read -> query(action='register', name='pc') (safe=true pauses for consistency; safe=false for hot-path polling); pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; game_state / backtrace / threads / modules / HLE func management also here.
-    BEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. backtrace/threads/func_* REQUIRE the CPU paused; running-state PC/isCurrent reads are LOW trust unless safe=true.
+    BEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. Verified on a live game: threads / modules / funcs / func_scan respond while the CPU is RUNNING (no pause needed); running-state PC/isCurrent reads are LOW trust unless safe=true (which pauses briefly for a consistent, high-trust read).
 
     RETURNS: {action, data, trust_level} — data shape depends on the action."""
     if action not in _QUERY_ACTIONS:
@@ -270,13 +283,49 @@ async def query(
                 scan_size = 65536
                 await client.func_scan(address=address_int, size=scan_size)
                 data = await client.func_list()
+                # ISS-008: PPSSPP returns the WHOLE symbol table regardless
+                # of the requested range — filter to [address, address+size)
+                # client-side so the requested window is what the caller
+                # sees. total_before records the pre-filter size.
+                if isinstance(data, dict) and isinstance(data.get("functions"), list):
+                    before = len(data["functions"])
+                    lo, hi = address_int, address_int + scan_size
+                    data["functions"] = [
+                        f
+                        for f in data["functions"]
+                        if lo <= int(f.get("address", 0)) < hi
+                    ]
+                    data["filtered_to"] = (
+                        f"0x{lo:08X}-0x{hi:08X}"
+                    )
+                    data["total_before_filter"] = before
                 # Truncate large function lists.
                 if top_n > 0:
                     data = _apply_top_n(data, top_n)
                 result = QueryResult(action=action, data=data, trust_level=None)
             elif action == "func_add":
                 addr = address_int if address_int != 0 else None
-                data = await client.func_add(name=name, address=addr)
+                # Always send an explicit size (default 4): omitting it
+                # hits a zero-size underflow on PPSSPP builds up to
+                # v1.20.4-1845 and yields an invisible, unremovable
+                # function. Verify after the ack and surface the result.
+                data = await client.func_add(
+                    name=name, address=addr, size=size if size is not None else 4
+                )
+                try:
+                    listing = await client.func_list()
+                    entries = listing.get("functions", []) if isinstance(listing, dict) else []
+                    data["verified"] = any(
+                        f.get("address") == (addr or 0) for f in entries
+                    )
+                    if not data["verified"]:
+                        data["verified_note"] = (
+                            "added function not visible in hle.func.list — "
+                            "symbol map may not have accepted it"
+                        )
+                except Exception as verify_err:  # verification is best-effort
+                    data["verified"] = None
+                    data["verified_note"] = f"verify skipped: {verify_err}"
                 result = QueryResult(action=action, data=data, trust_level=None)
             else:  # func_remove — address is guaranteed non-zero by the
                 # validator above; name is not accepted by the protocol.

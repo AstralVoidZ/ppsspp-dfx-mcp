@@ -22,6 +22,7 @@ on detached tasks) plus:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
@@ -536,10 +537,23 @@ class TestBusyHint:
 
         monkeypatch.setattr(sm, "get_session_state", fake_get_state)
         monkeypatch.setattr(sm, "touch_session", fake_touch)
-
         lock = sm.get_session_manager().session_lock("s-busy")
-        await lock.acquire()
+        # The session lock is same-task reentrant (D3), so holding it in
+        # the test task no longer blocks a session_client call made from
+        # that task. Simulate a real busy session by holding the lock in
+        # a DIFFERENT task.
+        acquired = asyncio.Event()
+        lock_released = asyncio.Event()
+
+        async def hold_lock() -> None:
+            await lock.acquire()
+            acquired.set()
+            await lock_released.wait()
+            lock.release()
+
+        holder = asyncio.create_task(hold_lock())
         try:
+            await asyncio.wait_for(acquired.wait(), timeout=1.0)
             with pytest.raises(ToolError) as ei:
                 async with client_helper.session_client("s-busy"):
                     pass
@@ -548,7 +562,10 @@ class TestBusyHint:
             assert "ppsspp_batch_status" in msg
             assert "ppsspp_batch_cancel" in msg
         finally:
-            lock.release()
+            lock_released.set()
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(holder, timeout=2.0)
+            reg._jobs.pop("bgdeadbeef", None)
 
     async def test_busy_message_without_background_batch(self, monkeypatch: pytest.MonkeyPatch):
         from ppsspp_dfx_mcp.session import client_helper
@@ -564,14 +581,26 @@ class TestBusyHint:
         monkeypatch.setattr(sm, "touch_session", fake_touch)
 
         lock = sm.get_session_manager().session_lock("s-plain")
-        await lock.acquire()
+        acquired = asyncio.Event()
+        lock_released = asyncio.Event()
+
+        async def hold_lock() -> None:
+            await lock.acquire()
+            acquired.set()
+            await lock_released.wait()
+            lock.release()
+
+        holder = asyncio.create_task(hold_lock())
         try:
+            await asyncio.wait_for(acquired.wait(), timeout=1.0)
             with pytest.raises(ToolError) as ei:
                 async with client_helper.session_client("s-plain"):
                     pass
             assert "background batch" not in str(ei.value)
         finally:
-            lock.release()
+            lock_released.set()
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(holder, timeout=2.0)
 
 
 # ============================================================================

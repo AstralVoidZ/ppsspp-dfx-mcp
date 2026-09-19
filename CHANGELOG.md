@@ -5,6 +5,69 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Fixed（实机盲测回归修复：D3 / D8-MCP / D11 + 接口契约面 S1）
+
+- **D3 会话锁同任务可重入**：`batch_step` 全程持锁期间内嵌 `screenshot`
+  步骤的嵌套获取不再自死锁（此前 100% SESSION_BUSY）。跨任务互斥语义
+  不变（仍一条工具调用独占会话，等锁超 5s 报 SESSION_BUSY）。
+- **D3 伴生**：修复 `batch_step` screenshot 分支对 `screenshot()`
+  返回值的过期解包——按 `structured_content` 元数据记账（图像已由
+  工具自动落盘 `file_path`）。
+- **D11**：`restored` 字段误标修复——本进程新建会话在版本指纹回写时
+  不再被 `_load_sessions` 误标为 `restored=1`（冷启动语义恢复）。
+- **D8 MCP 防御**：`query(func_add)` 暴露 `size` 参数（默认显式 4，
+  规避 PPSSPP ≤ v1.20.4-1845 省略 size 下溢为 0 的上游缺陷），ack 后
+  回读符号表校验并返回 `verified` 字段。
+- **接口契约面（S1）**：9 项描述-实现漂移按实测修正（`breakpoint`
+  mem_remove 按地址匹配、`write_register` r5→a1 归一与超界拒绝、
+  `step` 单步不可用声明、`query` threads/modules 免暂停、`session`
+  restored 字段入契约、`replay` flush/save 消费缓冲、`input` duration
+  上限 18000）；`server.py` 移除无注册效果的 "smoke" 模块条目；
+  manifest 补 `device_walkthrough` load 阶段副作用说明。
+  `tool_surface_baseline.json` 按规程再生成。
+
+回归：unit 1298 passed（含新增锁语义 5 测试）/ evals gates 19 passed /
+真机活体验证（批内嵌 screenshot 3/3 成功、新会话 restored=0、
+func_add verified=true）。
+
+## [Unreleased] — S2 批（cpu_step 实现 + 契约补强 + 评测卡修复）
+
+### Added
+
+- **cpu_step 执行体（ISS-001）**：`batch_step` 的 `cpu_step` 步骤类型从
+  「校验通过但无执行分支的假成功」变为真实单步——`with_stepping` 自动
+  暂停/恢复，mode 映射 `step_into/over/out`，count 循环逐步并带陈旧广播
+  过滤；停滞时步骤失败并上报 `confirmed N/M` 部分进度。真机活体：暂停态
+  单步 3 次 PC 真实推进。
+
+### Changed
+
+- **analyze_log（ISS-007/M11/M15）**：新增 `filter_mode`（`any`=旧 OR 语义
+  默认；`all`=严重级别 AND filter 收窄）与 `limit`（响应新增
+  `total_matches`/`truncated`，长日志不再整包返回）；log_path 白名单
+  描述修正为实际口径（整个 .ppsspp-dfx 树）。
+- **query(func_scan)（ISS-008）**：客户端按请求窗口 [address,
+  address+64KB) 过滤 PPSSPP 返回的全表，响应附 `filtered_to` /
+  `total_before_filter`。
+- **health（M9）**：带 session_id 时 structuredContent 现包含
+  `session_checks` / `overall_session_status`（此前仅 text 通道携带）。
+- **list_scripts（M12）**：非法 category 由静默空列表改为
+  ARGS_INVALID 并列出合法值（对齐 list_addresses 策略）。
+- **scan（M13）**：pattern 模式响应同步填充 `count`（此前恒 0，误读为
+  无命中）。
+- **disassemble（M2）**：count=0 回退文档默认 10（原样返回空被读作
+  「未映射内存」）；全占位 `-` 结果附 note 说明地址疑似未映射。
+- **run_script（M7）**：input 未知字段由静默忽略改为
+  SCRIPT_CONTRACT_ERROR（列出未知键与合法键）。
+- **evals 场景卡（ISS-009）**：CTL-01/L1-02 弃用已退役 `ppsspp_get_pc`
+  的 prompt/白名单（等价工具 + health/session 纳入白名单）；
+  R1-REAL-BOOT 的 'Game' 字面量 oracle 改宽口径 any-of 游戏身份 token；
+  L3-03 first_tool 白名单放宽。实跑验证：CTL-01 / L3-03 / R1 全部转 PASS。
+
+回归：unit 1302 passed / evals gates 19 passed。
+
 ## [0.1.6] - 2026-09-18
 
 ### Changed（表面重构 — Glama AI 可用性评审整改：工具数 41 → 36）

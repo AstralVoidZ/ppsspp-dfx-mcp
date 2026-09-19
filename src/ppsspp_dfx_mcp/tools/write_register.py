@@ -59,9 +59,9 @@ async def write_register(
                 "CPU register name (MIPS standard names). GPRs: "
                 "'v0'/'v1'/'a0'-'a3'/'t0'-'t9'/'s0'-'s7'/'gp'/'sp'/'fp'/"
                 "'ra'/'hi'/'lo'/'pc'. FPU: 'f0'-'f31'. VFPU: "
-                "'v0'-'v127'. Numeric aliases like 'r5' are NOT accepted "
-                "by PPSSPP — use the MIPS standard name (e.g., 'a1' "
-                "instead of 'r5'). Case-sensitive (lowercase by convention)."
+                "'v0'-'v127'. Numeric aliases like 'r5' are accepted and "
+                "normalized (r5 -> a1, i.e. GPR index 5) — prefer the "
+                "MIPS standard name. Case-sensitive (lowercase by convention)."
             ),
         ),
     ],
@@ -71,14 +71,15 @@ async def write_register(
             description=(
                 "Value to write, as a hex string (e.g. '0x00000001'). "
                 "Treated as an unsigned 32-bit int; values outside "
-                "[0, 0xFFFFFFFF] are wrapped by PPSSPP."
+                "[0, 0xFFFFFFFF] are REJECTED (out-of-32-bit-range error), "
+                "not wrapped."
             ),
         ),
     ],
 ) -> WriteRegisterOutput:
     """PURPOSE: Set a CPU register (GPR/FPU/VFPU names, plus pc/hi/lo).
 
-    USAGE: session_id + name (MIPS ABI names only — 'r5' normalizes to 'v1') + value (hex).
+    USAGE: session_id + name (MIPS ABI names preferred; numeric aliases like 'r5' normalize to the GPR of that index, i.e. r5 -> a1) + value (hex).
 
     BEHAVIOR: DESTRUCTIVE. Pauses and resumes the CPU automatically (REQUIRED_STEPPING handled internally) — no manual pause needed.
 

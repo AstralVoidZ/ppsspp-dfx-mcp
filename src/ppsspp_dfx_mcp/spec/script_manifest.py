@@ -31,7 +31,7 @@ __all__ = ["ScriptEntry", "ScriptManifest", "get_manifest"]
 
 
 # Valid category values (single source of truth; mirrored in manifest YAML).
-_VALID_CATEGORIES: frozenset[str] = frozenset(
+VALID_SCRIPT_CATEGORIES: frozenset[str] = frozenset(
     {"eboot", "state", "p0ab", "ndx", "memory", "misc", "recipe"}
 )
 
@@ -260,11 +260,11 @@ class ScriptManifest:
                 entry = ScriptEntry(**raw)
             except ValidationError as e:
                 raise ManifestError(f"manifest scripts[{idx}] validation failed: {e}") from e
-            if entry.category not in _VALID_CATEGORIES:
+            if entry.category not in VALID_SCRIPT_CATEGORIES:
                 raise ManifestError(
                     f"manifest scripts[{idx}] name={entry.name!r} "
                     f"has invalid category={entry.category!r}; "
-                    f"expected one of {sorted(_VALID_CATEGORIES)}"
+                    f"expected one of {sorted(VALID_SCRIPT_CATEGORIES)}"
                 )
             if entry.status not in _VALID_STATUSES:
                 raise ManifestError(
