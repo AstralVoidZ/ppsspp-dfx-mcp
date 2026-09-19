@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypedDict
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -33,11 +33,50 @@ from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 
-BreakpointOutput = derive_output_contract(
-    "BreakpointOutput",
-    BreakpointResponse,
-    partial=True,  # 多形态：wait/trace 返回命中形状，管理动作返回断点表形状
-)
+_BreakpointResponseOut = derive_output_contract("BreakpointResponseOut", BreakpointResponse, partial=True)
+
+
+class _WaitKeys(TypedDict, total=False):
+    """wait 分支形状（无 view 类，手写契约）。"""
+
+    hit: bool
+    already_paused: bool
+    timeout_s: float
+    pc: str | None
+    reason: str | None
+    related_address: str | None
+    ticks: int | None
+
+
+class _StatsKeys(TypedDict, total=False):
+    """stats 分支形状。"""
+
+    mode: str
+    window_s: float
+    total_hits: int
+    by_pc: list[dict]
+    probe_changes: list[dict]
+    note: str
+
+
+class _TraceKeys(TypedDict, total=False):
+    """trace 分支形状。"""
+
+    note: str | None
+    address: int
+    access: str
+    hits: list[dict]
+    bp_removed: bool
+    resumed: bool
+    mem_hits: list[dict]
+
+
+class BreakpointOutput(_BreakpointResponseOut, _WaitKeys, _StatsKeys, _TraceKeys, total=False):
+    """Union contract: management actions | wait | stats | trace shapes.
+
+    🔴-1: partial 派生保证键不被 structuredContent 剥离；多分支形状并入
+    同一 union（wait/stats/trace 分支与 BreakpointResponse 的字段集不同）。
+    """
 
 logger = logging.getLogger(__name__)
 
@@ -417,10 +456,18 @@ async def breakpoint(
                 # follow-up breakpoint.list to populate the result.
                 resp = await client.cpu_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
+                # 🟢5: echo the ACTUAL enabled from the post-update list —
+                # effective_enabled is None→True when the caller omitted it,
+                # which misreports a disabled breakpoint as enabled.
+                actual = next(
+                    (b.get("enabled") for b in bps
+                     if int(b.get("address", -1)) == address_int),
+                    effective_enabled,
+                )
                 result = BreakpointResult(
                     action=action,
                     address=address_int,
-                    enabled=effective_enabled,
+                    enabled=actual,
                     breakpoints=bps,
                 )
             elif action == "remove":
@@ -457,10 +504,18 @@ async def breakpoint(
                 # cpu.breakpoint.update returns no business data; follow-up list.
                 resp = await client.cpu_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
+                # 🟢5: echo the ACTUAL enabled from the post-update list —
+                # effective_enabled is None→True when the caller omitted it,
+                # which misreports a disabled breakpoint as enabled.
+                actual = next(
+                    (b.get("enabled") for b in bps
+                     if int(b.get("address", -1)) == address_int),
+                    effective_enabled,
+                )
                 result = BreakpointResult(
                     action=action,
                     address=address_int,
-                    enabled=effective_enabled,
+                    enabled=actual,
                     breakpoints=bps,
                 )
             elif action == "mem_set":
@@ -530,6 +585,16 @@ async def breakpoint(
                 # read/write to false.
                 listing = await client.mem_bp_list()
                 existing = _find_mem_bp(listing if isinstance(listing, dict) else {}, address_int)
+                if existing is None:
+                    # 🟢6: mem_remove fails loudly when no memcheck exists;
+                    # mem_update must too — a silent no-op "update" hides
+                    # the fact that the target vanished (e.g. removed by
+                    # an earlier step).
+                    raise BreakpointError(
+                        f"no memory breakpoint at {format_address(address_int)}; "
+                        "check ppsspp_breakpoint(action=mem_list)",
+                        code="BREAKPOINT_ERROR",
+                    )
                 cur_read = existing.get("read", True) if existing else True
                 cur_write = existing.get("write", True) if existing else True
                 cur_change = existing.get("change", False) if existing else False

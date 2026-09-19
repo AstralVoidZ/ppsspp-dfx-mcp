@@ -76,6 +76,9 @@ async def test_session_lock_same_instance_per_sid():
 
 @pytest.mark.asyncio
 async def test_stop_session_pops_lock(monkeypatch: pytest.MonkeyPatch):
+    """🟡2 (updated contract): the lock entry is popped in Phase 3 — after
+    the process is gone — so in-flight holders keep a consistent lock and
+    concurrent callers still serialize (on the OLD lock) until then."""
     mgr = _fresh_manager(monkeypatch)
     await _seed_session(mgr, "s1")
     lock = mgr.session_lock("s1")

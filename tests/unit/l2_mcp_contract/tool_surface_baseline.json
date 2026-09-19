@@ -78,8 +78,8 @@
     "batch_id"
    ],
    "input_schema_sha1": "96b49c3de90a74e7839c7097741d9afe1dddb88c",
-   "output_schema_chars": 1175,
-   "output_schema_sha1": "e1c101fbc3e00c2596849c077290c03d259b179e"
+   "output_schema_chars": 2573,
+   "output_schema_sha1": "de5afc7158d1615cbb1fff0da574503e8f61f638"
   },
   "ppsspp_batch_step": {
    "annotations": {
@@ -99,8 +99,8 @@
     "steps"
    ],
    "input_schema_sha1": "820b036f3f9ad87ddb16a741b1dee0c90110a77f",
-   "output_schema_chars": 1926,
-   "output_schema_sha1": "70c37ffe50240e79ee665fe9128df48084683cd2"
+   "output_schema_chars": 2464,
+   "output_schema_sha1": "a703fa79b3a6fa37555cce51aee93eccb2689b8b"
   },
   "ppsspp_breakpoint": {
    "annotations": {
@@ -129,8 +129,8 @@
     "write"
    ],
    "input_schema_sha1": "58874af6b3c06e8cbc48f3d75932e923c2326586",
-   "output_schema_chars": 680,
-   "output_schema_sha1": "81297f68368d1c708ef28a720f33310f486ecf49"
+   "output_schema_chars": 2098,
+   "output_schema_sha1": "541891224db9541a119200646aa81a55a4fae1bd"
   },
   "ppsspp_context": {
    "annotations": {
@@ -172,8 +172,8 @@
     "start"
    ],
    "input_schema_sha1": "7d10c7cddddf6ae32e96b750b4893071a2a30c8a",
-   "output_schema_chars": 460,
-   "output_schema_sha1": "6e8c40d0fea6c4a4170369c75cdce079355abc55"
+   "output_schema_chars": 2506,
+   "output_schema_sha1": "ecea4dde846b19d81e14eeab2b3df8470d0fb72d"
   },
   "ppsspp_disassemble": {
    "annotations": {
@@ -388,8 +388,8 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Simulate a single PSP button press for a duration.\n\nUSAGE: session_id + button required; duration optional (default 10 frames). Valid button names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sends input events to PPSSPP. Button state returns to released after the duration elapses.\n\nRETURNS: {button, duration}.\n",
-   "description_chars": 405,
+   "description": "PURPOSE: Simulate a single PSP button press for a duration.\n\nUSAGE: session_id + button required; duration optional (default 1 frame). Valid button names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sends input events to PPSSPP. Button state returns to released after the duration elapses.\n\nRETURNS: {button, duration}.\n",
+   "description_chars": 403,
    "description_words": 65,
    "input_schema_chars": 611,
    "input_schema_properties": [
@@ -544,8 +544,8 @@
     "width"
    ],
    "input_schema_sha1": "1826e38eed8b4f817c76981ee3084180928e0c1b",
-   "output_schema_chars": 2008,
-   "output_schema_sha1": "53088447872bd9baf22085a836e42ab61892935e"
+   "output_schema_chars": 2258,
+   "output_schema_sha1": "77a0a881d0a0f6cd4100f3682eff154e0c230591"
   },
   "ppsspp_screenshot": {
    "annotations": {
@@ -652,8 +652,8 @@
     "wait_ready"
    ],
    "input_schema_sha1": "2c919a137e26522aa1d6701c36fda043b1e49875",
-   "output_schema_chars": 1702,
-   "output_schema_sha1": "042c6cc367b49cd117af35780d40d7814c1a0e72"
+   "output_schema_chars": 4795,
+   "output_schema_sha1": "60e8056e20b06d1bad0e6bdab40a4fe4375bb0e7"
   },
   "ppsspp_state_observer": {
    "annotations": {
@@ -763,6 +763,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 24418,
+ "total_description_chars": 24416,
  "total_input_schema_chars": 45062
 }

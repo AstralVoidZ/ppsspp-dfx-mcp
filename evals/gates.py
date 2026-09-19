@@ -214,8 +214,11 @@ def _gate_sequence(scenario: dict, run: dict) -> tuple[bool, str]:
     return ok, f"expected subsequence {expected} in {names}"
 
 
-def _gate_answer_contains(scenario: dict, run: dict, fixtures_dir: Path | None) -> tuple[bool, str]:
-    spec = next(g for g in scenario["gates"] if g["type"] == "answer_contains")
+def _gate_answer_contains(gate: dict, run: dict, fixtures_dir: Path | None) -> tuple[bool, str]:
+    # ISS-009/🔴-4: was `next(g for g in scenario["gates"] ...)` — always
+    # scored the FIRST answer_contains gate, so a scenario with two of
+    # them (L3-02) silently never scored the second.
+    spec = gate
     answer = run.get("final_answer") or ""
     mode = spec.get("mode", "all")
     results: list[str] = []
@@ -362,7 +365,7 @@ def evaluate(
         elif gtype == "sequence":
             ok, detail = _gate_sequence(scenario, run)
         elif gtype == "answer_contains":
-            ok, detail = _gate_answer_contains(scenario, run, fixtures_dir)
+            ok, detail = _gate_answer_contains(gate, run, fixtures_dir)
         elif gtype == "recovery":
             ok, detail = _gate_recovery(scenario, run, gate)
         elif gtype == "tool_used":

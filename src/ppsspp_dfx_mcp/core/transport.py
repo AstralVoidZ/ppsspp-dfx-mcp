@@ -240,6 +240,12 @@ class WsTransport:
                                 f"(level={data.get('level')})"
                             )
                         )
+                    elif fut.cancelled():
+                        # 🟡5: the waiting caller was cancelled — its future
+                        # is dead. Drop the response instead of raising
+                        # InvalidStateError from set_result (which the recv
+                        # loop mislogs as a malformed message).
+                        pass
                     else:
                         fut.set_result(data)
                 else:
@@ -295,6 +301,13 @@ class WsTransport:
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
         except TimeoutError:
+            self._pending.pop(ticket, None)
+            raise
+        except BaseException:
+            # 🟡5: cancellation (client disconnect / task cancel) also
+            # strands the ticket — pop it, or the late response would hit
+            # the recv loop's set_result on a cancelled future and be
+            # mislogged as a malformed message.
             self._pending.pop(ticket, None)
             raise
 

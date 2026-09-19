@@ -364,21 +364,43 @@ class SteppingManager:
             body_succeeded = True
         finally:
             if should_resume_on_exit:
-                if body_succeeded:
-                    # Body succeeded — propagate resume failure so callers
-                    # know the CPU did NOT return to RUNNING (V020 I11).
+                # 🟡4: resume under shield — if the caller's task was
+                # cancelled while the body ran, a bare `await self.resume()`
+                # here would immediately re-raise CancelledError and leave
+                # the CPU frozen in STEPPING forever. The shielded task
+                # survives the caller's cancellation; the (now-cancelled)
+                # caller can't observe its result either way.
+                import asyncio
+
+                async def _resume():
                     await self.resume()
-                else:
-                    # Body raised — record resume failure as a warning,
-                    # but do NOT mask the original exception (V020 I12).
-                    try:
-                        await self.resume()
-                    except Exception:
-                        logger.warning(
-                            "with_stepping: resume failed after body "
-                            "exception; CPU may remain in STEPPING state",
-                            exc_info=True,
-                        )
+
+                try:
+                    if body_succeeded:
+                        # Body succeeded — propagate resume failure so callers
+                        # know the CPU did NOT return to RUNNING (V020 I11).
+                        await asyncio.shield(_resume())
+                    else:
+                        # Body raised — record resume failure as a warning,
+                        # but do NOT mask the original exception (V020 I12).
+                        try:
+                            await asyncio.shield(_resume())
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            logger.warning(
+                                "with_stepping: resume failed after body "
+                                "exception; CPU may remain in STEPPING state",
+                                exc_info=True,
+                            )
+                except asyncio.CancelledError:
+                    # Caller cancelled mid-resume: the shielded task keeps
+                    # running to completion in the background (it holds the
+                    # only reference via the event loop until done).
+                    logger.warning(
+                        "with_stepping: caller cancelled during resume; "
+                        "shielded resume continues in background"
+                    )
 
     # ---------- Safe query primitives ----------
 
