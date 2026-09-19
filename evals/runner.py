@@ -572,7 +572,9 @@ async def run_scenario(
             "cost_usd": None,
         },
         "stop_reason": stop_reason,
-        "gates": {g["type"]: g["pass"] for g in gates_result["gates"]},
+        # 🔴-4: same-type gates (e.g. two answer_contains) must not
+        # collapse into one dict key — suffix duplicates with their index.
+        "gates": _gates_record(gates_result["gates"]),
         "gate_details": gates_result["gates"],
         "success": gates_result["success"],
     }
@@ -601,6 +603,17 @@ def _done_keys(out_path: Path) -> set[tuple[str, str, str, int]]:
             continue
     return keys
 
+
+
+def _gates_record(gates: list[dict[str, Any]]) -> dict[str, bool]:
+    """type -> pass, with duplicate types disambiguated (type, type#2...)."""
+    seen: dict[str, int] = {}
+    out: dict[str, bool] = {}
+    for g in gates:
+        t = g["type"]
+        seen[t] = seen.get(t, 0) + 1
+        out[t if seen[t] == 1 else f"{t}#{seen[t]}"] = bool(g["pass"])
+    return out
 
 async def _async_main(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))

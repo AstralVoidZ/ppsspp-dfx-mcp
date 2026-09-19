@@ -18,9 +18,17 @@ from ppsspp_dfx_mcp.tools.batch_step import batch_step
 
 
 def _mock_client(mode: str, pcs: list[str]) -> AsyncMock:
+    from contextlib import asynccontextmanager
+
     client = AsyncMock()
     stepper = AsyncMock(side_effect=[{"pc": pc, "ticks": 1000 + i} for i, pc in enumerate(pcs)])
     setattr(client, f"step_{mode}", stepper)
+    # The executor wraps stepping in with_stepping — provide a no-op CM.
+    @asynccontextmanager
+    async def fake_ws():
+        yield
+
+    client.with_stepping = lambda: fake_ws()
     return client
 
 
@@ -52,6 +60,7 @@ async def test_cpu_step_into_loops_count_and_reports(monkeypatch):
         "stepped": 3,
         "last_pc": "0x108",
         "last_ticks": 1002,
+        "resumed_after": True,
     }
 
 
