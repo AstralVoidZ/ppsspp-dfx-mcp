@@ -94,7 +94,6 @@ def _seed_from_yaml() -> None:
     global _SEEDED
     if _SEEDED:
         return
-    _SEEDED = True
     try:
         addrs = config.addresses()
     except Exception as e:
@@ -127,6 +126,9 @@ def _seed_from_yaml() -> None:
             size=size_int,
             description=desc,
         )
+    # 🟢8: mark seeded only on success — a transient addresses() failure
+    # used to permanently disable probing for the process.
+    _SEEDED = True
 
 
 def _read_method(client: Any, size: int) -> Any:
@@ -157,7 +159,11 @@ def _resolve_target_probes(names: str) -> tuple[StateProbe, ...]:
     visible. Caller is responsible for seeding.
     """
     if names:
-        target_names = [n.strip() for n in names.split(",") if n.strip()]
+        # 🟢8: duplicate names produced duplicate observations and a
+        # double-counted success_count — dedupe, preserving order.
+        target_names = list(dict.fromkeys(
+            n.strip() for n in names.split(",") if n.strip()
+        ))
     else:
         target_names = list(_REGISTRY.keys())
     if not target_names:
@@ -196,6 +202,10 @@ async def _observe_probes(
         # code — every caller validates samples >= 1 up front (observe
         # rejects 0, batch_step rejects < 1, frame_snapshot passes 1).
         for _ in range(samples):
+            if _:
+                # 🟢8: let the loop breathe between samples — back-to-back
+                # awaits gave identical values, defeating the median.
+                await asyncio.sleep(0.05)
             try:
                 value = await read_fn(probe.address)
             except Exception as e:

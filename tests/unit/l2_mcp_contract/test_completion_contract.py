@@ -153,14 +153,14 @@ class TestNoMatchIsNotAnError:
 class TestCandidatesExcludeNonRuntimeValues:
     """地址带过滤：只有能直接使用的运行时地址才可作为候选。
 
-    `addresses.yaml` 混装多个地址空间。若把 IDA 偏移当候选吐出去，
-    Agent 会把 `0x0003B40` 直接交给 `ppsspp_breakpoint` —— 补全反而制造
-    错误。本组断言把该过滤固化为契约。
+    `addresses.yaml` 混装多个地址空间。若把 IDA 地址当候选吐出去，
+    Agent 会把 `0x000883B40`（known_render_vars cursor_x_margin，IDA 口径）
+    直接交给 `ppsspp_breakpoint` —— 补全反而制造错误。本组断言把该过滤固化为契约。
     """
 
     @pytest.mark.parametrize(
         "ida_or_file_offset",
-        ["0x0003B40", "0x0000D1A8", "0x000C2F90", "0x004446B0", "0x000EC188", "0x68000194"],
+        ["0x000883B40", "0x0000D1A8", "0x000C2F90", "0x004446B0", "0x000EC188", "0x68000194"],
     )
     async def test_off_band_values_never_appear(self, ida_or_file_offset: str):
         result = await complete(_BREAKPOINT, _arg("address", ""), None)
