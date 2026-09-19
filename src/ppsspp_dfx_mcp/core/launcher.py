@@ -341,7 +341,7 @@ def warn_if_debugger_exposed_externally(pid: int, port: int) -> None:
         if bport != port:
             continue
         if bip not in ("127.0.0.1", "::1"):
-            logger.warning(
+            log.warning(
                 "WSDBG-EXPOSED: PPSSPP debugger on port %d is bound to "
                 "'%s' (not loopback). The debugger is UNAUTHENTICATED — "
                 "any reachable host can read/write emulated memory. Set "
