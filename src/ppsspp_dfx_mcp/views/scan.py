@@ -37,7 +37,10 @@ class ScanResponse(FrozenModel):
     dropped: bool = Field(default=False, description="True when the session was dropped.")
     # strings
     charset: str = Field(default="", description="Charset used (strings mode).")
-    count: int = Field(default=0, description="Hit count (pattern & strings modes; matches the value/strings list in this response).")
+    count: int = Field(
+        default=0,
+        description="Hit count (pattern & strings modes; matches the value/strings list in this response).",
+    )
     strings: list[StringHitView] = Field(
         default_factory=list, description="Harvested strings (strings mode)."
     )
