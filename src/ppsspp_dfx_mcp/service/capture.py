@@ -273,13 +273,18 @@ class CaptureService:
     # Win32 GDI screenshot strategies (tasks 4.5, 4.6) — private
     # ======================================================================
 
-    def _find_ppsspp_window(self) -> int:
+    def _find_ppsspp_window(self, pid: int | None = None) -> int:
         """Find PPSSPP main window handle (Windows only). Returns 0 if not found.
 
         Uses window class name 'PPSSPPWnd' for filtering instead of title
         matching. Title-based matching can false-positive on Windows Terminal
         hosting windows (CASCADIA_HOSTING_WINDOW_CLASS) whose title may contain
         'PPSSPP'. The class name 'PPSSPPWnd' is PPSSPP-exclusive.
+
+        When `pid` is given, only windows owned by that process match —
+        with two PPSSPP sessions running, "first PPSSPPWnd in Z order"
+        may belong to the OTHER session, and a WM_COMMAND screenshot
+        would capture the wrong game with no warning (W23).
 
         Returns 0 on non-Windows platforms or any exception.
         """
@@ -300,6 +305,11 @@ class CaptureService:
                 user32.GetClassNameW(hwnd, class_buf, 256)
                 if class_buf.value != "PPSSPPWnd":
                     return True
+                if pid is not None:
+                    window_pid = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
+                    if window_pid.value != pid:
+                        return True  # a different session's PPSSPP
                 ppsspp_hwnd = hwnd
                 return False
 
@@ -327,7 +337,11 @@ class CaptureService:
             import ctypes
             from pathlib import Path
 
-            hwnd = self._find_ppsspp_window()
+            # W23: filter windows by the session's PID — with two PPSSPP
+            # sessions running, Z-order-first PPSSPPWnd may belong to the
+            # other session. None (unknown pid) keeps the legacy
+            # first-match behavior.
+            hwnd = self._find_ppsspp_window(pid=getattr(self._client, "pid", None))
             if not hwnd:
                 return b""
 
@@ -354,16 +368,65 @@ class CaptureService:
 
             WM_COMMAND = 0x0111
             ID_DEBUG_TAKESCREENSHOT = 40066  # Windows/resource.h:192
+            SMTO_ABORTIFHUNG = 0x0008
             user32 = ctypes.windll.user32
-            user32.SendMessageW(hwnd, WM_COMMAND, ID_DEBUG_TAKESCREENSHOT, 0)
+
+            def _send_take_screenshot() -> bool:
+                # C3: SendMessageW blocks until the target window's UI
+                # thread processes the message — against a wedged PPSSPP
+                # (modal dialog / GPU hang / exiting) it NEVER returns and
+                # would freeze the entire event loop (all sessions, all
+                # tools, GC). SendMessageTimeoutW + SMTO_ABORTIFHUNG bounds
+                # that to 3s; to_thread keeps even the bounded block off
+                # the loop. safe_screenshot is the fallback FOR a broken
+                # PPSSPP, so the hung-window case is the expected one here.
+                result = ctypes.c_size_t()
+                ok = user32.SendMessageTimeoutW(
+                    hwnd,
+                    WM_COMMAND,
+                    ID_DEBUG_TAKESCREENSHOT,
+                    0,
+                    SMTO_ABORTIFHUNG,
+                    3000,
+                    ctypes.byref(result),
+                )
+                return bool(ok)
+
+            sent = await asyncio.to_thread(_send_take_screenshot)
+            if not sent:
+                logger.debug(
+                    "_wm_command_screenshot: SendMessageTimeoutW timed out or "
+                    "failed (target window hung?) — strategy yields no image"
+                )
+                return b""
 
             for _ in range(100):
                 await asyncio.sleep(0.05)
                 for f in screenshot_dir.iterdir():
                     if f.suffix in (".png", ".jpg") and f.name not in existing:
-                        await asyncio.sleep(0.15)
+                        # W23: PPSSPP may still be writing the file when it
+                        # first appears — a fixed 0.15s read returns a
+                        # truncated image on slow disks, and a truncated
+                        # PNG still carries a valid IHDR so downstream
+                        # decoders fail with no retry. Wait for the size
+                        # to stabilize across two consecutive samples,
+                        # then require a complete image (IEND/EOI tail).
+                        last_size = -1
+                        stable_samples = 0
+                        data = b""
+                        while stable_samples < 2:
+                            await asyncio.sleep(0.05)
+                            try:
+                                size = f.stat().st_size
+                            except OSError:
+                                break  # file vanished — keep outer scan
+                            if 0 < size == last_size:
+                                stable_samples += 1
+                            else:
+                                stable_samples = 0
+                            last_size = size
                         data = f.read_bytes()
-                        if len(data) > 100:
+                        if _image_complete(data, f.suffix):
                             return data
 
             return b""
@@ -405,7 +468,7 @@ class CaptureService:
             gdi32 = ctypes.windll.gdi32
 
             # 1. Find PPSSPP main window, then prefer PPSSPPDisplay child.
-            hwnd_main = self._find_ppsspp_window()
+            hwnd_main = self._find_ppsspp_window(pid=getattr(self._client, "pid", None))
             if not hwnd_main:
                 return b""
 
@@ -506,7 +569,8 @@ class CaptureService:
 
             for addr in candidates:
                 try:
-                    raw = await self._client.read_bytes(addr, size)
+                    # W10: sanctioned large read — see read_bytes docstring.
+                    raw = await self._client.read_bytes(addr, size, allow_large=True)
                 except Exception as e:
                     logger.debug("read_bytes at 0x%08X failed: %s", addr, e)
                     continue
@@ -644,6 +708,27 @@ def _extract_png_from_data_uri(uri: str) -> bytes:
     except Exception as e:
         logger.debug("_extract_png_from_data_uri b64decode failed: %s", e)
         return b""
+
+
+def _image_complete(data: bytes, suffix: str) -> bool:
+    """Best-effort completeness check for a freshly written screenshot file.
+
+    A truncated PNG still carries a valid IHDR (dimensions live at the
+    file head), so size-based checks alone can hand back half a file on
+    a slow disk — the failure then surfaces downstream as an undecodable
+    image and the WM_COMMAND strategy is never retried. Complete means:
+    non-trivial size AND the format's end-of-stream marker is present
+    (PNG: IEND chunk; JPEG: EOI marker).
+    """
+    if len(data) <= 100:
+        return False
+    ext = suffix.lower()
+    if ext == ".png":
+        # PNG file tail: <4-byte length> b"IEND" <4-byte CRC>.
+        return len(data) >= 8 and data[-8:-4] == b"IEND"
+    if ext in (".jpg", ".jpeg"):
+        return data[-2:] == b"\xff\xd9"
+    return True
 
 
 def _png_dims(data: bytes) -> tuple[int, int]:

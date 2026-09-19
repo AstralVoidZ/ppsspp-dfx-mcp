@@ -33,6 +33,7 @@ ppsspp_batch_status.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Literal, TypedDict
@@ -143,7 +144,9 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
                 f"step[{index}] invalid button={button!r}; expected one of {_VALID_BUTTONS}",
             )
         duration = step.get("duration", 1)
-        if not isinstance(duration, int) or duration < 0:
+        # S11 (review v2): isinstance(True, int) is True — bools must be
+        # rejected explicitly, same rule as wait_frames_chunked.
+        if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0:
             raise StepInvalid(
                 f"step[{index}] duration must be int >= 0; got {duration!r}",
             )
@@ -157,7 +160,7 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
         frames = step.get("frames")
         if frames is None:
             raise StepInvalid(f"step[{index}] type=wait requires 'frames' field")
-        if not isinstance(frames, int) or frames < 0:
+        if isinstance(frames, bool) or not isinstance(frames, int) or frames < 0:
             raise StepInvalid(
                 f"step[{index}] frames must be int >= 0; got {frames!r}",
             )
@@ -169,7 +172,7 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
     elif stype == "state_probe":
         # names is optional (observe all); samples optional.
         samples = step.get("samples", 1)
-        if not isinstance(samples, int) or samples < 1:
+        if isinstance(samples, bool) or not isinstance(samples, int) or samples < 1:
             raise StepInvalid(
                 f"step[{index}] samples must be int >= 1; got {samples!r}",
             )
@@ -270,7 +273,14 @@ async def _execute_batch(
                     names_str = step.get("names", "")
                     samples = step.get("samples", 1)
                     target_probes = _resolve_target_probes(names_str)
-                    observe_result = await _observe_probes(client, target_probes, samples)
+                    # W12 (review v2): same whole-operation budget the
+                    # state_observer tool applies — without it the batch
+                    # path could wait per-probe forever (probes × samples
+                    # × RTT) while holding the session lock.
+                    observe_result = await asyncio.wait_for(
+                        _observe_probes(client, target_probes, samples),
+                        timeout=30.0,
+                    )
                     step_data = StateObserverResponse.from_observe(observe_result).model_dump(
                         mode="json"
                     )
@@ -516,7 +526,20 @@ async def batch_step(
     for i, step in enumerate(steps):
         _validate_step(step, i)
 
-    estimated_s = estimate_batch_seconds(steps)
+    # W12 (review v2): resolve per-step probe counts so the estimate
+    # reflects samples × probes (names='' expands to every probe).
+    probe_counts: dict[int, int] = {}
+    for _i, _st in enumerate(steps):
+        if _st.get("type") == "state_probe":
+            try:
+                from ppsspp_dfx_mcp.tools.state_observer import (
+                    _resolve_target_probes as _rtp,
+                )
+
+                probe_counts[_i] = max(1, len(_rtp(_st.get("names", ""))))
+            except Exception:
+                probe_counts[_i] = 1
+    estimated_s = estimate_batch_seconds(steps, probe_counts)
 
     logger.info(
         "tool_call",

@@ -10,7 +10,7 @@ criterion 2):
 - zero-coverage tools (no harness scenario at all — G-1)
 - MCP-surface presence checks (prompts / resources / dynamic scripts)
 
-Usage (from mcps/ppsspp-dfx-mcp):
+Usage (from the repository root):
     PYTHONPATH=src python scripts/audit_test_modules.py [--check]
 Exit 1 with --check when any gate trips.
 """

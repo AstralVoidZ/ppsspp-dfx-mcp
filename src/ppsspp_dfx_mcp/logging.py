@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,12 +41,29 @@ class PPSSPPLogMirrorHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            # Growth guard: stop appending past the cap (diagnostic log only;
-            # analyze_log's read side enforces the same cap independently).
-            if self._path.exists() and self._path.stat().st_size > self._max_bytes:
-                return
             line = self.format(record) + "\n"
             self._path.parent.mkdir(parents=True, exist_ok=True)
+            size = self._path.stat().st_size if self._path.exists() else 0
+            # Growth guard: stop appending past the cap (diagnostic log only;
+            # analyze_log's read side enforces the same cap independently).
+            # S9 (review v2): the stop used to be silent — analyze_log would
+            # forever show a stale tail with no hint that logging stopped.
+            # The record that CROSSES the cap is replaced by a one-time
+            # marker; everything after is suppressed without growth.
+            if size > self._max_bytes:
+                return
+            if size + len(line.encode("utf-8")) > self._max_bytes:
+                if not getattr(self, "_cap_marked", False):
+                    self._cap_marked = True
+                    marker = (
+                        "\n[ppsspp-dfx] log mirror capped at "
+                        f"{self._max_bytes} bytes on "
+                        f"{time.strftime('%Y-%m-%d %H:%M:%S')} — "
+                        "further records suppressed.\n"
+                    )
+                    with self._path.open("a", encoding="utf-8") as f:
+                        f.write(marker)
+                return
             with self._path.open("a", encoding="utf-8") as f:
                 f.write(line)
         except Exception:  # noqa: BLE001 — logging must never raise

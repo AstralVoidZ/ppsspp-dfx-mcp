@@ -6,7 +6,7 @@ meter for the P6 description-slimming effort and the source of truth for
 the committed tools/list baseline (tests/unit/l2_mcp_contract/
 tool_surface_baseline.json).
 
-Usage (run from mcps/ppsspp-dfx-mcp):
+Usage (run from the repository root):
     PYTHONPATH=src python scripts/dump_tool_surface.py \\
         [--out tests/unit/l2_mcp_contract/tool_surface_baseline.json]
 

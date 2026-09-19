@@ -70,7 +70,10 @@ class ScriptEntry(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    name: str = Field(min_length=1)
+    # W15 (review v2): the name is interpolated into tool names
+    # (ppsspp_script_<name>), sys.modules keys and TypedDict names —
+    # constrain it to the shape the server can actually use.
+    name: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9_]*$")
     description: str = Field(min_length=1)
     category: str = Field(min_length=1)
     requires_ppsspp: bool = False
@@ -98,8 +101,23 @@ class ScriptEntry(BaseModel):
         """
         p = Path(self.path)
         if p.is_absolute():
+            # Deprecated escape hatch (tests / workspace-rewired dev
+            # scripts live outside a temp project root). Not containment
+            # checked against project_root by design — but `..` still has
+            # no business in a sanctioned entry, and the deprecation
+            # should be VISIBLE so relative paths stay the norm.
+            if ".." in p.parts:
+                raise ManifestError(f"script path must not contain '..': {self.path}")
+            if p.suffix != ".py":
+                raise ManifestError(f"script path must point at a .py file: {self.path}")
             return p
-        return project_root / p
+        resolved = project_root / p
+        # W15 (review v2): relative paths are containment-checked — a
+        # tampered manifest must not reach outside the project root via
+        # `..` (same defense shape as tools/_common.resolve_output_path).
+        if ".." in p.parts or not resolved.resolve().is_relative_to(project_root.resolve()):
+            raise ManifestError(f"script path escapes project root: {self.path}")
+        return resolved
 
 
 class ScriptManifest:

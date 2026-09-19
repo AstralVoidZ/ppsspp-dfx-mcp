@@ -345,7 +345,13 @@ class TestSaveSessions:
     """
 
     def test_I10_uses_atomic_write_with_tmp_and_replace(self, isolated_sessions_path: Path):
-        """O7-I10: _save_sessions writes sessions.json.tmp then os.replace."""
+        """O7-I10: _save_sessions writes a pid-unique tmp file then os.replace.
+
+        Review v2 (W21): the tmp name carries the writer's pid — a fixed
+        name was a cross-process clobber point when two server processes
+        share one state dir (each would os.replace the other's half-
+        written tmp). The atomic-write contract itself is unchanged.
+        """
         captured: dict[str, Path] = {}
         original_replace = os.replace
 
@@ -357,11 +363,15 @@ class TestSaveSessions:
         with patch("ppsspp_dfx_mcp.session.session_manager.os.replace", spy_replace):
             sm._save_sessions({"x": _make_session(session_id="x")})
 
-        expected_tmp = isolated_sessions_path.with_name(isolated_sessions_path.name + ".tmp")
-        assert captured["src"] == expected_tmp
+        # pid-unique tmp: sessions.json.<pid>.tmp, same parent, .json kept
+        src = captured["src"]
+        assert src.parent == isolated_sessions_path.parent
+        assert src.name.startswith(isolated_sessions_path.name + ".")
+        assert src.name.endswith(".tmp")
+        assert os.getpid().__str__() in src.name
         assert captured["dst"] == isolated_sessions_path
         # tmp file consumed by os.replace
-        assert not expected_tmp.exists()
+        assert not src.exists()
         # target file written
         assert isolated_sessions_path.exists()
 
@@ -1394,3 +1404,148 @@ class TestGetSessionManager:
             assert isinstance(m, sm.SessionManager)
         finally:
             sm._default_manager = original
+
+
+# ============================================================================
+# Review v2 guards: orphan-process family (W1/W2/W3)
+# ============================================================================
+
+
+class TestGcKillFailureKeepsEntry:
+    """W1 (review v2): a FAILED kill must keep the sessions.json entry.
+
+    The old suppress-and-continue advanced to entry deletion even when
+    launcher.stop / the PID kill failed — an unreachable process whose
+    registry entry was gone is an orphan no GC cycle can ever see again.
+    Keeping the entry is what makes the next scan retry the kill.
+    """
+
+    async def test_pid_kill_failure_keeps_entry_for_retry(
+        self, isolated_sessions_path: Path, monkeypatch
+    ):
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
+        sess = _make_session(
+            session_id="s1", pid=4321, last_active_at=old_time, created_at=old_time
+        )
+        _seed_sessions_json(isolated_sessions_path, {"s1": sess})
+        manager = sm.SessionManager()
+
+        def failing_kill(pid: int) -> None:
+            raise RuntimeError("access denied (simulated unkillable process)")
+
+        # Patch the INNER kill: _kill_stale_pid_safe's PID-reuse guard
+        # would silently refuse a dead PID before reaching it.
+        monkeypatch.setattr(
+            "ppsspp_dfx_mcp.session.session_manager._force_kill_pid",
+            failing_kill,
+        )
+        stopped = await manager.gc_idle_sessions()
+
+        assert stopped == []
+        # Entry retained → next GC cycle retries the kill.
+        assert "s1" in sm._load_sessions()
+
+    async def test_launcher_stop_failure_keeps_entry_for_retry(self, isolated_sessions_path: Path):
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
+        sess = _make_session(
+            session_id="s1", pid=None, last_active_at=old_time, created_at=old_time
+        )
+        _seed_sessions_json(isolated_sessions_path, {"s1": sess})
+        manager = sm.SessionManager()
+
+        class _FailingLauncher:
+            # stop() is sync — session_manager offloads it via to_thread
+            # (mirrors PpssppLauncher.stop's real signature).
+            def __init__(self) -> None:
+                self.stop_calls = 0
+
+            def stop(self) -> None:
+                self.stop_calls += 1
+                raise RuntimeError("taskkill timed out (simulated)")
+
+        stub = _FailingLauncher()
+        manager._launchers["s1"] = stub
+
+        stopped = await manager.gc_idle_sessions()
+
+        assert stopped == []
+        assert stub.stop_calls == 1
+        assert "s1" in sm._load_sessions()
+
+
+class TestResilientStartNonWedgeTeardown:
+    """W2 (review v2): non-wedge failures mid-boot must not orphan the process.
+
+    A failure escaping _start_once AFTER the process launched (e.g.
+    SessionNotFound from a concurrent stop racing the CPU-ready gate)
+    used to bypass the wedged-attempt teardown entirely — live process,
+    tracked launcher, no registry entry. The teardown must run for every
+    non-wedge outcome, cancellation included.
+    """
+
+    async def test_non_wedge_failure_tears_down_launched_process(
+        self, isolated_sessions_path: Path, tmp_path: Path, monkeypatch
+    ):
+        manager = sm.SessionManager()
+        stub = _StubLauncher()
+        # start_session validates ISO existence before the resilient loop.
+        iso = tmp_path / "game.iso"
+        iso.write_bytes(b"fake")
+
+        async def fake_start_once(session_id, iso, **kwargs):
+            # Simulate the post-launch registration done inside
+            # _start_once, then fail with a non-wedge error (the
+            # concurrent-stop race from the review).
+            manager._launchers[session_id] = stub
+            raise SessionNotFound(f"session not found: {session_id}")
+
+        monkeypatch.setattr(manager, "_start_once", fake_start_once)
+
+        with pytest.raises(SessionNotFound):
+            await manager.start_session(iso, resilient=True)
+
+        # The launched process was stopped and its launcher de-registered.
+        assert stub.stop_calls == 1
+        assert all(sid_l is not stub for sid_l in manager._launchers.values())
+
+
+class TestStopClosingSentinel:
+    """W3 (review v2): stop installs a permanently-held closing lock.
+
+    A NEW tool caller arriving between stop phase 1 and phase 3 used to
+    get a brand-new uncontended lock (session_lock's setdefault) and
+    race the dying session. The sentinel makes them wait out the
+    SESSION_BUSY timeout into a clean SessionBusy instead.
+    """
+
+    async def test_closing_lock_acquire_blocks_until_cancelled(self):
+        lock = sm._ClosingLock()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(lock.acquire(), timeout=0.05)
+
+    async def test_stop_installs_sentinel_then_removes_it(
+        self, isolated_sessions_path: Path, monkeypatch
+    ):
+        old_time = datetime.now(UTC) - timedelta(seconds=3600)
+        sess = _make_session(
+            session_id="s1", pid=None, last_active_at=old_time, created_at=old_time
+        )
+        _seed_sessions_json(isolated_sessions_path, {"s1": sess})
+        manager = sm.SessionManager()
+
+        # pid=None + no launcher/transport → phase 2 is a no-op; phase 3
+        # is where the sentinel must still be present (it is removed only
+        # after the entry is gone).
+        captured: dict = {}
+        original_save = sm._save_sessions_async
+
+        async def spy_save(sessions):
+            captured["during_phase3"] = manager._session_locks.get("s1")
+            return await original_save(sessions)
+
+        monkeypatch.setattr(sm, "_save_sessions_async", spy_save)
+
+        await manager.stop_session("s1")
+
+        assert captured["during_phase3"] is sm._CLOSING_LOCK
+        assert "s1" not in manager._session_locks

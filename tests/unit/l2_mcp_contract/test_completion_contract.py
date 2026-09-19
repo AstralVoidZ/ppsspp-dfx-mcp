@@ -28,10 +28,14 @@ from mcp.types import (
 from ppsspp_dfx_mcp import completions
 from ppsspp_dfx_mcp.completions import address_candidates, complete
 
-# test_completion_contract.py → l2_mcp_contract → unit → tests →
-# ppsspp-dfx-mcp → mcps → repo root.
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-_PROJECT_CONFIG_DIR = _REPO_ROOT / ".ppsspp-dfx" / "config"
+# test_completion_contract.py → l2_mcp_contract → unit → tests → repo root.
+# (Standalone-repo layout since v0.1.2. The old monorepo `parents[5]` made
+# this module resolve a config dir OUTSIDE the repo — it silently skipped
+# on every fresh clone / CI checkout, so the whole completion contract,
+# including the non-runtime address-leak guard below, never ran there.
+# C4, review v2: resolution is repo-internal and CI-enforced again.)
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_EXAMPLES_DIR = _REPO_ROOT / "examples"
 
 _BREAKPOINT = PromptReference(name="memory-breakpoint-wizard")
 _TRACE = PromptReference(name="memory-trace-wizard")
@@ -39,22 +43,20 @@ _TRACE = PromptReference(name="memory-trace-wizard")
 
 @pytest.fixture(autouse=True)
 def _real_config_dir(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point config_dir() at the repo's real `.ppsspp-dfx/config/`.
+    """Point config_dir() at the repo-committed `examples/addresses.yaml`.
 
     `config.py:_project_root()` is deliberately cwd-relative (no upward
-    search — git/npm convention), and pytest runs from the package root
-    `mcps/ppsspp-dfx-mcp/`, so the repo config would otherwise be invisible
-    here. In production the server is started with the repo root as cwd
-    (`.mcp.json`), so this fixture *restores* production resolution rather
-    than faking it.
-
-    Tests here assert against the **real** addresses.yaml on purpose: the
-    contract under test is "no non-runtime address leaks into candidates",
-    which is only meaningful against the file agents actually consult.
+    search — git/npm convention), so without this fixture the completions
+    capability would see whatever config happens to sit near the cwd.
+    `examples/` is the committed template: it ships top_base/known_modules/
+    known_functions/game_mode_addr/state_probes placeholders in BOTH
+    address spaces, which is exactly what the leak guard below needs —
+    and being committed, the contract is enforced identically on every
+    fresh clone and in CI (a workspace-local config would make this a
+    machine-dependent "pass").
     """
-    if not _PROJECT_CONFIG_DIR.is_dir():
-        pytest.skip(f"project config dir not found: {_PROJECT_CONFIG_DIR}")
-    monkeypatch.setenv("PPSSPP_DFX_CONFIG_DIR", str(_PROJECT_CONFIG_DIR))
+    assert _EXAMPLES_DIR.is_dir(), f"examples dir missing: {_EXAMPLES_DIR}"
+    monkeypatch.setenv("PPSSPP_DFX_CONFIG_DIR", str(_EXAMPLES_DIR))
 
 
 def _arg(name: str = "address", value: str = "") -> CompletionArgument:
@@ -154,13 +156,15 @@ class TestCandidatesExcludeNonRuntimeValues:
     """地址带过滤：只有能直接使用的运行时地址才可作为候选。
 
     `addresses.yaml` 混装多个地址空间。若把 IDA 地址当候选吐出去，
-    Agent 会把 `0x000883B40`（known_render_vars cursor_x_margin，IDA 口径）
-    直接交给 `ppsspp_breakpoint` —— 补全反而制造错误。本组断言把该过滤固化为契约。
+    Agent 会把 known_functions 里的 `0x000286A8`（user_main，IDA 相对
+    偏移，运行时地址应为 0x0882C6A8）直接交给 `ppsspp_breakpoint` ——
+    补全反而制造错误。本组断言把该过滤固化为契约，对 examples/
+    addresses.yaml 的非运行时取值逐一生效。
     """
 
     @pytest.mark.parametrize(
         "ida_or_file_offset",
-        ["0x000883B40", "0x0000D1A8", "0x000C2F90", "0x004446B0", "0x000EC188", "0x68000194"],
+        ["0x000286A8", "0x00000000"],
     )
     async def test_off_band_values_never_appear(self, ida_or_file_offset: str):
         result = await complete(_BREAKPOINT, _arg("address", ""), None)
@@ -189,6 +193,12 @@ class TestValueCap:
     """协议规定 `values` 不得超过 100 条；超限时给出 total/has_more。"""
 
     async def test_cap_and_pagination_hint(self, monkeypatch):
+        # examples/ 只有 2 个运行时地址，凑不满 cap —— 注入合成配置
+        # 专测分页语义（与 TestNoMatch 的 unreadable-config 注入同法）。
+        synthetic = {
+            "known_modules": {f"mod{i}": 0x08810000 + i * 0x10 for i in range(5)},
+        }
+        monkeypatch.setattr(completions.config, "addresses", lambda: synthetic)
         monkeypatch.setattr(completions, "_MAX_VALUES", 3)
         result = await complete(_BREAKPOINT, _arg("address", ""), None)
         assert result is not None

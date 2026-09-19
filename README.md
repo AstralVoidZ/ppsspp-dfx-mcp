@@ -317,7 +317,7 @@ runner、报告）入手。
 # 前置：pytest 在 dev 依赖组中（默认安装不含）——二选一：
 #   uv sync                                # 装入 dependency-groups（含 pytest）
 #   pip install -e ".[dev]"                # 或装 dev extra
-# 全量测试套件（单元 + 契约 + 集成；约 1500 个测试）：
+# 全量测试套件（单元 + 契约 + 集成；1300+ 个测试用例（不含参数化展开））：
 .venv/ppsspp-dfx-mcp/Scripts/python -m pytest tests -q
 
 # 工具签名/描述变更后重新生成工具面基线（与变更同笔提交）：

@@ -56,7 +56,15 @@ def is_pid_alive(pid: int | None) -> bool:
     else:
         try:
             os.kill(pid, 0)
-        except (OSError, ProcessLookupError):
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # S7 (review v2): EPERM means the process EXISTS but belongs
+            # to another user — treating it as dead misclassified a frozen
+            # (alive) PPSSPP as a disconnected one in the pause timeout
+            # error taxonomy.
+            return True
+        except OSError:
             return False
         # os.kill(pid, 0) returns True for zombies on POSIX. On Linux we
         # can disambiguate via /proc/<pid>/status; non-Linux POSIX keeps

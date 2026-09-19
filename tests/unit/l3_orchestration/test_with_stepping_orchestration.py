@@ -27,6 +27,7 @@ V020 invariants (B.2 §3.5) anchored here:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -423,6 +424,60 @@ class TestSafeQueryOrchestration:
 
         assert pc == 0x12345678
         assert trust == TrustLevel.HIGH
+
+
+class TestWithSteppingCancellation:
+    """L3: caller cancellation must stay observable across the resume phase.
+
+    The resume in the finally block runs under asyncio.shield so a
+    cancelled caller cannot leave the CPU frozen in STEPPING. Shield
+    protects the resume — it must NOT suppress the caller's own
+    cancellation: the shielded task finishing in the background is not
+    a reason for the cancelled task to return success. A swallowed
+    CancelledError breaks asyncio cancellation contracts (tasks refuse
+    to die; anyio cancel scopes mis-account).
+    """
+
+    async def test_cancel_during_resume_propagates(self, manager, transport):
+        """Cancel landing during the shielded resume re-raises to the caller.
+
+        The resume itself still completes in the background (shield holds
+        the only reference) — cancellation changes who observes the
+        result, not whether the CPU returns to RUNNING.
+        """
+        resume_done = asyncio.Event()
+
+        def slow_resume(t: FakeTransport, **params: Any) -> None:
+            # Sync handler (FakeTransport convention): schedule the real
+            # completion on a delay so the caller's cancel can land while
+            # resume()'s wait_for_state poll is still in flight. The delay
+            # must stay under the manager's resume budget (500ms) so the
+            # shielded background resume completes successfully.
+            async def _complete() -> None:
+                await asyncio.sleep(0.4)
+                t.set_state({**t.state, "stepping": False})
+                resume_done.set()
+
+            asyncio.get_event_loop().call_soon(lambda: asyncio.ensure_future(_complete()))
+
+        transport.set_faf_handler("cpu.resume", slow_resume)
+
+        async def body() -> None:
+            async with manager.with_stepping():
+                pass  # body succeeds; resume (slow) runs in finally
+
+        task = asyncio.ensure_future(body())
+        # Let pause + body + resume entry settle, then cancel mid-resume.
+        await asyncio.sleep(0.05)
+        assert transport.state.get("stepping") is True, "precondition: CPU paused"
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Shielded resume still completes in the background.
+        await asyncio.wait_for(resume_done.wait(), timeout=5.0)
+        assert transport.state.get("stepping") is False
 
 
 # ============================================================================

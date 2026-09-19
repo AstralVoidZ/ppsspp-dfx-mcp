@@ -18,9 +18,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+          cache: pip
 
-      - name: Install ruff
-        run: pip install ruff
+      # S16 (review v2): pin the version — ruff format output is
+      # version-sensitive, an unpinned `latest` can red CI on style drift
+      # that no code change caused.
+      - name: Install ruff (pinned)
+        run: pip install "ruff==0.16.6"
 
       # 全库零豁免执法（规则见 pyproject [tool.ruff]，ignore 仅 E501），
       # 防止 2026-09 清债前"声明了规则但从不执行"的存量债再次累积。
@@ -59,6 +63,12 @@ jobs:
       # 其余（单元 + 契约 + fixture 化集成）必须三平台全绿。
       - name: Run test suite
         run: python -m pytest tests -q
+
+      # C4 守卫（review v2）：skip 必须是显式声明的豁免（真实 PPSSPP/ISO
+      # 资源、平台门控、未录制夹具）。禁止"路径解析失败导致整模块静默
+      # skip"——旧版 parents[5] 曾使两个契约模块在 CI 上零执行仍全绿。
+      - name: Skip audit (documented skips only)
+        run: python scripts/check_skips.py
 
       # 🔴-4 守卫：门禁引擎的纯逻辑单测纳入 CI（此前游离于门禁外）
       - name: evals gate engine (pure unit, no API)

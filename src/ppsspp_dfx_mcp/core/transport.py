@@ -102,9 +102,25 @@ class WsTransport:
         """
         # Defensive: cancel a stale recv task from a previous connection so
         # a reconnect never ends up with two loops draining one socket.
+        # W6 (review v2): cancel() alone leaves a scheduling window in
+        # which the old loop can still see the (about-to-be-replaced)
+        # shared self.ws — awaiting the task makes the handover
+        # structural instead of timing luck.
         if self._recv_task is not None and not self._recv_task.done():
             self._recv_task.cancel()
+            # The task's own CancelledError (from the cancel() above) or
+            # connection errors are the expected shutdown modes; a cancel
+            # of THIS connect() call still propagates via the awaiting
+            # task's machinery elsewhere.
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await self._recv_task
             self._recv_task = None
+        # W6 (review v2): an explicit reconnect over an OPEN socket used
+        # to overwrite self.ws without closing it — socket fd leak.
+        if self.ws is not None:
+            with contextlib.suppress(Exception):
+                await self.ws.close()
+            self.ws = None
         if self.verbose:
             # Use logger.debug (not print) to keep stdout clean — MCP
             # protocol runs over stdio, any stray stdout output corrupts

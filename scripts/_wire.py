@@ -60,7 +60,6 @@ ISO_PATH = os.environ.get("PPSSPP_DFX_TEST_ISO_PATH", "game.iso")
 SESSION_TOOLS_ALL = {
     "ppsspp_read_memory",
     "ppsspp_write_memory",
-    "ppsspp_get_pc",
     "ppsspp_query",
     "ppsspp_write_register",
     "ppsspp_evaluate",
@@ -80,7 +79,6 @@ SESSION_TOOLS_ALL = {
     "ppsspp_gpu_stats",
     "ppsspp_gpu_record",
     "ppsspp_replay",
-    "ppsspp_smoke_test",
     "ppsspp_run_script",
     "ppsspp_search_memory_info",
     "ppsspp_frame_snapshot",

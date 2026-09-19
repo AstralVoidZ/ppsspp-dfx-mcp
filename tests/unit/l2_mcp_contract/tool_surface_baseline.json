@@ -1,6 +1,6 @@
 {
  "note": "Committed tools/list baseline — regenerate with scripts/dump_tool_surface.py and review the diff alongside the description change that caused it.",
- "tool_count": 36,
+ "tool_count": 37,
  "tools": {
   "ppsspp_analyze_log": {
    "annotations": {
@@ -476,7 +476,7 @@
    "description": "PURPOSE: Aggregate PPSSPP replay subsystem — record input sequences, execute them, and save/load .ppr recordings.\n\nUSAGE: action + session_id; actions: begin/abort/flush/execute/status/time_get/time_set/save/load/wait_complete; execute needs version + base64_input; time_set needs value; save/load take a bare file name (always under output/replays/).\n\nBEHAVIOR: STATE-CHANGE. Recording requires the CPU RUNNING (real input timing); screenshots are rejected while recording. Replay timelines use ABSOLUTE game-clock timestamps anchored at the RECORDING session's boot — a replay only injects correctly when a fresh boot's clock is aligned to them: execute/load ONLY loads the event table and returns t0_s / estimated_end_s + the boot-aligned sequence (reset -> wait_ready -> wait boot+estimated_end_s -> abort); it does NOT play by itself. executing/saving NEVER clear on their own — only abort clears them — so wait_complete times out on any un-aborted replay; completion = the timeline estimate + explicit abort. execute/load auto-abort a live executing/saving state first (R4). restore_rtc defaults to False: setting it rewinds the game-visible wall clock of the RUNNING session and pollutes every in-game timer (R2); when needed, set it before the boot-aligned reset.\n\nRETURNS: {action, executing, saving, version, size, base64, base_rtc, data} — execute/load data carries t0_s, estimated_end_s, event_count and boot_aligned_sequence; fields depend on the action.",
    "description_chars": 1467,
    "description_words": 197,
-   "input_schema_chars": 3582,
+   "input_schema_chars": 3743,
    "input_schema_properties": [
     "action",
     "base64_input",
@@ -489,7 +489,7 @@
     "value",
     "version"
    ],
-   "input_schema_sha1": "f1a484f001f4b2ae14b41cb83af01ec8da08bb01",
+   "input_schema_sha1": "ec5981506ecd0ec739bb89a496298bd21dfae0dd",
    "output_schema_chars": 1850,
    "output_schema_sha1": "76c6701d9e4fea30a1e72f5b2c6af40ba3b1203d"
   },
@@ -544,8 +544,8 @@
     "width"
    ],
    "input_schema_sha1": "1826e38eed8b4f817c76981ee3084180928e0c1b",
-   "output_schema_chars": 2174,
-   "output_schema_sha1": "be61aa0977bc0e608407b9a99a983fbcd034a641"
+   "output_schema_chars": 2362,
+   "output_schema_sha1": "64899b993bdccfa2f8ecb4dcfb11f5efb83a76f5"
   },
   "ppsspp_screenshot": {
    "annotations": {
@@ -687,9 +687,9 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Aggregate CPU step + run-state control (into / over / out, pause, resume, reset, run_until, next_hle).\n\nUSAGE: action='into' / 'over' / 'out' / 'pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.\n\n\nROUTING: single CPU-step operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences -> ppsspp_batch_step.\nBEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.\n\nRETURNS: {action, address}.\n",
-   "description_chars": 616,
-   "description_words": 83,
+   "description": "PURPOSE: Aggregate CPU run-state control (pause / resume / reset / run_until / next_hle).\n\nUSAGE: action='pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.\n\nNOTE (v0.1.6): single-stepping (into/over/out) moved to\nppsspp_batch_step's cpu_step step type — this tool no longer accepts\nthose actions.\n\nROUTING: single run-state operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences and cpu_step -> ppsspp_batch_step.\nBEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.\n\nRETURNS: {action, address}.\n",
+   "description_chars": 722,
+   "description_words": 94,
    "input_schema_chars": 1264,
    "input_schema_properties": [
     "action",
@@ -719,6 +719,28 @@
    "input_schema_sha1": "713611c260b3904ae10416008921fea3b8153dfb",
    "output_schema_chars": 294,
    "output_schema_sha1": "52e6b8d51e5ca1c8f1171c991953542b0d1c2ec6"
+  },
+  "ppsspp_watch_value": {
+   "annotations": {
+    "destructive_hint": false,
+    "idempotent_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "PURPOSE: Value-change watch on an address — zero-pause alternative to a read watchpoint.\n\nUSAGE: session_id + address + mode + interval. Polls the value every\ninterval_frames and records changes (old/new/frame/time). Pure reads:\nthe CPU is never paused, so hot addresses are safe (D2 storm-free).\n\nBEHAVIOR: READ-ONLY. Polling loop; never mutates state; blocks ~duration_frames/60 seconds\n(cap 18000 frames).\n\nRETURNS: {address, size, mode, samples, first_value, last_value,\nchanges: [{frame, t_s, old, new}], change_count}.\n",
+   "description_chars": 525,
+   "description_words": 70,
+   "input_schema_chars": 780,
+   "input_schema_properties": [
+    "address",
+    "duration_frames",
+    "interval_frames",
+    "mode",
+    "session_id"
+   ],
+   "input_schema_sha1": "d587decf1d383c0e5cb734d9c6aa4f565ed31053",
+   "output_schema_chars": 785,
+   "output_schema_sha1": "493b44f8487fb1f5387c25effc74ce10f31eeabd"
   },
   "ppsspp_write_memory": {
    "annotations": {
@@ -763,6 +785,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 24416,
- "total_input_schema_chars": 45062
+ "total_description_chars": 25047,
+ "total_input_schema_chars": 46003
 }

@@ -759,3 +759,70 @@ class TestProperties:
         log.write_text("log line 1\nlog line 2\n", encoding="utf-8")
         launcher = PpssppLauncher(log_path=log)
         assert launcher.read_log() == "log line 1\nlog line 2\n"
+
+
+class TestWarnDebuggerExposedExternally:
+    """C1 guard: the non-loopback bind warning path must not raise.
+
+    The v1 🟡8 fix (loopback exposure detection) originally referenced an
+    undefined `logger` name — F821 turned the security warning itself into
+    a NameError that crashed `start()` after Popen had already succeeded
+    (leaving an orphan PPSSPP). These tests lock the warning path so the
+    guard can never regress into the crash it exists to prevent.
+    """
+
+    def _patch_binds(self, monkeypatch, binds):
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        monkeypatch.setattr(
+            launcher_mod,
+            "_get_listening_binds_for_pid_windows",
+            lambda pid: binds,
+        )
+
+    def test_nonloopback_bind_logs_warning_without_raising(self, monkeypatch, caplog):
+        """0.0.0.0 bind → WSDBG-EXPOSED warning, no exception."""
+        import logging
+
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        self._patch_binds(monkeypatch, [(7777, "0.0.0.0")])
+        with caplog.at_level(logging.WARNING):
+            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert "WSDBG-EXPOSED" in caplog.text
+        assert "RemoteDebuggerLocal" in caplog.text
+
+    def test_loopback_bind_is_silent(self, monkeypatch, caplog):
+        """127.0.0.1 bind → no warning (healthy configuration)."""
+        import logging
+
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        self._patch_binds(monkeypatch, [(7777, "127.0.0.1")])
+        with caplog.at_level(logging.WARNING):
+            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert "WSDBG-EXPOSED" not in caplog.text
+
+    def test_port_mismatch_is_silent(self, monkeypatch, caplog):
+        """Debugger port different from the tracked one → no warning."""
+        import logging
+
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        self._patch_binds(monkeypatch, [(9999, "0.0.0.0")])
+        with caplog.at_level(logging.WARNING):
+            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert "WSDBG-EXPOSED" not in caplog.text
+
+    def test_nonpositive_pid_short_circuits(self, monkeypatch):
+        """pid<=0 → no netstat call at all."""
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        calls = []
+        monkeypatch.setattr(
+            launcher_mod,
+            "_get_listening_binds_for_pid_windows",
+            lambda pid: calls.append(pid),
+        )
+        launcher_mod.warn_if_debugger_exposed_externally(0, 7777)
+        assert calls == []

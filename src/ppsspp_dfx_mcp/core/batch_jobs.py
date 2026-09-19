@@ -65,7 +65,10 @@ _PROBE_PER_SAMPLE_S = 0.25
 _SCREENSHOT_S = 1.0
 
 
-def estimate_batch_seconds(steps: list[dict[str, Any]]) -> float:
+def estimate_batch_seconds(
+    steps: list[dict[str, Any]],
+    probe_counts: dict[int, int] | None = None,
+) -> float:
     """Estimate the wall-clock duration of a validated step list.
 
     Heuristic, used only for the budget gate — never for pacing:
@@ -80,7 +83,7 @@ def estimate_batch_seconds(steps: list[dict[str, Any]]) -> float:
     Malformed steps cost 0 — validation happens before estimation.
     """
     total = 0.0
-    for step in steps:
+    for i, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
         stype = step.get("type")
@@ -108,11 +111,15 @@ def estimate_batch_seconds(steps: list[dict[str, Any]]) -> float:
             total += frames * per_frame if isinstance(frames, (int, float)) and frames >= 0 else 0.0
         elif stype == "state_probe":
             samples = step.get("samples", 1)
-            total += (
-                samples * _PROBE_PER_SAMPLE_S
-                if isinstance(samples, (int, float)) and samples >= 1
-                else _PROBE_PER_SAMPLE_S
-            )
+            n_samples = samples if isinstance(samples, (int, float)) and samples >= 1 else 1
+            # W12 (review v2): cost scales with PROBE COUNT, not just
+            # samples — names='' observes every registered probe, so a
+            # 50-probe × 1400-sample step used to estimate 350s while
+            # actually burning ~70 minutes (all with the session lock
+            # held). Callers resolve the per-step probe count; 1 is the
+            # conservative floor for unknown shapes.
+            n_probes = (probe_counts or {}).get(i, 1)
+            total += max(0.25, n_samples * n_probes * _PROBE_PER_SAMPLE_S)
         elif stype == "screenshot":
             total += _SCREENSHOT_S
     return total

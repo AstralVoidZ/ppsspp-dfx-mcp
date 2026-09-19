@@ -10,7 +10,7 @@ Strategy:
 2. If that times out: read_write trace, 15s, with a cross press fired 2s
    in (mode transitions WRITE game_mode).
 
-Run from mcps/ppsspp-dfx-mcp with a PPSSPP-capable environment (same
+Run from the repository root with a PPSSPP-capable environment (same
 preconditions as scripts/verify_real_mcp.py phase B). This script
 stops the session it started; it does not touch other sessions.
 """

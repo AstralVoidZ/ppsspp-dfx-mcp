@@ -61,7 +61,7 @@ import pytest_asyncio
 # modifications, while still exercising real-PPSSPP paths locally.
 #
 # Paths are resolved relative to this conftest. conftest.py is at
-# mcps/ppsspp-dfx-mcp/tests/integration/conftest.py.
+# tests/integration/conftest.py.
 
 _HERE = Path(__file__).resolve().parent
 _TESTS_ROOT = _HERE.parent  # tests/

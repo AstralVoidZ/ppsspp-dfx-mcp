@@ -15,8 +15,12 @@ Protected ranges:
 
 from __future__ import annotations
 
+import logging
+
 from ppsspp_dfx_mcp import config
-from ppsspp_dfx_mcp.errors import ToolError
+from ppsspp_dfx_mcp.errors import ProtectedAddress
+
+logger = logging.getLogger(__name__)
 
 PROTECTED_RANGE_KERNEL = (0x00000000, 0x08800000)
 DEFAULT_TOP_PRX_BASE = 0x08804000
@@ -69,16 +73,25 @@ def check_protected_address(address: int, *, byte_count: int = 0, force: bool = 
             set force=True to override.
     """
     if force:
+        # S8 (review v2): a protected-range overwrite is the highest-risk
+        # operation this server performs — it must leave a trace.
+        logger.warning(
+            "PROTECTED-WRITE FORCE OVERRIDE: 0x%08X..0x%08X (%d bytes) — "
+            "JIT cache invalidation may crash PPSSPP",
+            address,
+            address + max(byte_count, 1),
+            max(byte_count, 1),
+        )
         return
 
     end = address + byte_count if byte_count > 0 else address + 1
     for name, (lo, hi) in _effective_ranges():
         # Overlap check: [address, end) ∩ [lo, hi) ≠ ∅
         if address < hi and end > lo:
-            raise ToolError(
+            # W17 (review v2): typed exception carries PROTECTED_ADDRESS.
+            raise ProtectedAddress(
                 f"address range 0x{address:08X}-0x{end:08X} overlaps protected "
                 f"{name} (0x{lo:08X}-0x{hi:08X}). Writing to this range can "
                 f"crash PPSSPP (JIT cache invalidation). "
-                f"Set force=True to override.",
-                code="PROTECTED_ADDRESS",
+                f"Set force=True to override."
             )

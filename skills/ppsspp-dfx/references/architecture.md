@@ -11,7 +11,7 @@ category: architecture
 ## 调试 4 层抽象
 
 ```
-L3: MCP Server    — 35 个静态工具 + 动态脚本工具（Agent 的唯一操作面）
+L3: MCP Server    — 36 个静态工具 + 动态脚本工具（Agent 的唯一操作面）
 L2: WebSocket API — PPSSPP 原生 WS 调试器（ws://127.0.0.1:<port>/debugger，
                     子协议 debugger.ppsspp.org，连接后必须先发 version 握手）
 L1: File Log      — PPSSPP 文件日志（memstick/PSP/SYSTEM/DUMP/log.txt）

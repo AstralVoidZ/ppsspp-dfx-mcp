@@ -38,6 +38,9 @@ AssembleOutput = derive_output_contract("AssembleOutput", AssembleResponse)
 
 logger = logging.getLogger(__name__)
 
+# S4 (review v2): per-call instruction cap (disassemble caps at 100).
+_MAX_INSTRUCTIONS = 256
+
 __all__ = ["assemble"]
 
 
@@ -133,6 +136,15 @@ async def assemble(
     # singular "instruction"; armims treats ';' as comment delimiter).
     # Split on '\n' and ';', strip whitespace, drop empty fragments.
     instructions = _split_instructions(code)
+    if len(instructions) > _MAX_INSTRUCTIONS:
+        # S4 (review v2): each instruction is a blocking WS round-trip and
+        # the write is NOT transactional — an unbounded list used to hold
+        # the session lock for minutes and guarantee a half-applied patch
+        # when the ~30s client timeout cancelled the call.
+        raise ArgsInvalid(
+            f"{len(instructions)} instructions exceeds {_MAX_INSTRUCTIONS} — "
+            f"split large patches across multiple assemble calls"
+        )
     if not instructions:
         raise ArgsInvalid(
             "code contains no valid instructions after splitting on newline/semicolon"

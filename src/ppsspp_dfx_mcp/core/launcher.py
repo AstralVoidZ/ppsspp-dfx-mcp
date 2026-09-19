@@ -265,6 +265,95 @@ def _get_listening_ports_for_pid_windows(pid: int) -> list[int]:
     return _parse_netstat_windows(result.stdout or "", pid)
 
 
+def _parse_lsof_binds(output: str) -> list[tuple[int, str]]:
+    """Parse `lsof -a -iTCP -sTCP:LISTEN -p PID -P -n` → [(port, bind_addr)].
+
+    Line shape: ``... TCP 127.0.0.1:7777 (LISTEN)`` (v4/v6, possibly
+    ``*:port`` for wildcard binds).
+    """
+    import re as _re
+
+    pat = _re.compile(r"TCP\s+(\[?[^\s:]+\]?|\*):(\d+)\s+\(LISTEN\)")
+    binds: list[tuple[int, str]] = []
+    for line in output.splitlines():
+        m = pat.search(line)
+        if not m:
+            continue
+        addr = m.group(1).strip("[]")
+        if addr == "*":
+            addr = "0.0.0.0"
+        binds.append((int(m.group(2)), addr))
+    return binds
+
+
+def _parse_ss_binds(output: str) -> list[tuple[int, str]]:
+    """Parse `ss -tlnp` → [(port, bind_addr)] lines filtered to LISTEN.
+
+    Line shape: ``LISTEN 0 128 127.0.0.1:7777 0.0.0.0:*`` — local
+    address may be ``*:port`` / ``[::]:port`` for wildcard binds.
+    """
+    binds: list[tuple[int, str]] = []
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or parts[0] != "LISTEN":
+            continue
+        local = parts[3]
+        _, _, port = local.rpartition(":")
+        if not port.isdigit():
+            continue
+        addr = local[: local.rindex(":")].strip("[]")
+        if addr in ("", "*"):
+            addr = "0.0.0.0"
+        binds.append((int(port), addr))
+    return binds
+
+
+def _get_listening_binds_for_pid_posix(pid: int) -> list[tuple[int, str]] | None:
+    """Return (port, bind_addr) pairs for ``pid`` on POSIX, or None when
+    no discovery tool exists (lsof / ss / netstat all absent).
+
+    W7 (review v2): the exposure warning needs the BIND ADDRESS, not just
+    the port — the ports-only POSIX helper discards exactly the
+    information this check exists for.
+    """
+    commands: list[tuple[list[str], object]] = [
+        (["lsof", "-a", "-iTCP", "-sTCP:LISTEN", "-p", str(pid), "-P", "-n"], _parse_lsof_binds),
+        (
+            ["ss", "-tlnp"],
+            lambda out: (
+                [
+                    (port, addr)
+                    for line in out.splitlines()
+                    for port, addr in _parse_ss_binds(line)
+                    # ss -p prints process info on the line only when run as
+                    # root; without per-line pid attribution the socket cannot
+                    # be attributed to THIS pid, so keep only lines that name it.
+                    if f"pid={pid}," in line or f"pid={pid})" in line
+                ]
+                or []
+            ),
+        ),
+        (["netstat", "-tlnp"], None),
+    ]
+    for cmd, parser in commands[:-1]:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=5,
+            )
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            continue
+        binds = parser(result.stdout or "")
+        if binds:
+            return binds
+    # ss/netstat without per-pid attribution cannot answer "is THIS pid
+    # exposed" — report "no tool" rather than a false all-clear.
+    return None
+
+
 def _get_listening_ports_for_pid_posix(pid: int) -> list[int]:
     """Return listening TCP ports for ``pid`` on POSIX (Linux/macOS).
 
@@ -337,7 +426,24 @@ def warn_if_debugger_exposed_externally(pid: int, port: int) -> None:
     """
     if pid <= 0:
         return
-    for bport, bip in _get_listening_binds_for_pid_windows(pid):
+    binds: list[tuple[int, str]] | None
+    if sys.platform == "win32":
+        binds = _get_listening_binds_for_pid_windows(pid)
+    else:
+        binds = _get_listening_binds_for_pid_posix(pid)
+        if binds is None:
+            # W7 (review v2): the check used to be Windows-only while
+            # being called on every platform — on POSIX the netstat
+            # invocation failed into `[]` and the security check
+            # silently no-op'd. Say so instead.
+            log.warning(
+                "WSDBG-EXPOSED: bind-address check unavailable on this "
+                "platform (install lsof or iproute2). Verify manually "
+                "that the PPSSPP debugger port is NOT bound to a "
+                "non-loopback address — the debugger is UNAUTHENTICATED."
+            )
+            return
+    for bport, bip in binds:
         if bport != port:
             continue
         if bip not in ("127.0.0.1", "::1"):
@@ -440,6 +546,15 @@ class PpssppLauncher:
             PpssppNotFound: PPSSPP executable does not exist.
             IsoNotFound: ISO file does not exist.
         """
+        # W9 (review v2): start() over a still-live process would orphan
+        # the old one (its Popen handle is overwritten, so stop() can
+        # never reach it) and leak the old appendconfig ini. Fail fast
+        # instead — the caller owns the stop/restart sequencing.
+        if self._proc is not None and self._proc.poll() is None:
+            raise RuntimeError(
+                f"launcher already has a live PPSSPP process (pid "
+                f"{self._proc.pid}); call stop() before start()"
+            )
         iso_path = Path(iso_path).resolve()
         if not self.exe_path.is_file():
             raise PpssppNotFound(f"PPSSPP executable not found: {self.exe_path}")

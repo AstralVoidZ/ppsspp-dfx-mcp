@@ -21,7 +21,7 @@ failure. This is a DIAGNOSTIC instrument, not a regression gate — the
 follow-up test-module refactor plan decides which probes become
 harness scenarios.
 
-Usage (from mcps/ppsspp-dfx-mcp):
+Usage (from the repository root):
     PYTHONPATH=src python scripts/probe_boundary_matrix.py [--phase all|p0|p1]
 """
 

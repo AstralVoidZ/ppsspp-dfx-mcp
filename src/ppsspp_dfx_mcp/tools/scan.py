@@ -65,6 +65,9 @@ _VALUE_DEFAULT_RANGE = 1 << 20  # 1 MiB initial-scan soft cap
 _VALUE_HARD_RANGE = 8 << 20  # 8 MiB foreground hard cap
 _VALUE_BG_HARD_RANGE = 32 << 20  # 32 MiB background hard cap (full band + slack)
 _VALUE_MAX_HITS = 5000
+# W13 (review v2): strings-mode caps — hit count and per-hit text.
+_MAX_STRINGS = 500
+_MAX_TEXT_CHARS = 4096
 
 _WIDTHS = {"u8": (1, "B"), "u16": (2, "H"), "u32": (4, "I")}
 _OPS = ("eq", "ne", "lt", "gt")
@@ -311,7 +314,9 @@ async def scan(
 
     RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background=true submission → {action: 'submitted', batch_id, session_id, estimated_s}."""
     session_id_resolved: str | None = None
-    if mode in ("pattern", "strings") or (mode == "value" and phase in ("initial", "narrow")):
+    if mode in ("pattern", "strings") or (
+        mode == "value" and phase in ("initial", "narrow", "list", "drop")
+    ):
         session_id_resolved = await resolve_session_id(session_id)
     logger.info(
         "tool_call",
@@ -570,6 +575,16 @@ async def _scan_value(
         sess["passes"] += 1
         return ScanResponse.build_value_narrow(scan_handle, len(sess["addresses"]), sess["passes"])
 
+    # S13 (review v2): list/drop used to bypass the ownership check that
+    # narrow enforces — session A could list or drop session B's handle,
+    # contradicting the tool's "bound to the creating session" contract.
+    if sess.get("session_id") != session_id:
+        raise ArgsInvalid(
+            f"scan_handle {scan_handle!r} belongs to session "
+            f"{sess.get('session_id')!r}, not {session_id!r} — "
+            f"drop it and re-scan in this session"
+        )
+
     if phase == "list":
         return ScanResponse.build_value_list(scan_handle, sess["addresses"], sess["width"])
 
@@ -607,6 +622,7 @@ async def _scan_strings(
         return cjk / len(s)
 
     strings_out: list[dict[str, Any]] = []
+    truncated = False
     for seg_start, data in segments:
         for m in run_re.finditer(data):
             if m.end() - m.start() < min_len:
@@ -617,9 +633,24 @@ async def _scan_strings(
                 continue
             if charset == "shift_jis" and quality > 0 and _jp_ratio(s) < quality:
                 continue
-            strings_out.append({"address": seg_start + m.start(), "text": s})
+            # W13 (review v2): strings was the one unbounded scan mode —
+            # a single printable run can be megabytes (8MB of 'A' is one
+            # "string") and the full result used to persist in the
+            # background-job registry, re-serialized on every status
+            # poll. Cap hits and per-hit text.
+            if len(strings_out) >= _MAX_STRINGS:
+                truncated = True
+                break
+            strings_out.append(
+                {
+                    "address": seg_start + m.start(),
+                    "text": s[:_MAX_TEXT_CHARS],
+                }
+            )
+        if truncated:
+            break
 
-    return ScanResponse.build_strings(charset, strings_out)
+    return ScanResponse.build_strings(charset, strings_out, truncated=truncated)
 
 
 async def _narrow_candidates(

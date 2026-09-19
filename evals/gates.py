@@ -42,7 +42,6 @@ _READ_CLASS_TOOLS = {
     "ppsspp_disassemble",
     "ppsspp_search_disasm",
     "ppsspp_state_observer",
-    "ppsspp_get_pc",
     "ppsspp_frame_snapshot",
     "ppsspp_memory_map",
     "ppsspp_search_memory_info",
@@ -381,9 +380,12 @@ def evaluate(
         else:
             ok, detail = False, f"unknown gate type: {gtype}"
         results.append({"type": gtype, "pass": ok, "detail": detail})
+    # W25 (review v2): an empty gate list used to vacuously pass — a
+    # scenario without gates would report success while asserting
+    # nothing. No gates = no verified behavior.
     return {
         "gates": results,
-        "success": all(r["pass"] for r in results),
+        "success": bool(results) and all(r["pass"] for r in results),
     }
 
 

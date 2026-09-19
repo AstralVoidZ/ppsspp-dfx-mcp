@@ -45,6 +45,9 @@ _LOG_LEVEL_MAP: dict[int, int] = {
 # consumes (and silently drops) every cpu.stepping broadcast, leaving
 # transport.wait_for_broadcast('cpu.stepping') dead on production
 # session-level transports.
+# W8 (review v2): per-event queue bound (drop-oldest on overflow).
+_EVENT_QUEUE_MAX = 64
+
 _SUBSCRIBED_EVENTS: tuple[str, ...] = (
     "game.start",
     "game.quit",
@@ -105,8 +108,12 @@ class GameStateObserver:
         # per-event-name subscription contract for future subscribers;
         # each holds at most one message per lifecycle event, so the
         # footprint is bounded and negligible.
+        # W8 (review v2): bounded with drop-oldest. These queues are
+        # written by the dispatcher even when no consumer is running —
+        # a failed gpu.stats.feed disable left the producer pushing
+        # 60fps messages into an unbounded queue (~12MB/h) forever.
         self._queues: dict[str, asyncio.Queue[dict[str, Any]]] = {
-            name: asyncio.Queue() for name in _SUBSCRIBED_EVENTS
+            name: asyncio.Queue(maxsize=_EVENT_QUEUE_MAX) for name in _SUBSCRIBED_EVENTS
         }
         # Fan-out subscribers for "cpu.stepping". The dedicated queue
         # above REMAINS the step-confirmation buffer (its single
@@ -468,7 +475,14 @@ class GameStateObserver:
                 event_name = msg.get("event")
                 # Dispatch to per-event-name queue (if subscribed).
                 if event_name in self._queues:
-                    await self._queues[event_name].put(msg)
+                    q = self._queues[event_name]
+                    if q.full():
+                        # Drop-oldest (single dispatcher → put_nowait
+                        # after eviction cannot raise). Losing a stale
+                        # GPU sample beats unbounded memory growth.
+                        with contextlib.suppress(asyncio.QueueEmpty):
+                            q.get_nowait()
+                    q.put_nowait(msg)
                 # Fan-out to cpu.stepping subscribers: each has its own
                 # bounded queue (drop-oldest on overflow), so one slow
                 # subscriber never starves the step-confirmation queue

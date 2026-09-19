@@ -1,6 +1,6 @@
 """Tests for the FakeTransport write overlay (blind-eval finding W2).
 
-Run (from mcps/ppsspp-dfx-mcp/):
+Run (from the repository root/):
   ../.venv/ppsspp-dfx-mcp/Scripts/python.exe -m pytest tests/fake_transport/test_write_overlay.py -q
 """
 

@@ -281,6 +281,17 @@ step exists.
 | `[BOOT_TIMEOUT]` during boot | Wedged-boot suspicion. `start(resilient=true)` quarantines the GPU-backend blacklist (renames `FailedGraphicsBackends.txt`, never deletes) and self-heals (≤2 retries) |
 | `read_u32` returns `IR_ENCODING_DETECTED` | You read JIT-IR code, not MIPS instructions. Use `ppsspp_disassemble` |
 
+### `structuredContent` serialization caveat
+
+Serialization behavior is pinned to **mcp SDK 2.2.0** (`mcp.server.mcpserver`)
+as measured. Multi-shape tools (one tool, different response shapes per
+`action` — e.g. `ppsspp_breakpoint` / `ppsspp_diff_memory` / `ppsspp_scan` /
+`ppsspp_session` / `ppsspp_batch_step` / `ppsspp_frame_snapshot`) declare
+their output contract as partial: the full payload always travels the
+`content` text channel as JSON, while how far `structuredContent` is
+populated for a given shape can differ across SDK versions — machine
+consumers should fall back to the text-channel JSON.
+
 ### Known limitations
 
 Honest statement of the protocol surface's boundaries — each item is also
@@ -290,6 +301,9 @@ annotated in the corresponding tool description; summarized here:
   events; save/load cannot be provided. Use PPSSPP's UI hotkeys (F1–F8 slots).
 - **Frame stepping is instruction-granular only**: `step` uses `cpu.stepInto`.
   Whole-frame alternative: breakpoint the vblank handler, then `resume`.
+- **`trace` orchestrates memory breakpoints only**: `ppsspp_breakpoint(action='trace')`
+  arms a memory-access breakpoint (read access by default). For a one-shot wait
+  on an execution breakpoint, combine `action='set'` + `action='wait'`.
 - **Analog stick is persistent shared state**: `send_analog` writes stick
   until the next write; no auto-reset.
 - **VRAM direct-read screenshots are unreliable**: direct VRAM reads are not
@@ -325,7 +339,11 @@ boundaries) and [evals/README.md](evals/README.md) (blind-test evaluation
 system: scenario cards, deterministic gates, runner, reports).
 
 ```bash
-# Full test suite (unit + contract + integration; ~1500 tests):
+# Prerequisite: pytest lives in the dev dependency group (not installed by
+# default) — either of:
+#   uv sync                                # installs the dependency group
+#   pip install -e ".[dev]"                # or the dev extra
+# Full test suite (unit + contract + integration; 1300+ test cases (excluding parametrize expansion)):
 .venv/ppsspp-dfx-mcp/Scripts/python -m pytest tests -q
 
 # Regenerate the tool-surface baseline after signature/description changes

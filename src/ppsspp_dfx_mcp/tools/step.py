@@ -146,12 +146,15 @@ async def step(
         ),
     ] = None,
 ) -> StepOutput:
-    """PURPOSE: Aggregate CPU step + run-state control (into / over / out, pause, resume, reset, run_until, next_hle).
+    """PURPOSE: Aggregate CPU run-state control (pause / resume / reset / run_until / next_hle).
 
-    USAGE: action='into' / 'over' / 'out' / 'pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.
+    USAGE: action='pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.
 
+    NOTE (v0.1.6): single-stepping (into/over/out) moved to
+    ppsspp_batch_step's cpu_step step type — this tool no longer accepts
+    those actions.
 
-    ROUTING: single CPU-step operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences -> ppsspp_batch_step.
+    ROUTING: single run-state operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences and cpu_step -> ppsspp_batch_step.
     BEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.
 
     RETURNS: {action, address}.
@@ -170,16 +173,7 @@ async def step(
 
     try:
         async with session_client(session_id) as client:
-            if action == "into":
-                resp = await client.step_into()
-                result = StepResult(action=action, **_extract_broadcast_fields(resp))
-            elif action == "over":
-                resp = await client.step_over()
-                result = StepResult(action=action, **_extract_broadcast_fields(resp))
-            elif action == "out":
-                resp = await client.step_out()
-                result = StepResult(action=action, **_extract_broadcast_fields(resp))
-            elif action == "pause":
+            if action == "pause":
                 await client.pause()
                 # After pause, CPU is stepping → PC is trustworthy.
                 # Use safe_get_pc which guarantees stepping state during

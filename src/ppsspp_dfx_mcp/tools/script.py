@@ -244,15 +244,14 @@ def validate_script_contract(entry: ScriptEntry, project_root: Path) -> tuple[An
     input_cls, output_cls = _get_input_output_models(module, entry)
     fn = getattr(module, entry.entry, None)
     if fn is None or not callable(fn):
+        # W17 (review v2): class-default code (SCRIPT_CONTRACT_ERROR) —
+        # the ad-hoc "INVALID_ENTRY" string rendered the same failure
+        # under three different [CODE] prefixes depending on code path.
         raise ScriptContractError(
-            f"Entry '{entry.entry}' not found or not callable in {entry.path}",
-            code="INVALID_ENTRY",
+            f"Entry '{entry.entry}' not found or not callable in {entry.path}"
         )
     if not inspect.iscoroutinefunction(fn):
-        raise ScriptContractError(
-            f"Entry '{entry.entry}' must be async function",
-            code="INVALID_ENTRY",
-        )
+        raise ScriptContractError(f"Entry '{entry.entry}' must be async function")
     return module, input_cls, output_cls, fn
 
 
@@ -438,7 +437,8 @@ async def run_script(
             # `to_tool_error` returns the same ToolError instance (P1-10).
             raise
         except Exception as e:
-            raise ScriptContractError(f"Script '{name}' raised: {e}", code="CONTRACT") from e
+            # W17 (review v2): class-default code (was ad-hoc "CONTRACT").
+            raise ScriptContractError(f"Script '{name}' raised: {e}") from e
 
         if not isinstance(result, output_cls):
             raise ScriptContractError(

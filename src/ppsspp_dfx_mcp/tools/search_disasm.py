@@ -55,6 +55,9 @@ SearchDisasmOutput = derive_output_contract("SearchDisasmOutput", SearchDisasmRe
 
 logger = logging.getLogger(__name__)
 
+# S5 (review v2): hard ceiling for one search (see clamp in tool body).
+_MAX_RESULTS_CAP = 1000
+
 __all__ = ["search_disasm"]
 
 # Default cap for loop search results. Prevents unbounded
@@ -150,6 +153,11 @@ async def search_disasm(
         raise ArgsInvalid("match is required (non-empty string)")
     if max_results <= 0:
         raise ArgsInvalid("max_results must be > 0")
+    if max_results > _MAX_RESULTS_CAP:
+        # S5 (review v2): each hit costs 2 WS round-trips (hit + 1-line
+        # disasm); an unbounded cap on a loop-search over a hot pattern
+        # could pin the session lock for hours.
+        raise ArgsInvalid(f"max_results {max_results} exceeds {_MAX_RESULTS_CAP}")
 
     # Strip the '$' register prefix — PPSSPP's MIPSDebugInterface omits
     # '$' from register names (MIPSDebugInterface.cpp:281-290). Callers
