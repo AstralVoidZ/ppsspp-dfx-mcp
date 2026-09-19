@@ -11,12 +11,10 @@ import json
 import logging
 import platform
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 
 import pydantic
 from mcp.types import ToolAnnotations
-from typing import TypedDict
-
 from pydantic import Field
 
 from ppsspp_dfx_mcp import __version__
@@ -42,6 +40,7 @@ class HealthWithSessionChecks(HealthOutput, total=False):
 
     session_checks: list[_HealthSessionCheck]
     overall_session_status: str
+
 
 logger = logging.getLogger(__name__)
 

@@ -33,7 +33,6 @@ ppsspp_batch_status.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Literal, TypedDict
@@ -287,8 +286,7 @@ async def _execute_batch(
                     except TimeoutError as e:
                         step_status = "failure"
                         step_error = (
-                            f"cpu_step confirmed {stepped}/{ccount} steps "
-                            f"then stalled: {e}"
+                            f"cpu_step confirmed {stepped}/{ccount} steps then stalled: {e}"
                         )
                     step_data = {
                         "mode": cmode,

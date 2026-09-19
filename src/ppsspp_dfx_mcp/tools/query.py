@@ -291,13 +291,9 @@ async def query(
                     before = len(data["functions"])
                     lo, hi = address_int, address_int + scan_size
                     data["functions"] = [
-                        f
-                        for f in data["functions"]
-                        if lo <= int(f.get("address", 0)) < hi
+                        f for f in data["functions"] if lo <= int(f.get("address", 0)) < hi
                     ]
-                    data["filtered_to"] = (
-                        f"0x{lo:08X}-0x{hi:08X}"
-                    )
+                    data["filtered_to"] = f"0x{lo:08X}-0x{hi:08X}"
                     data["total_before_filter"] = before
                 # Truncate large function lists.
                 if top_n > 0:
@@ -315,9 +311,7 @@ async def query(
                 try:
                     listing = await client.func_list()
                     entries = listing.get("functions", []) if isinstance(listing, dict) else []
-                    data["verified"] = any(
-                        f.get("address") == (addr or 0) for f in entries
-                    )
+                    data["verified"] = any(f.get("address") == (addr or 0) for f in entries)
                     if not data["verified"]:
                         data["verified_note"] = (
                             "added function not visible in hle.func.list — "
