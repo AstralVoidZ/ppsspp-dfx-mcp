@@ -15,6 +15,8 @@ from typing import Annotated, Any
 
 import pydantic
 from mcp.types import ToolAnnotations
+from typing import TypedDict
+
 from pydantic import Field
 
 from ppsspp_dfx_mcp import __version__
@@ -25,6 +27,21 @@ from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.introspect import HealthResponse
 
 HealthOutput = derive_output_contract("HealthOutput", HealthResponse)
+
+
+class _HealthSessionCheck(TypedDict, total=False):
+    name: str
+    passed: bool
+    detail: str
+
+
+class HealthWithSessionChecks(HealthOutput, total=False):
+    """HealthOutput + the per-session battery keys added when `session_id`
+    is given (M9: they previously existed only in the text channel — the
+    output contract dropped them from structuredContent)."""
+
+    session_checks: list[_HealthSessionCheck]
+    overall_session_status: str
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +106,7 @@ async def health(
             ),
         ),
     ] = None,
-) -> HealthOutput:
+) -> HealthWithSessionChecks:
     """PURPOSE: Probe MCP server liveness and readiness — plus an optional four-point session health battery.
 
     USAGE: no args for the server-level probe (does NOT contact PPSSPP); pass session_id to also run the session battery (iso_loaded / cpu_running / ws_connected / game_mode_valid — absorbed from the former ppsspp_smoke_test tool).

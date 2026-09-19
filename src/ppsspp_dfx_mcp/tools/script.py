@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 
 from ppsspp_dfx_mcp.config import addresses as _addresses
 from ppsspp_dfx_mcp.errors import (
+    ArgsInvalid,
     ManifestError,
     ScriptContractError,
     ScriptNotFound,
@@ -48,6 +49,7 @@ from ppsspp_dfx_mcp.errors import (
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.spec.script_manifest import (
     ScriptEntry,
+    VALID_SCRIPT_CATEGORIES,
     get_manifest,
 )
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
@@ -305,6 +307,15 @@ def list_scripts(
     RETURNS: {scripts: [ScriptEntryView...], count, category}.
     """
     logger.info("tool_call", extra={"tool": "ppsspp_list_scripts", "category": category})
+    if category is not None and category not in VALID_SCRIPT_CATEGORIES:
+        # M12: an unknown category used to silently return an empty list —
+        # indistinguishable from "category exists but has no scripts".
+        # Fail like list_addresses does for unknown sections, listing the
+        # valid values so the caller can self-correct.
+        raise ArgsInvalid(
+            f"unknown category {category!r}; valid categories: "
+            f"{sorted(VALID_SCRIPT_CATEGORIES)}"
+        )
     try:
         manifest = get_manifest()
         entries = manifest.list_scripts(category=category)
@@ -389,6 +400,17 @@ async def run_script(
         # worker thread so a slow import can't freeze the event loop.
         module = await asyncio.to_thread(_load_script_module, entry, project_root)
         input_cls, output_cls = _get_input_output_models(module, entry)
+        # M7: pydantic silently ignores unknown fields by default, so a
+        # typo'd parameter key passed validation and was swallowed — the
+        # caller believed the parameter took effect. Reject unknown keys
+        # up front (field aliases still resolve via the model itself).
+        unknown = set(input) - set(getattr(input_cls, "model_fields", {}))
+        if unknown:
+            raise ScriptContractError(
+                f"script {name!r} input has unknown field(s): "
+                f"{sorted(unknown)} — accepted fields: "
+                f"{sorted(getattr(input_cls, 'model_fields', {}))}"
+            )
         try:
             input_model = input_cls(**input)
         except Exception as e:

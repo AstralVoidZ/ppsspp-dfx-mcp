@@ -109,7 +109,14 @@ async def press_button(
     ],
     duration: Annotated[
         int,
-        Field(default=1, description="Press duration in frames (default 1)."),
+        Field(
+            default=1,
+            description=(
+                "Press duration in frames (default 1; 60fps wall-clock, "
+                "cap 18000 ≈ 300s — values above are rejected). The call "
+                "blocks for the duration."
+            ),
+        ),
     ] = 1,
 ) -> ButtonPressOutput:
     """PURPOSE: Simulate a single PSP button press for a duration.

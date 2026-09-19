@@ -25,14 +25,21 @@ class AnalyzeLogResult:
     Attributes:
         log_path: Path to the log file (or '(default)' if from launcher).
         matches: List of matching log lines.
-        count: Number of matches.
+        count: Number of matches (after limit truncation, if any).
         filter: User-supplied keyword filter (empty string if none).
+        filter_mode: 'any' (line matches severity keywords OR filter,
+            legacy behavior) or 'all' (severity keywords AND filter).
+        total_matches: Match count before `limit` truncation.
+        truncated: True when limit truncated the match list.
     """
 
     log_path: str = "(default)"
     matches: list[LogMatch] = field(default_factory=list)
     count: int = 0
     filter: str = ""
+    filter_mode: str = "any"
+    total_matches: int = 0
+    truncated: bool = False
 
 
 @dataclass(frozen=True)

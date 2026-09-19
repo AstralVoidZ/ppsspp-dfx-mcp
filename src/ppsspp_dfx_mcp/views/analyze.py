@@ -29,8 +29,11 @@ class AnalyzeLogResponse(FrozenModel):
         default_factory=list,
         description="Matching log lines.",
     )
-    count: int = Field(default=0, description="Number of matches.")
+    count: int = Field(default=0, description="Number of matches (after limit truncation).")
     filter: str = Field(default="", description="User-supplied keyword filter.")
+    filter_mode: str = Field(default="any", description="Filter combination mode: 'any' (legacy OR) or 'all' (severity AND filter).")
+    total_matches: int = Field(default=0, description="Match count before limit truncation.")
+    truncated: bool = Field(default=False, description="True when limit truncated the match list.")
 
     @classmethod
     def from_result(cls, result: AnalyzeLogResult) -> AnalyzeLogResponse:
@@ -39,6 +42,9 @@ class AnalyzeLogResponse(FrozenModel):
             matches=[LogMatchView(line_no=m.line_no, text=m.text) for m in result.matches],
             count=result.count,
             filter=result.filter,
+            filter_mode=result.filter_mode,
+            total_matches=result.total_matches,
+            truncated=result.truncated,
         )
 
 
