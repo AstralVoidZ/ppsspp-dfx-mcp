@@ -122,7 +122,9 @@ class TestToolSetChangeReportedInReturnValue:
         """幂等重载：集合未变时两个字段均为空数组，Agent 据此判定无需重取列表。"""
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools", new=AsyncMock(return_value=_report())):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools", new=AsyncMock(return_value=_report())
+        ):
             out = await reload_scripts()
 
         assert out["exposed_added"] == []
@@ -154,7 +156,9 @@ class TestToolListChangedNotification:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         ctx = _ctx_with_session()
-        with patch("ppsspp_dfx_mcp.server.sync_exposed_tools", new=AsyncMock(return_value=_report())):
+        with patch(
+            "ppsspp_dfx_mcp.server.sync_exposed_tools", new=AsyncMock(return_value=_report())
+        ):
             await reload_scripts(ctx=ctx)
 
         ctx.request_context.session.send_tool_list_changed.assert_not_awaited()

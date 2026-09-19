@@ -33,7 +33,9 @@ from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 
-_BreakpointResponseOut = derive_output_contract("BreakpointResponseOut", BreakpointResponse, partial=True)
+_BreakpointResponseOut = derive_output_contract(
+    "BreakpointResponseOut", BreakpointResponse, partial=True
+)
 
 
 class _WaitKeys(TypedDict, total=False):
@@ -457,8 +459,7 @@ async def breakpoint(
                 # effective_enabled is None→True when the caller omitted it,
                 # which misreports a disabled breakpoint as enabled.
                 actual = next(
-                    (b.get("enabled") for b in bps
-                     if int(b.get("address", -1)) == address_int),
+                    (b.get("enabled") for b in bps if int(b.get("address", -1)) == address_int),
                     effective_enabled,
                 )
                 result = BreakpointResult(
@@ -505,8 +506,7 @@ async def breakpoint(
                 # effective_enabled is None→True when the caller omitted it,
                 # which misreports a disabled breakpoint as enabled.
                 actual = next(
-                    (b.get("enabled") for b in bps
-                     if int(b.get("address", -1)) == address_int),
+                    (b.get("enabled") for b in bps if int(b.get("address", -1)) == address_int),
                     effective_enabled,
                 )
                 result = BreakpointResult(

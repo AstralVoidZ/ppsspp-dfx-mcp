@@ -76,14 +76,20 @@ from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
 # 🔴-1: 联合契约必须扁平——func_metadata 不展开多继承 TypedDict，
 # 只有第一个父类的键进入 outputSchema，其余分支的键被 structuredContent
 # 静默剥离。flatten_union 生成单层全可选 TypedDict，跨 SDK 版本一致。
-_BatchStepResponseOut = derive_output_contract("BatchStepResponseOut", BatchStepResponse, partial=True)
-_BatchSubmitResponseOut = derive_output_contract("BatchSubmitResponseOut", BatchSubmitResponse, partial=True)
-_BatchStatusResponseOut = derive_output_contract("BatchStatusResponseOut", BatchStatusResponse, partial=True)
-_BatchListResponseOut = derive_output_contract("BatchListResponseOut", BatchListResponse, partial=True)
-
-BatchStepOutput = flatten_union(
-    "BatchStepOutput", _BatchStepResponseOut, _BatchSubmitResponseOut
+_BatchStepResponseOut = derive_output_contract(
+    "BatchStepResponseOut", BatchStepResponse, partial=True
 )
+_BatchSubmitResponseOut = derive_output_contract(
+    "BatchSubmitResponseOut", BatchSubmitResponse, partial=True
+)
+_BatchStatusResponseOut = derive_output_contract(
+    "BatchStatusResponseOut", BatchStatusResponse, partial=True
+)
+_BatchListResponseOut = derive_output_contract(
+    "BatchListResponseOut", BatchListResponse, partial=True
+)
+
+BatchStepOutput = flatten_union("BatchStepOutput", _BatchStepResponseOut, _BatchSubmitResponseOut)
 BatchStatusOutput = flatten_union(
     "BatchStatusOutput", _BatchStatusResponseOut, _BatchListResponseOut
 )
@@ -291,8 +297,7 @@ async def _execute_batch(
                         except TimeoutError as e:
                             step_status = "failure"
                             step_error = (
-                                f"cpu_step confirmed {stepped}/{ccount} steps "
-                                f"then stalled: {e}"
+                                f"cpu_step confirmed {stepped}/{ccount} steps then stalled: {e}"
                             )
                     step_data = {
                         "mode": cmode,

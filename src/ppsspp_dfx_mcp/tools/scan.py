@@ -49,6 +49,7 @@ _ScanResponseOut = derive_output_contract("ScanResponseOut", ScanResponse, parti
 
 class _BackgroundSubmitKeys(TypedDict, total=False):
     """背景提交分支返回裸 dict（不走 ScanResponse）—— 🔴-1 键保全社会 here。"""
+
     action: str
     batch_id: str
     session_id: str
@@ -56,9 +57,7 @@ class _BackgroundSubmitKeys(TypedDict, total=False):
     hint: str
 
 
-ScanOutput = flatten_union(
-    "ScanOutput", _ScanResponseOut, _BackgroundSubmitKeys
-)
+ScanOutput = flatten_union("ScanOutput", _ScanResponseOut, _BackgroundSubmitKeys)
 # ── value-scan session registry ──────────────────────────────────────────
 _VALUE_SESSIONS: dict[str, dict[str, Any]] = {}
 _MAX_VALUE_SESSIONS = 4

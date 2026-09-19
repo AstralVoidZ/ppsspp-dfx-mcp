@@ -101,7 +101,10 @@ class BatchStatusResponse(FrozenModel):
     )
     executed: int = Field(description="Steps executed so far")
     total: int = Field(description="Total steps in the batch")
-    error: str | None = Field(default=None, description="Error message if failed/cancelled (null when none; real runner emits null)")
+    error: str | None = Field(
+        default=None,
+        description="Error message if failed/cancelled (null when none; real runner emits null)",
+    )
     result: dict[str, Any] | None = Field(
         default=None,
         description=("Final ppsspp_batch_step-shaped response; present once the batch completed"),

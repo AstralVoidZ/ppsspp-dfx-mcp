@@ -13,7 +13,7 @@ exceptions to ToolError. No business logic here.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -28,7 +28,6 @@ from ppsspp_dfx_mcp.session.client_helper import validate_session_alive
 from ppsspp_dfx_mcp.session.safe_boot import probe_cpu_ready
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
-
 from ppsspp_dfx_mcp.views.session import (
     SessionListResponse,
     SessionResponse,
@@ -44,9 +43,7 @@ _WaitReadyOut = derive_output_contract("WaitReadyOut", WaitReadyResponse, partia
 _SessionListOut = derive_output_contract("SessionListOut", SessionListResponse, partial=True)
 
 
-SessionOutput = flatten_union(
-    "SessionOutput", _SessionResponseOut, _WaitReadyOut, _SessionListOut
-)
+SessionOutput = flatten_union("SessionOutput", _SessionResponseOut, _WaitReadyOut, _SessionListOut)
 
 logger = logging.getLogger(__name__)
 
@@ -262,4 +259,3 @@ async def session(
     except Exception as e:
         raise to_tool_error(e) from e
     return SessionResponse.from_session(sess).model_dump(mode="json")
-

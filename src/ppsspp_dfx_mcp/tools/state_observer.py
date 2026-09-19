@@ -161,9 +161,7 @@ def _resolve_target_probes(names: str) -> tuple[StateProbe, ...]:
     if names:
         # 🟢8: duplicate names produced duplicate observations and a
         # double-counted success_count — dedupe, preserving order.
-        target_names = list(dict.fromkeys(
-            n.strip() for n in names.split(",") if n.strip()
-        ))
+        target_names = list(dict.fromkeys(n.strip() for n in names.split(",") if n.strip()))
     else:
         target_names = list(_REGISTRY.keys())
     if not target_names:
