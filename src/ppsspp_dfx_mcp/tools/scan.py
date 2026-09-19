@@ -39,7 +39,7 @@ from ppsspp_dfx_mcp.tools._common import (
     MIN_SCAN_CHUNK_BYTES,
     translate_tool_errors,
 )
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.scan import ScanResponse
 
 logger = logging.getLogger(__name__)
@@ -56,9 +56,9 @@ class _BackgroundSubmitKeys(TypedDict, total=False):
     hint: str
 
 
-class ScanOutput(_ScanResponseOut, _BackgroundSubmitKeys, total=False):
-    """Union contract: pattern/value/strings + background-submit shapes."""
-
+ScanOutput = flatten_union(
+    "ScanOutput", _ScanResponseOut, _BackgroundSubmitKeys
+)
 # ── value-scan session registry ──────────────────────────────────────────
 _VALUE_SESSIONS: dict[str, dict[str, Any]] = {}
 _MAX_VALUE_SESSIONS = 4

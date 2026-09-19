@@ -25,6 +25,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import asyncio
+
 import pytest
 import yaml
 
@@ -204,7 +206,7 @@ class TestSkeletonExposedPreflight:
         )
         _inject_manifest(manifest_path)
         with caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp"):
-            report = sync_exposed_tools()
+            report = asyncio.run(sync_exposed_tools())
 
         assert report["skipped_skeleton"] == ["skeleton_probe"]
         assert report["failed"] == []
@@ -249,7 +251,7 @@ class TestSyncExposedTools:
         )
         _inject_manifest(manifest_path)
 
-        report = sync_exposed_tools()
+        report = asyncio.run(sync_exposed_tools())
         assert report["added"] == ["sync_probe"]
         assert report["registered"] == 1
         assert "ppsspp_script_sync_probe" in registered_tool_names()
@@ -257,7 +259,7 @@ class TestSyncExposedTools:
         # Manifest edit drops the entry → next sync unregisters the tool.
         manifest_path.write_text(yaml.safe_dump({"scripts": []}), encoding="utf-8")
         _inject_manifest(manifest_path)
-        report = sync_exposed_tools()
+        report = asyncio.run(sync_exposed_tools())
         assert report["removed"] == ["sync_probe"]
         assert report["registered"] == 0
         assert "ppsspp_script_sync_probe" not in registered_tool_names()
@@ -278,7 +280,7 @@ class TestSyncExposedTools:
             ],
         )
         _inject_manifest(manifest_path)
-        assert sync_exposed_tools()["registered"] == 1
+        assert asyncio.run(sync_exposed_tools())["registered"] == 1
 
         _write_manifest(
             tmp_path,
@@ -294,7 +296,7 @@ class TestSyncExposedTools:
             ],
         )
         _inject_manifest(manifest_path)
-        report = sync_exposed_tools()
+        report = asyncio.run(sync_exposed_tools())
         assert report["removed"] == ["sync_probe"]
         assert "sync_probe" not in registered_exposed_names()
 
@@ -305,7 +307,7 @@ class TestSyncExposedTools:
             [_manifest_entry("broken_probe", str(tmp_path / "missing.py"))],
         )
         _inject_manifest(manifest_path)
-        report = sync_exposed_tools()
+        report = asyncio.run(sync_exposed_tools())
         assert report["failed"] == ["broken_probe"]
         assert "broken_probe" not in registered_exposed_names()
 
@@ -426,7 +428,7 @@ class TestSyncReport:
         )
         _inject_manifest(manifest_path)
 
-        report = sync_exposed_tools()
+        report = asyncio.run(sync_exposed_tools())
         assert report["declared"] == 3
         assert report["registered"] == 1
         assert report["added"] == ["ok_probe"]

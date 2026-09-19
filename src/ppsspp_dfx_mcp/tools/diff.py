@@ -29,7 +29,7 @@ from ppsspp_dfx_mcp.models.diff import (
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.diff import (
     DiffCompareResponse,
     DiffDropResponse,
@@ -43,12 +43,16 @@ _MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024  # 8 MiB per snapshot
 _MAX_SNAPSHOTS = 4  # FIFO eviction
 _MAX_CHANGES_INLINE = 256  # changes beyond this are truncated (count kept)
 
-DiffOutput = derive_output_contract(
-    "DiffOutput",
-    DiffSnapshotResponse,
-    partial=True,  # multi-shape: snapshot/compare/drop/list return different views
-)
+from ppsspp_dfx_mcp.views.diff import DiffCompareResponse, DiffDropResponse
+_DiffSnapshotOut = derive_output_contract("DiffSnapshotOut", DiffSnapshotResponse, partial=True)
+_DiffCompareOut = derive_output_contract("DiffCompareOut", DiffCompareResponse, partial=True)
+_DiffDropOut = derive_output_contract("DiffDropOut", DiffDropResponse, partial=True)
+_DiffListOut = derive_output_contract("DiffListOut", DiffListResponse, partial=True)
 
+
+DiffOutput = flatten_union(
+    "DiffOutput", _DiffSnapshotOut, _DiffCompareOut, _DiffDropOut, _DiffListOut
+)
 # handle -> (result meta, snapshot bytes, owning session_id)
 _SNAPSHOTS: dict[str, tuple[DiffSnapshotResult, bytes, str]] = {}
 

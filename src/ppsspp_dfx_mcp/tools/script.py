@@ -501,7 +501,7 @@ async def reload_scripts(ctx: Context | None = None) -> ReloadScriptsOutputContr
     # removed/reclassified ones — so edits no longer require a restart.
     from ppsspp_dfx_mcp.server import registered_exposed_names, sync_exposed_tools
 
-    sync_report = sync_exposed_tools()
+    sync_report = await sync_exposed_tools()
 
     # Dynamic tool registration is runtime-mutable, so a client's cached
     # `tools/list` can silently go stale after a manifest edit. Notify

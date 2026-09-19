@@ -30,7 +30,7 @@ from ppsspp_dfx_mcp.session.client_helper import (
     validate_session_alive,
 )
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 
 _BreakpointResponseOut = derive_output_contract("BreakpointResponseOut", BreakpointResponse, partial=True)
@@ -71,12 +71,9 @@ class _TraceKeys(TypedDict, total=False):
     mem_hits: list[dict]
 
 
-class BreakpointOutput(_BreakpointResponseOut, _WaitKeys, _StatsKeys, _TraceKeys, total=False):
-    """Union contract: management actions | wait | stats | trace shapes.
-
-    🔴-1: partial 派生保证键不被 structuredContent 剥离；多分支形状并入
-    同一 union（wait/stats/trace 分支与 BreakpointResponse 的字段集不同）。
-    """
+BreakpointOutput = flatten_union(
+    "BreakpointOutput", _BreakpointResponseOut, _WaitKeys, _StatsKeys, _TraceKeys
+)
 
 logger = logging.getLogger(__name__)
 

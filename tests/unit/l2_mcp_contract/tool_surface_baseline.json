@@ -78,8 +78,8 @@
     "batch_id"
    ],
    "input_schema_sha1": "96b49c3de90a74e7839c7097741d9afe1dddb88c",
-   "output_schema_chars": 2573,
-   "output_schema_sha1": "de5afc7158d1615cbb1fff0da574503e8f61f638"
+   "output_schema_chars": 2505,
+   "output_schema_sha1": "c2ebb81f6cc0aa5a8589497693a54f5e8ab5d443"
   },
   "ppsspp_batch_step": {
    "annotations": {
@@ -99,8 +99,8 @@
     "steps"
    ],
    "input_schema_sha1": "820b036f3f9ad87ddb16a741b1dee0c90110a77f",
-   "output_schema_chars": 2464,
-   "output_schema_sha1": "a703fa79b3a6fa37555cce51aee93eccb2689b8b"
+   "output_schema_chars": 2377,
+   "output_schema_sha1": "74c16b03a05825eb852d5f33c5487d223276ecc7"
   },
   "ppsspp_breakpoint": {
    "annotations": {
@@ -129,8 +129,8 @@
     "write"
    ],
    "input_schema_sha1": "58874af6b3c06e8cbc48f3d75932e923c2326586",
-   "output_schema_chars": 2098,
-   "output_schema_sha1": "541891224db9541a119200646aa81a55a4fae1bd"
+   "output_schema_chars": 1902,
+   "output_schema_sha1": "866dacf1b9b08fa7190cccf88b4f9f64abaa6827"
   },
   "ppsspp_context": {
    "annotations": {
@@ -172,8 +172,8 @@
     "start"
    ],
    "input_schema_sha1": "7d10c7cddddf6ae32e96b750b4893071a2a30c8a",
-   "output_schema_chars": 2506,
-   "output_schema_sha1": "ecea4dde846b19d81e14eeab2b3df8470d0fb72d"
+   "output_schema_chars": 2429,
+   "output_schema_sha1": "100d6a4220b0972f9d129f7ce92c2727940595f2"
   },
   "ppsspp_disassemble": {
    "annotations": {
@@ -544,8 +544,8 @@
     "width"
    ],
    "input_schema_sha1": "1826e38eed8b4f817c76981ee3084180928e0c1b",
-   "output_schema_chars": 2258,
-   "output_schema_sha1": "77a0a881d0a0f6cd4100f3682eff154e0c230591"
+   "output_schema_chars": 2174,
+   "output_schema_sha1": "be61aa0977bc0e608407b9a99a983fbcd034a641"
   },
   "ppsspp_screenshot": {
    "annotations": {
@@ -652,8 +652,8 @@
     "wait_ready"
    ],
    "input_schema_sha1": "2c919a137e26522aa1d6701c36fda043b1e49875",
-   "output_schema_chars": 4795,
-   "output_schema_sha1": "60e8056e20b06d1bad0e6bdab40a4fe4375bb0e7"
+   "output_schema_chars": 4716,
+   "output_schema_sha1": "8694e1354b422510b904b1349e78a4bb379a16d0"
   },
   "ppsspp_state_observer": {
    "annotations": {

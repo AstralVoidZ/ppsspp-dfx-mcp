@@ -141,3 +141,18 @@ def derive_output_contract(
     contract.__contract_source_view__ = view  # type: ignore[attr-defined]
     contract.__contract_excluded__ = frozenset(exclude)  # type: ignore[attr-defined]
     return contract
+
+
+def flatten_union(name: str, *contracts: type) -> type:
+    """Merge multiple partial contracts into ONE flat TypedDict.
+
+    🔴-1: func_metadata's schema generation does not expand multi-
+    inheritance TypedDicts — only the first parent's fields survive, so
+    every other branch's keys get silently stripped from
+    structuredContent. A flat, single-level TypedDict behaves identically
+    across SDK versions.
+    """
+    annotations: dict[str, Any] = {}
+    for td in contracts:
+        annotations.update(dict(getattr(td, "__annotations__", {})))
+    return TypedDict(name, annotations, total=False)  # type: ignore[misc]

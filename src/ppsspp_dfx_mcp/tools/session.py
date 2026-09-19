@@ -27,7 +27,8 @@ from ppsspp_dfx_mcp.session import session_manager
 from ppsspp_dfx_mcp.session.client_helper import validate_session_alive
 from ppsspp_dfx_mcp.session.safe_boot import probe_cpu_ready
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
+
 from ppsspp_dfx_mcp.views.session import (
     SessionListResponse,
     SessionResponse,
@@ -43,8 +44,9 @@ _WaitReadyOut = derive_output_contract("WaitReadyOut", WaitReadyResponse, partia
 _SessionListOut = derive_output_contract("SessionListOut", SessionListResponse, partial=True)
 
 
-class SessionOutput(_SessionResponseOut, _WaitReadyOut, _SessionListOut, total=False):
-    """Union contract: start/get | wait_ready | list branch shapes."""
+SessionOutput = flatten_union(
+    "SessionOutput", _SessionResponseOut, _WaitReadyOut, _SessionListOut
+)
 
 logger = logging.getLogger(__name__)
 

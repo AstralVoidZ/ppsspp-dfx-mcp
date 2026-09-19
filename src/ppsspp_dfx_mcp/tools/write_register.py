@@ -89,6 +89,15 @@ async def write_register(
         raise ArgsInvalid("name is required")
 
     value_int = parse_value(value)
+    # 🟡12 (V4 live-verified): PPSSPP silently wraps negative values
+    # (-1 → 0xFFFFFFFF) — the exact behaviour the parameter description
+    # promises NOT to do. Enforce the documented fail-fast here.
+    if not 0 <= value_int <= 0xFFFFFFFF:
+        raise ArgsInvalid(
+            f"value {value!r} is out of the 32-bit range [0, 0xFFFFFFFF] "
+            f"(and would be silently wrapped by PPSSPP — use the exact "
+            f"intended bits)"
+        )
 
     logger.info(
         "tool_call",
