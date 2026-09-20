@@ -522,3 +522,237 @@ scenarios:
     gates:
       - type: first_tool
       - type: final_call_ok
+  # ── REAL 扩充第二批（B-3，2026-09-20）：断点追踪/观察/图形/输入/脚本 ──
+  - id: R13-REAL-BPWAIT
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      在 0x08804000 设一个执行断点，等待命中（超时 5 秒即可），告诉我是否命中。
+    max_turns: 12
+    optimal_calls: 2
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R14-REAL-BPSTATS
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      查询断点统计信息（最近 30 秒窗口内的命中情况），汇总给我。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R15-REAL-BPTRACE
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      对 0x08804000 做一次内存读取访问追踪（超时 5 秒），告诉我追踪结果。
+    max_turns: 12
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R16-REAL-WATCH
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      观察 0x08804000 处的 u32 值变化，持续 2 帧，把每次变化记录给我。
+    max_turns: 12
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R17-REAL-STATEOBS
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      做一次状态观察，告诉我当前 CPU 是否暂停、PC 值和调用栈摘要。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R18-REAL-FRAME
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      抓取当前帧快照，告诉我帧号和画面摘要信息。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R19-REAL-DUMP
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      尝试 dump 当前绑定的 GPU 纹理（level 0），告诉我结果（成功给路径，失败给原因）。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R20-REAL-GPUSTATS
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      查询 GPU 统计信息，告诉我当前帧率和绘制调用数。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R21-REAL-PRESS
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      按一次 PSP 的 Circle 按钮（持续 5 帧），告诉我操作完成。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R22-REAL-HOLD
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      持续按住 Cross 按钮，直到我后续说停（先按 10 帧然后停），告诉我执行了。
+    max_turns: 12
+    optimal_calls: 2
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R23-REAL-ANALOG
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      把模拟摇杆 X 轴推到 0.5，Y 轴归零，持续 5 帧，告诉我完成。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R24-REAL-WAITFRAMES
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      等待 30 帧过去，然后告诉我等待完成、当前帧号。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R25-REAL-LISTSCRIPTS
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      列出所有可用的调试脚本，告诉我脚本名和分类。
+    max_turns: 8
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R26-REAL-ANALYZE
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      分析当前 PPSSPP 日志，只返回含 ERROR 的行，最多 20 行。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R27-REAL-LISTADDR
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      列出已登记的地址标签，告诉我有几个条目。
+    max_turns: 8
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R28-REAL-MEMDIFF
+    tier: REAL
+    capabilities: [composite]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      对 0x08804000 起的 256 字做内存快照，等待 10 帧后再比较，告诉我变化了哪些字节。
+    max_turns: 15
+    optimal_calls: 3
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R29-REAL-MEMINFO
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      搜索内存信息表，查找 0x08804000 附近所属的模块和符号，告诉我结果。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R30-REAL-EVALUATE
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      求值表达式 "r1 + r2"（寄存器相加），告诉我结果的十六进制值。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
