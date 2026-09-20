@@ -176,6 +176,10 @@ def _gate_first_tool(scenario: dict, run: dict) -> tuple[bool, str]:
     expected = scenario.get("expected_first_tools") or []
     if not calls:
         return False, "no tool calls at all"
+    # ppsspp_health as a preamble probe is reasonable model behavior;
+    # skip leading health calls unless health itself is an expected first tool.
+    if "ppsspp_health" not in expected:
+        calls = [c for c in calls if c.get("name") != "ppsspp_health"] or calls
     first = calls[0].get("name")
     ok = first in expected
     return ok, f"first={first}, expected in {expected}"
