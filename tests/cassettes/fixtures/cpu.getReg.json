@@ -1,0 +1,17 @@
+{
+ "ppsspp_version": "v1.20.4-1845-g99fecc1874",
+ "type": "call",
+ "records": [
+  {
+   "params": {"category": 0, "register": 32},
+   "response": {
+    "event": "cpu.getReg",
+    "ticket": "t8",
+    "category": 0,
+    "register": 32,
+    "uintValue": 143585524,
+    "floatValue": "0.000000"
+   }
+  }
+ ]
+}

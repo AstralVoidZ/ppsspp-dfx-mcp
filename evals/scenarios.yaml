@@ -21,9 +21,13 @@ scenarios:
     gates:
       - type: first_tool
       - type: final_call_ok
-      # answer_contains (fixture cpu.status.json → pc) PENDING: fake 层对
-      # query(register pc) 的 fixture 未跟上 v0.1.6 后的 cpu.getReg 事件路由
-      # （返回 data:{} 空对象），重录制 fixture 后恢复该门禁（ISS-009）。
+      - type: answer_contains
+        mode: any
+        values:
+          - from_fixture:
+              file: cpu.getReg.json
+              path: records.0.response.uintValue
+              transform: hex
 
   - id: CTL-02
     tier: CTL
@@ -71,7 +75,13 @@ scenarios:
     gates:
       - type: first_tool
       - type: final_call_ok
-      # answer_contains PENDING（同 CTL-01 fixture 缺口，ISS-009）
+      - type: answer_contains
+        mode: any
+        values:
+          - from_fixture:
+              file: cpu.getReg.json
+              path: records.0.response.uintValue
+              transform: hex
 
   - id: L1-03
     tier: L1
@@ -381,4 +391,134 @@ scenarios:
     gates:
       - type: file_saved
         tool: ppsspp_screenshot
+      - type: final_call_ok
+  # ── REAL 扩充第一批（B-3，2026-09-20）：覆盖核心工具类别 ──────────
+  - id: R3-REAL-GETPC
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      查询当前 CPU 的 PC 值（十六进制）并告诉我。
+    max_turns: 8
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R4-REAL-REGS
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      读取当前 CPU 所有通用寄存器的值，汇总给我。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R5-REAL-MEMAP
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      获取当前游戏的内存映射（各模块加载区间），告诉我有几个区段。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R6-REAL-MEMREAD
+    tier: REAL
+    capabilities: [selection, param]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      读取 0x08804000 开始的 32 个字节，以十六进制 dump 格式给我。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R7-REAL-DISASM
+    tier: REAL
+    capabilities: [selection, param]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      反汇编当前 PC 处往后的 8 条指令，逐条列出。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R8-REAL-BPSET
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      在当前 PC 地址设一个执行断点，确认设好后告诉我断点地址。
+    max_turns: 10
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R9-REAL-STEP
+    tier: REAL
+    capabilities: [control]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      暂停 CPU 后单步执行 3 条指令，告诉我每步后的 PC 值。
+    max_turns: 12
+    optimal_calls: 3
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R10-REAL-SCAN
+    tier: REAL
+    capabilities: [selection, param]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      在内存中扫描字节模式 "50 53 50"（PSP 魔数），告诉我找到几个匹配。
+    max_turns: 12
+    optimal_calls: 1
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R11-REAL-SCRIPT
+    tier: REAL
+    capabilities: [composite]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      列出可用的调试脚本，挑一个只读的诊断脚本运行，把输出给我。
+    max_turns: 12
+    optimal_calls: 2
+    gates:
+      - type: first_tool
+      - type: final_call_ok
+
+  - id: R12-REAL-HEALTH
+    tier: REAL
+    capabilities: [selection]
+    mode: real
+    pre_state: {sessions: 1}
+    prompt: |
+      做一次会话健康检查，告诉我模拟器版本和会话状态。
+    max_turns: 8
+    optimal_calls: 1
+    gates:
+      - type: first_tool
       - type: final_call_ok
