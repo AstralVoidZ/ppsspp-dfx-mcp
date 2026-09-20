@@ -44,6 +44,9 @@ _SRC_ROOT = _PKG_ROOT / "src"
 _TESTS_ROOT = _PKG_ROOT / "tests"
 _REPO_ROOT = _PKG_ROOT.parents[1]
 
+# Ensure `evals` package is importable without external PYTHONPATH
+sys.path.insert(0, str(_PKG_ROOT))
+
 SYSTEM_TEMPLATE = (
     "你是一个使用 MCP 工具的 PSP 模拟器调试助手。\n"
     "请根据任务需要选择并调用可用的工具；完成任务后，用中文给出最终答案。\n"
