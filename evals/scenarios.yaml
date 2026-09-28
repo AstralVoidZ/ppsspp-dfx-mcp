@@ -458,7 +458,7 @@ scenarios:
       反汇编当前 PC 处往后的 8 条指令，逐条列出。
     max_turns: 10
     optimal_calls: 1
-    expected_first_tools: [ppsspp_disassemble]
+    expected_first_tools: [ppsspp_query, ppsspp_disassemble]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -472,7 +472,7 @@ scenarios:
       在当前 PC 地址设一个执行断点，确认设好后告诉我断点地址。
     max_turns: 10
     optimal_calls: 1
-    expected_first_tools: [ppsspp_breakpoint]
+    expected_first_tools: [ppsspp_query, ppsspp_breakpoint]
     gates:
       - type: first_tool
       - type: final_call_ok
