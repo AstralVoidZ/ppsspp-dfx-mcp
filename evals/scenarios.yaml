@@ -402,6 +402,7 @@ scenarios:
       查询当前 CPU 的 PC 值（十六进制）并告诉我。
     max_turns: 8
     optimal_calls: 1
+    expected_first_tools: [ppsspp_query]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -415,6 +416,7 @@ scenarios:
       读取当前 CPU 所有通用寄存器的值，汇总给我。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_query]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -428,6 +430,7 @@ scenarios:
       获取当前游戏的内存映射（各模块加载区间），告诉我有几个区段。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_memory_map]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -441,6 +444,7 @@ scenarios:
       读取 0x08804000 开始的 32 个字节，以十六进制 dump 格式给我。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_read_memory]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -454,6 +458,7 @@ scenarios:
       反汇编当前 PC 处往后的 8 条指令，逐条列出。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_disassemble]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -467,6 +472,7 @@ scenarios:
       在当前 PC 地址设一个执行断点，确认设好后告诉我断点地址。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_breakpoint]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -480,6 +486,7 @@ scenarios:
       暂停 CPU 后单步执行 3 条指令，告诉我每步后的 PC 值。
     max_turns: 12
     optimal_calls: 3
+    expected_first_tools: [ppsspp_step, ppsspp_batch_step]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -493,6 +500,7 @@ scenarios:
       在内存中扫描字节模式 "50 53 50"（PSP 魔数），告诉我找到几个匹配。
     max_turns: 12
     optimal_calls: 1
+    expected_first_tools: [ppsspp_scan]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -506,6 +514,7 @@ scenarios:
       列出可用的调试脚本，挑一个只读的诊断脚本运行，把输出给我。
     max_turns: 12
     optimal_calls: 2
+    expected_first_tools: [ppsspp_list_scripts, ppsspp_run_script]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -519,6 +528,7 @@ scenarios:
       做一次会话健康检查，告诉我模拟器版本和会话状态。
     max_turns: 8
     optimal_calls: 1
+    expected_first_tools: [ppsspp_health, ppsspp_context]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -532,6 +542,7 @@ scenarios:
       在 0x08804000 设一个执行断点，等待命中（超时 5 秒即可），告诉我是否命中。
     max_turns: 12
     optimal_calls: 2
+    expected_first_tools: [ppsspp_breakpoint]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -545,6 +556,7 @@ scenarios:
       查询断点统计信息（最近 30 秒窗口内的命中情况），汇总给我。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_breakpoint, ppsspp_batch_status]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -558,6 +570,7 @@ scenarios:
       对 0x08804000 做一次内存读取访问追踪（超时 5 秒），告诉我追踪结果。
     max_turns: 12
     optimal_calls: 1
+    expected_first_tools: [ppsspp_breakpoint]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -571,6 +584,7 @@ scenarios:
       观察 0x08804000 处的 u32 值变化，持续 2 帧，把每次变化记录给我。
     max_turns: 12
     optimal_calls: 1
+    expected_first_tools: [ppsspp_watch_value]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -584,6 +598,7 @@ scenarios:
       做一次状态观察，告诉我当前 CPU 是否暂停、PC 值和调用栈摘要。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_state_observer]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -597,6 +612,7 @@ scenarios:
       抓取当前帧快照，告诉我帧号和画面摘要信息。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_frame_snapshot]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -610,6 +626,7 @@ scenarios:
       尝试 dump 当前绑定的 GPU 纹理（level 0），告诉我结果（成功给路径，失败给原因）。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_dump]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -623,6 +640,7 @@ scenarios:
       查询 GPU 统计信息，告诉我当前帧率和绘制调用数。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_gpu_stats]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -636,6 +654,7 @@ scenarios:
       按一次 PSP 的 Circle 按钮（持续 5 帧），告诉我操作完成。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_press_button]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -649,6 +668,7 @@ scenarios:
       持续按住 Cross 按钮，直到我后续说停（先按 10 帧然后停），告诉我执行了。
     max_turns: 12
     optimal_calls: 2
+    expected_first_tools: [ppsspp_hold_buttons]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -662,6 +682,7 @@ scenarios:
       把模拟摇杆 X 轴推到 0.5，Y 轴归零，持续 5 帧，告诉我完成。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_send_analog]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -675,6 +696,7 @@ scenarios:
       等待 30 帧过去，然后告诉我等待完成、当前帧号。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_wait_frames]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -688,6 +710,7 @@ scenarios:
       列出所有可用的调试脚本，告诉我脚本名和分类。
     max_turns: 8
     optimal_calls: 1
+    expected_first_tools: [ppsspp_list_scripts]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -701,6 +724,7 @@ scenarios:
       分析当前 PPSSPP 日志，只返回含 ERROR 的行，最多 20 行。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_analyze_log]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -714,6 +738,7 @@ scenarios:
       列出已登记的地址标签，告诉我有几个条目。
     max_turns: 8
     optimal_calls: 1
+    expected_first_tools: [ppsspp_list_addresses]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -727,6 +752,7 @@ scenarios:
       对 0x08804000 起的 256 字做内存快照，等待 10 帧后再比较，告诉我变化了哪些字节。
     max_turns: 15
     optimal_calls: 3
+    expected_first_tools: [ppsspp_diff_memory]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -740,6 +766,7 @@ scenarios:
       搜索内存信息表，查找 0x08804000 附近所属的模块和符号，告诉我结果。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_search_memory_info]
     gates:
       - type: first_tool
       - type: final_call_ok
@@ -753,6 +780,7 @@ scenarios:
       求值表达式 "r1 + r2"（寄存器相加），告诉我结果的十六进制值。
     max_turns: 10
     optimal_calls: 1
+    expected_first_tools: [ppsspp_evaluate]
     gates:
       - type: first_tool
       - type: final_call_ok

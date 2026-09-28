@@ -171,15 +171,22 @@ def _real_calls(run: dict) -> list[dict[str, Any]]:
     return [c for c in (run.get("tool_calls") or []) if not c.get("pseudo")]
 
 
+_PREAMBLE_TOOLS = ("ppsspp_health", "ppsspp_session")
+
+
 def _gate_first_tool(scenario: dict, run: dict) -> tuple[bool, str]:
     calls = _real_calls(run)
     expected = scenario.get("expected_first_tools") or []
     if not calls:
         return False, "no tool calls at all"
-    # ppsspp_health as a preamble probe is reasonable model behavior;
-    # skip leading health calls unless health itself is an expected first tool.
-    if "ppsspp_health" not in expected:
-        calls = [c for c in calls if c.get("name") != "ppsspp_health"] or calls
+    # Probing server health or fetching a session id is reasonable preamble
+    # behavior before task work; skip leading such calls unless the tool itself
+    # is an expected first tool (e.g. L1-06 expects ppsspp_health, R1 expects
+    # ppsspp_session).
+    preambles = [t for t in _PREAMBLE_TOOLS if t not in expected]
+    filtered = [c for c in calls if c.get("name") not in preambles]
+    if filtered:
+        calls = filtered
     first = calls[0].get("name")
     ok = first in expected
     return ok, f"first={first}, expected in {expected}"

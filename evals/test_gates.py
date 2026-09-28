@@ -82,6 +82,33 @@ def test_first_tool_no_calls_fails():
     assert evaluate(sc, _run(), None)["success"] is False
 
 
+def test_first_tool_skips_health_and_session_preamble():
+    sc = {"expected_first_tools": ["ppsspp_get_pc"], "gates": [{"type": "first_tool"}]}
+    # health + session are preamble; first task tool is ppsspp_get_pc -> pass
+    run = _run(_call("ppsspp_health"), _call("ppsspp_session", {"action": "list"}), _call("ppsspp_get_pc"))
+    assert evaluate(sc, run, None)["success"] is True
+
+
+def test_first_tool_preamble_only_fails():
+    sc = {"expected_first_tools": ["ppsspp_get_pc"], "gates": [{"type": "first_tool"}]}
+    run = _run(_call("ppsspp_health"), _call("ppsspp_session", {"action": "list"}))
+    assert evaluate(sc, run, None)["success"] is False
+
+
+def test_first_tool_health_as_expected_is_not_skipped():
+    sc = {"expected_first_tools": ["ppsspp_health"], "gates": [{"type": "first_tool"}]}
+    # health is the expected tool, so it must actually come first
+    assert evaluate(sc, _run(_call("ppsspp_health")), None)["success"] is True
+    assert evaluate(sc, _run(_call("ppsspp_session", {"action": "list"})), None)["success"] is False
+
+
+def test_first_tool_session_as_expected_is_not_skipped():
+    sc = {"expected_first_tools": ["ppsspp_session"], "gates": [{"type": "first_tool"}]}
+    # session is the expected tool (e.g. boot scenario), so it must come first
+    assert evaluate(sc, _run(_call("ppsspp_session", {"action": "start"})), None)["success"] is True
+    assert evaluate(sc, _run(_call("ppsspp_health")), None)["success"] is False
+
+
 def test_no_tool_pass_and_fail():
     sc = {"gates": [{"type": "no_tool"}]}
     assert evaluate(sc, _run(), None)["success"] is True
