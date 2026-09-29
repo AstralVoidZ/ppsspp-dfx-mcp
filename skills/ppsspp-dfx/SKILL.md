@@ -72,7 +72,6 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 | `WS_TIMEOUT` | 保守默认（PID 状态未知）→ `session(get)` 查健康后再决定 |
 | `WS_DISCONNECTED` | PPSSPP 进程死/连接断 → `session(start)` 重建 |
 | `PROTECTED_ADDRESS` | 写入受保护区 → 确认意图后加 `force=True` |
-| `IR_ENCODING_DETECTED` | 用 `read_u32` 读了代码段 → 改 `disassemble` |
 | `CAPTURE_EMPTY` | texture/clut 空捕获 → 进到有渲染的场景再抓 |
 | `BATCH_STEP_FAILED` | batch 有失败步（整体 isError）→ 按 `results[]` 逐个排查 |
 | `ADDR_INVALID` | 地址格式/范围错 → 按 `"0x..."` 字符串重试 |
@@ -81,6 +80,10 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 | 菜单按键无效 | 用完整序列（Start → 确认键 → 等待 → 确认键），单次按键常无效 |
 
 > 本表为高频症状矩阵。全部错误码的语义与恢复路径全表见 [references/error-codes.md](references/error-codes.md)。
+
+**读代码段的注意事项**：PPSSPP 的 IR 编码无法在 MCP 侧可靠判别——用 `read_u32` 读代码段
+**不会报错**，但可能得到无意义的值（不是真实 MIPS 指令）。代码段一律用
+`ppsspp_disassemble`，搜索指令用 `ppsspp_search_disasm`，不要用 `read_uN`。
 
 ## 6. 按需加载参考
 

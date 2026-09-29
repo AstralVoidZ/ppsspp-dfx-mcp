@@ -13,8 +13,11 @@
 #   description     : shown in tools/list; prefix with [migrated] or [skeleton]
 #   category        : eboot | state | p0ab | ndx | memory | misc | recipe
 #   requires_ppsspp : true if the script needs an active PPSSPP session
-#   path            : project-root-relative path to the script's .py file
-#                     (absolute paths are accepted but deprecated)
+#   path            : project-root-relative path to the script's .py file.
+#                     Relative paths are containment-checked (no `..` escape).
+#                     Absolute paths are rejected unless the process sets
+#                     PPSSPP_DFX_ALLOW_ABS_SCRIPT=1 (test-only escape hatch —
+#                     see SECURITY.md "配置可信边界").
 #   input_model     : Pydantic BaseModel class declared in the script
 #   output_model    : Pydantic BaseModel class declared in the script
 #   entry           : async function name (default "run")

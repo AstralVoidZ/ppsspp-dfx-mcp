@@ -632,6 +632,11 @@ class PpssppLauncher:
         differs from the picked port. session_manager picks up the
         updated value automatically (no API change).
 
+        Both branches end by running
+        ``warn_if_debugger_exposed_externally`` (W9, review v3): the
+        fast path used to return before it, so the *common* case never
+        produced the unauthenticated-debugger exposure warning.
+
         Returns:
             True if ``self.ws_port`` is confirmed listening.
         """
@@ -643,6 +648,9 @@ class PpssppLauncher:
         phase1_deadline = time.time() + phase1_timeout
         while time.time() < phase1_deadline:
             if self._is_port_listening():
+                # 🟡8: the port we requested is the one now listening, so
+                # that (not a discovered value) is the one to audit.
+                warn_if_debugger_exposed_externally(self._proc.pid, self.ws_port)
                 return True
             if self._proc.poll() is not None:
                 # Process died; no point waiting further.

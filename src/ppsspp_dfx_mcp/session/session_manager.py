@@ -29,7 +29,7 @@ from ppsspp_dfx_mcp.config import (
     ws_host,
     ws_port,
 )
-from ppsspp_dfx_mcp.core import proc
+from ppsspp_dfx_mcp.core import cond_filter, proc
 from ppsspp_dfx_mcp.core.launcher import PpssppLauncher, _force_kill_pid
 from ppsspp_dfx_mcp.errors import (
     BootTimeout,
@@ -161,6 +161,11 @@ def _save_sessions(sessions: dict[str, Session]) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
+    # Restrict the tmp file to the owner before the atomic move. POSIX: the
+    # mode is preserved by os.replace, so the persisted sessions.json is not
+    # world-readable. Windows: os.chmod only toggles the read-only bit and
+    # 0o600 leaves the file writable — harmless.
+    os.chmod(tmp, 0o600)
     os.replace(tmp, path)
 
 
@@ -950,6 +955,9 @@ class SessionManager:
             launcher = self._launchers.pop(session_id, None)
             transport = self._transports.pop(session_id, None)
             observer = self._observers.pop(session_id, None)
+            # 🔴-1/D1: 会话结束即回收 MCP 侧条件过滤器，避免注册表随已停会话
+            # 泄漏（同 transport/observer 的回收位置）。
+            cond_filter.drop_session(session_id)
             # Install the permanently-held closing sentinel (W3, review
             # v2). In-flight tool calls still hold the OLD lock and fail
             # fast on the closed transport; a NEW caller arriving between
@@ -1231,6 +1239,9 @@ class SessionManager:
             sessions = await _load_sessions_async()
             for sid in stopped_ids:
                 sessions.pop(sid, None)
+                # 🔴-1/D1: 仅对“确实已回收”的会话丢弃条件过滤器——W1 下
+                # kill 失败的会话仍需保留条目与过滤器等待下一轮重试。
+                cond_filter.drop_session(sid)
             await _save_sessions_async(sessions)
 
         return stopped_ids

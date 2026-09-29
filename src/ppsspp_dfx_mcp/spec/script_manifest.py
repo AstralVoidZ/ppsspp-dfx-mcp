@@ -15,6 +15,7 @@ Design (see specs/ppsspp-dfx-mcp-script-manifest/spec.md):
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,11 @@ _VALID_STATUSES: frozenset[str] = frozenset({"migrated", "skeleton"})
 _SKELETON_DESCRIPTION_PREFIX = "[skeleton]"
 
 _MANIFEST_FILENAME = "scripts.manifest.yaml"
+
+# W8 (review v3): opt-in for absolute `path` entries. Absolute paths skip
+# the project-root containment check, so they are refused unless the
+# operator sets this explicitly (trusted fixtures / workspace rewiring).
+_ALLOW_ABS_SCRIPT_ENV = "PPSSPP_DFX_ALLOW_ABS_SCRIPT"
 
 
 class ScriptEntry(BaseModel):
@@ -91,25 +97,30 @@ class ScriptEntry(BaseModel):
         `.resolve()` here to keep tests deterministic — callers that
         need an absolute path can resolve themselves.
 
-        Escape hatch: if `path` is already absolute, it is returned
-        as-is. This exists primarily so test fixtures can inject
-        absolute paths without first copying files under a fake
-        project root. Production manifests should always use relative
-        paths; the absolute-path branch is DEPRECATED and may be
-        removed once all call sites (including tests) are migrated
-        to relative paths.
+        Escape hatch (W8, review v3): an already-absolute `path` is
+        returned as-is ONLY when the operator opts in with
+        ``PPSSPP_DFX_ALLOW_ABS_SCRIPT=1``. The opt-in exists so test
+        fixtures and workspace-rewired dev scripts can point at files
+        outside a temp project root. Without it, an absolute path is
+        refused: it bypasses the containment check below, so a tampered
+        manifest could otherwise load and execute any ``.py`` on disk.
+        Production manifests should always use relative paths.
         """
         p = Path(self.path)
         if p.is_absolute():
-            # Deprecated escape hatch (tests / workspace-rewired dev
-            # scripts live outside a temp project root). Not containment
-            # checked against project_root by design — but `..` still has
-            # no business in a sanctioned entry, and the deprecation
-            # should be VISIBLE so relative paths stay the norm.
+            # The remaining checks are cheap shape checks; the opt-in is
+            # the actual trust boundary (see docstring).
             if ".." in p.parts:
                 raise ManifestError(f"script path must not contain '..': {self.path}")
             if p.suffix != ".py":
                 raise ManifestError(f"script path must point at a .py file: {self.path}")
+            if os.environ.get(_ALLOW_ABS_SCRIPT_ENV) != "1":
+                raise ManifestError(
+                    f"absolute script path requires {_ALLOW_ABS_SCRIPT_ENV}=1: {self.path} "
+                    "— manifest paths must be project-root-relative so a tampered manifest "
+                    "cannot execute arbitrary files outside the project; set the env var "
+                    "only for trusted fixtures / workspace-rewired dev scripts"
+                )
             return p
         resolved = project_root / p
         # W15 (review v2): relative paths are containment-checked — a

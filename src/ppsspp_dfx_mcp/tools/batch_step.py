@@ -62,6 +62,7 @@ from ppsspp_dfx_mcp.models.batch_step import (
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client, validate_session_alive
 from ppsspp_dfx_mcp.tools._common import (
+    require_int_not_bool,
     translate_tool_errors,
     wait_frames_chunked,
 )
@@ -185,7 +186,9 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
                 f"step[{index}] cpu_step requires mode='into'|'over'|'out'; got {cmode!r}"
             )
         ccount = step.get("count", 1)
-        if not isinstance(ccount, int) or ccount < 1 or ccount > 1000:
+        # S11/A8: `count=True` used to pass as a 1-instruction step.
+        ccount = require_int_not_bool(ccount, f"step[{index}] cpu_step count", exc=StepInvalid)
+        if ccount < 1 or ccount > 1000:
             raise StepInvalid(f"step[{index}] cpu_step count must be int 1..1000; got {ccount!r}")
 
 
@@ -532,20 +535,25 @@ async def batch_step(
     for i, step in enumerate(steps):
         _validate_step(step, i)
 
-    # W12 (review v2): resolve per-step probe counts so the estimate
-    # reflects samples × probes (names='' expands to every probe).
-    probe_counts: dict[int, int] = {}
+    # W12 (review v3): resolve the per-step ROUND-TRIP count so the estimate
+    # reflects samples × merged block reads (adjacent probes fold into one
+    # read; names='' expands to every probe).
+    probe_round_trips: dict[int, int] = {}
     for _i, _st in enumerate(steps):
         if _st.get("type") == "state_probe":
             try:
+                from ppsspp_dfx_mcp.tools.scan import _merge_runs
                 from ppsspp_dfx_mcp.tools.state_observer import (
                     _resolve_target_probes as _rtp,
                 )
 
-                probe_counts[_i] = max(1, len(_rtp(_st.get("names", ""))))
+                _probes = _rtp(_st.get("names", ""))
+                _addrs = sorted(p.address for p in _probes)
+                _max_size = max((p.size for p in _probes), default=1)
+                probe_round_trips[_i] = max(1, len(_merge_runs(_addrs, _max_size)))
             except Exception:
-                probe_counts[_i] = 1
-    estimated_s = estimate_batch_seconds(steps, probe_counts)
+                probe_round_trips[_i] = 1
+    estimated_s = estimate_batch_seconds(steps, probe_round_trips)
 
     logger.info(
         "tool_call",

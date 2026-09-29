@@ -54,6 +54,10 @@ MCP Inspector 等）。
 
 ### 从 PyPI 安装运行
 
+> **版本状态**：PyPI 上是 _alpha_ 阶段的发布快照，可能落后于仓库 `main`。以你实际
+> 装到的 wheel 版本为准（`pip show ppsspp-dfx-mcp`），变更记录见
+> [CHANGELOG.md](CHANGELOG.md)。
+
 使用独立 venv——本服务器的 MCP SDK v2 无法与其他 MCP 服务器锁定的 1.x
 `mcp` 包共存：
 
@@ -172,8 +176,10 @@ POSIX 上请用 `.venv/ppsspp-dfx-mcp/bin/python` 代替 `Scripts/python.exe`。
 `PPSSPP_DFX_TEST_ISO_PATH`、`PPSSPP_DFX_TEST_PPSSPP_LOG`、`PPSSPP_DFX_SKILL_DIR`、
 `PPSSPP_DFX_EVALS_LLM_API_PATH`、`PPSSPP_DFX_EVAL_GAME_*`。
 
-完整可复制的配置模板（含全部变量注释、按用途分组）见
-[`examples/mcp.json.template`](examples/mcp.json.template)。
+完整可复制的配置模板（含全部变量注释、按用途分组）见源码检出中的
+`examples/mcp.json.template`（PyPI 安装的用户可从
+[GitHub 仓库](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/blob/main/examples/mcp.json.template)
+获取）。
 
 项目级 YAML 配置位于 `.ppsspp-dfx/config/`（相对工作目录）：
 
@@ -188,17 +194,33 @@ POSIX 上请用 `.venv/ppsspp-dfx-mcp/bin/python` 代替 `Scripts/python.exe`。
 
 ### 独立部署快速开始
 
-三份配置文件的开箱模板见 [`examples/`](examples/)——从这里开始，不要从零手写
-YAML：
+三份配置文件（`project.yaml` / `addresses.yaml` / `scripts.manifest.yaml`）有
+开箱模板——从这里开始，不要从零手写 YAML。模板的取法取决于安装方式：
+
+**从源码检出**（模板就在仓库里）：
 
 ```bash
 mkdir -p .ppsspp-dfx/config
 cp examples/project.yaml examples/addresses.yaml \
    examples/scripts.manifest.yaml .ppsspp-dfx/config/
-# 然后编辑 .ppsspp-dfx/config/project.yaml：把 ppsspp_exe 指向你的
-# 带 WebSocket 调试器的 PPSSPP 构建；把 addresses.yaml 里的 PLACEHOLDER
-# 地址替换为你自己逆向得到的值。
 ```
+
+**从 PyPI 安装**（wheel 只打包 `src/ppsspp_dfx_mcp`，**不含 `examples/`**，
+请在 GitHub 上取同一份模板）：
+
+```bash
+mkdir -p .ppsspp-dfx/config
+for f in project.yaml addresses.yaml scripts.manifest.yaml; do
+  curl -fsSL "https://raw.githubusercontent.com/AstralVoidZ/ppsspp-dfx-mcp/main/examples/$f" \
+    -o ".ppsspp-dfx/config/$f"
+done
+```
+
+也可在
+[`examples/`](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/tree/main/examples)
+目录里逐个浏览/下载。取到模板后编辑 `.ppsspp-dfx/config/project.yaml`：把
+`ppsspp_exe` 指向你的带 WebSocket 调试器的 PPSSPP 构建；把 `addresses.yaml`
+里的 PLACEHOLDER 地址替换为你自己逆向得到的值。
 
 首次会话前需要知道的两件事：
 
@@ -280,7 +302,7 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 | `-32000: Connection closed`（无任何信息） | MCP 客户端与服务器之间有包装脚本：Windows 上 `os.execv` 实为 `CreateProcess` + 父进程等待（非 POSIX 替换），内层 server 的 stdin 立即 EOF 静默退出。去掉中间层，直接以 venv 解释器为 `command`（见[从源码运行](#从源码运行)） |
 | `check_env` 报「独立 venv 缺失」 | `.venv/` 被 gitignore 排除，新 clone 必然没有。运行 `python scripts/check_env.py --bootstrap`（见[从源码运行](#从源码运行)） |
 | `mcp SDK 版本不满足` / 导入期崩溃 | 系统 Python 的 `mcp` 包常被其他 MCP server 钉在 1.x，与 SDK v2 不可调和。不要全局安装——用 `check_env.py --bootstrap` 建独立 venv，或按[从 PyPI 安装运行](#从-pypi-安装运行)安装到独立 venv |
-| `ppsspp_script_*` 工具全部消失（服务器正常启动） | `.ppsspp-dfx/config/scripts.manifest.yaml` 缺失——缺失仅告警不阻断，动态工具静默清空。从 `examples/` 拷贝三份模板修复（`check_env.py --check` 会提示） |
+| `ppsspp_script_*` 工具全部消失（服务器正常启动） | `.ppsspp-dfx/config/scripts.manifest.yaml` 缺失——缺失仅告警不阻断，动态工具静默清空。按[独立部署快速开始](#独立部署快速开始)取三份模板修复（`check_env.py --check` 会提示；PyPI 安装时模板不在 wheel 内，需从 GitHub 取） |
 | `[PPSSPP_NOT_FOUND]` | PPSSPP 可执行文件未配置。设 `PPSSPP_DFX_EXE_PATH`，或 `.ppsspp-dfx/config/project.yaml` 的 `ppsspp_exe`（优先级 env > yaml） |
 | 找不到 `.ppsspp-dfx/config` | 配置目录按 cwd 发现（无父级上溯）。从含 `.ppsspp-dfx/` 的目录启动，或设 `PPSSPP_DFX_CONFIG_DIR` 指向它 |
 | `cwd` 无 `.ppsspp-dfx/` 标记目录（告警） | MCP host 从临时目录启动服务器。设 `PPSSPP_DFX_PROJECT_ROOT` 显式 pin 项目根目录（告警不阻断，向后兼容） |
@@ -288,12 +310,14 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 | WebSocket 连接失败 / `WS_DISCONNECTED` | PPSSPP 未运行、端口不对，或未启用 WebSocket debugger。`check_env.py --check` 验证环境，`ppsspp_session(action='get')` 验证会话 |
 | 工具调用挂起 / 超时（`WS_TIMEOUT`） | PPSSPP 主循环负责 dispatch WebSocket 请求：UI 卡死、模态对话框弹出或模拟暂停时请求不会被处理。先截图确认 UI 状态 |
 | boot 阶段 `[BOOT_TIMEOUT]` | 启动楔死疑似。`start(resilient=true)` 会隔离 GPU 后端黑名单（仅重命名 `FailedGraphicsBackends.txt`，不删除）并自愈重启（≤2 次重试） |
-| `read_u32` 返回 `IR_ENCODING_DETECTED` | 读到的是 JIT-IR 代码而非 MIPS 指令。改用 `ppsspp_disassemble` |
 
 ### 已知限制
 
 诚实声明协议面的边界——以下各项均已在对应工具的描述中标注，此处汇总：
 
+- **IR 编码无法在 MCP 侧可靠判别**：PPSSPP 的 JIT-IR 代码段用 `read_u32` 读取不会报错，
+  但可能得到无意义的值（不是真实 MIPS 指令）——要读代码段请改用 `ppsspp_disassemble`
+  （搜索指令用 `ppsspp_search_disasm`）。
 - **无存档 API**：PPSSPP 的 WebSocket debugger 不暴露 `savestate.*` 事件，
   服务器无法提供存档保存/加载。用 PPSSPP 的 UI 快捷键（F1-F8 存档槽）。
 - **帧推进只有指令级**：`step` 走 `cpu.stepInto`。整帧推进的替代：在

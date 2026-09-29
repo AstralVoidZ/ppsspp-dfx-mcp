@@ -17,7 +17,9 @@ protocol_group: [A, B, C]
 
 直接读取代码段地址会得到 IR 编码（`0x68xxxxxx`），不是真实 MIPS 指令。
 
-- **正确做法**：`ppsspp_disassemble` 反汇编代码段；MCP 可能报 `IR_ENCODING_DETECTED`
+- **正确做法**：代码段一律用 `ppsspp_disassemble` 反汇编，搜索指令用 `ppsspp_search_disasm`。
+- **MCP 侧无法判别**：PPSSPP 的 IR 编码无法在 MCP 侧可靠判别——用 `read_u32` 读代码段
+  **不会报错**，但可能得到无意义的值；不要指望某个错误码来兜住这种误用。
 
 ### A2. RUNNING 态 PC 被 VBlank 中断误导
 

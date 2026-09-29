@@ -46,7 +46,11 @@ category: errors
 | `CPU_FREEZE_SUSPECTED` | PID 存活但 CPU 不进入/不推进 | **勿 stop 重启会话**：`screenshot` 拍现场 → `step(action="resume")` 尝试解冻 → `query(action="threads")` → `disassemble` 看 PC 指令流 |
 | `STEP_NO_ADVANCE` | 步进命令被消费但 CPU 无推进（×3） | 确认 CPUCore=2（IR Interpreter）；`over`/`out`/`run_until` 靠临时断点，目标不可达时改用 `breakpoint`+`wait_breakpoint` |
 | `STEP_OUT_ERROR` | step_out 返回无效结果 | 改用 `step(action="over")` 或对已知返回地址 `run_until` |
-| `IR_ENCODING_DETECTED` | `read_u32` 读到 JIT-IR 编码（0x68xxxxxx） | 代码段一律用 `disassemble` / `search_disasm`，勿用 read_uN 读 |
+
+> **代码段的读取不是错误码，是约束**：PPSSPP 的 IR 编码无法在 MCP 侧可靠判别——用
+> `read_u32` 读代码段**不会报错**，但可能得到无意义的值（不是真实 MIPS 指令）。代码段
+> 一律用 `ppsspp_disassemble`，搜索指令用 `ppsspp_search_disasm`（见
+> [ppsspp-constraints.md](ppsspp-constraints.md) A1/B2）。
 
 ## 内存与断点
 

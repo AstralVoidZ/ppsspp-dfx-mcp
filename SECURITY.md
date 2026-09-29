@@ -28,6 +28,30 @@ unauthenticated by upstream design — anyone who can reach the configured
 host:port can drive the debugger. Do not expose `PPSSPP_DFX_WS_HOST`
 beyond loopback without understanding this.
 
+## Configuration trust boundary
+
+The config tree (`.ppsspp-dfx/config/`) is treated as **trusted input**:
+a writable config is equivalent to code execution on the workstation.
+Two boundaries are enforced in code rather than assumed:
+
+- **Script manifest** (`scripts.manifest.yaml`). Each entry's `path` may
+  only name a `.py` file inside the project root — relative paths are
+  containment-checked, so `..` cannot escape. Absolute paths bypass that
+  check and are therefore **refused** unless the operator explicitly sets
+  `PPSSPP_DFX_ALLOW_ABS_SCRIPT=1`. Set it only for trusted test fixtures or
+  workspace-rewired dev scripts. Loading a manifest entry executes the file
+  (`importlib`), so a manifest is as powerful as a shell script.
+- **`project.yaml` → `ppsspp_exe`** (or `PPSSPP_DFX_EXE_PATH`). This is a
+  trusted path by design: session startup launches that executable as a
+  subprocess. Pointing it at an arbitrary binary runs that binary. Keep the
+  config tree writable only by the account running the server, and prefer
+  the env var when the config is shared.
+
+`evals/bridge.py` is a developer-only eval helper (not part of the MCP
+server surface). It binds to loopback and additionally requires a random
+bearer token printed at startup (or `X-Bridge-Token`); POST bodies must be
+`application/json`, at most 1 MiB, and carry no foreign `Origin`.
+
 ## Handling
 
 - Acknowledgement within 7 days.

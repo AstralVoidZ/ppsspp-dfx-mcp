@@ -63,17 +63,25 @@ def _resolve_log_path(log_path: str) -> Path:
 
 def _filter_log_lines(
     path: Path, keywords: list[str], required: str | None = None
-) -> list[LogMatch]:
+) -> tuple[list[LogMatch], bool]:
     """Stream-filter a log file for keyword lines (worker-thread target).
 
     Hard caps: files larger than MAX_LOG_BYTES are rejected up front;
     matching stops at MAX_LOG_MATCHES. Line numbers are 1-based and match
     the previous splitlines() behavior.
+
+    Returns:
+        ``(matches, hit_cap)``. ``hit_cap`` is True when MAX_LOG_MATCHES
+        stopped the scan, i.e. ``matches`` is a prefix of the real match
+        set (W3 review v3: the caller used to compare ``len(matches)``
+        against ``limit`` only, so a capped scan reported truncated=false
+        and total_matches as if it were exact).
     """
     size = path.stat().st_size
     if size > MAX_LOG_BYTES:
         raise ArgsInvalid(f"log file too large: {path} ({size} bytes; cap {MAX_LOG_BYTES})")
     matches: list[LogMatch] = []
+    hit_cap = False
     with path.open("r", encoding="utf-8", errors="replace") as f:
         for i, line in enumerate(f, 1):
             # 🟡13: 'all' narrowing in-stream — the 500-cap then applies to
@@ -83,8 +91,9 @@ def _filter_log_lines(
             if any(kw in line for kw in keywords):
                 matches.append(LogMatch(line_no=i, text=line.rstrip("\r\n")))
                 if len(matches) >= MAX_LOG_MATCHES:
+                    hit_cap = True
                     break
-    return matches
+    return matches, hit_cap
 
 
 # Former docstring (kept as comment; description is now the TDQS docstring):
@@ -149,10 +158,12 @@ async def analyze_log(
             default=0,
             description=(
                 "Cap the returned match list (0 = no cap beyond the "
-                "hard internal cap). When truncation happens the "
-                "response carries total_matches (pre-truncation count) "
-                "and truncated=true — use this on long logs instead of "
-                "receiving 200KB+ of matches."
+                "hard internal cap of 500). When truncation happens the "
+                "response carries total_matches and truncated=true; "
+                "total_matches is a LOWER BOUND whenever truncated=true "
+                "(the scan stops at 500 matches, so the real count can "
+                "be higher). Use this on long logs instead of receiving "
+                "200KB+ of matches."
             ),
         ),
     ] = 0,
@@ -170,8 +181,7 @@ async def analyze_log(
 
     BEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.
 
-    RETURNS: {log_path, matches: [{line_no, text}...], count, filter, filter_mode, total_matches, truncated}.
-    """
+    RETURNS: {log_path, matches: [{line_no, text}...], count, filter, filter_mode, total_matches, truncated}. truncated=true covers both an explicit `limit` cut and the internal 500-match cap; total_matches is a lower bound (>= the value) whenever truncated=true."""
     logger.info(
         "tool_call",
         extra={
@@ -199,7 +209,7 @@ async def analyze_log(
         # thread with hard byte/match caps — the previous implementation
         # read the entire file into memory synchronously (OOM risk on
         # huge files, event-loop stall, unbounded match list).
-        matches = await asyncio.to_thread(_filter_log_lines, path, keywords, required)
+        matches, hit_cap = await asyncio.to_thread(_filter_log_lines, path, keywords, required)
         source = str(path)
     else:
         # The fallback builds a fresh
@@ -212,18 +222,24 @@ async def analyze_log(
         # lines land in output/ppsspp.log as they are broadcast.
         mirror_path = output_dir() / "ppsspp.log"
         if mirror_path.is_file():
-            matches = await asyncio.to_thread(_filter_log_lines, mirror_path, keywords, required)
+            matches, hit_cap = await asyncio.to_thread(
+                _filter_log_lines, mirror_path, keywords, required
+            )
             source = str(mirror_path)
         else:
             matches = []
+            hit_cap = False
             source = (
                 f"(no mirrored ppsspp log yet at {mirror_path} — the file "
                 f"is written while a session runs)"
             )
 
     total = len(matches)
-    truncated = bool(limit > 0 and total > limit)
-    if truncated:
+    # W3 (review v3): reaching the internal 500-match cap means `total` is a
+    # LOWER BOUND, not the real count — surface it as truncated instead of
+    # reporting a complete-looking list.
+    truncated = hit_cap or bool(limit > 0 and total > limit)
+    if limit > 0 and total > limit:
         matches = matches[:limit]
 
     result = AnalyzeLogResult(

@@ -85,7 +85,9 @@ def test_first_tool_no_calls_fails():
 def test_first_tool_skips_health_and_session_preamble():
     sc = {"expected_first_tools": ["ppsspp_get_pc"], "gates": [{"type": "first_tool"}]}
     # health + session are preamble; first task tool is ppsspp_get_pc -> pass
-    run = _run(_call("ppsspp_health"), _call("ppsspp_session", {"action": "list"}), _call("ppsspp_get_pc"))
+    run = _run(
+        _call("ppsspp_health"), _call("ppsspp_session", {"action": "list"}), _call("ppsspp_get_pc")
+    )
     assert evaluate(sc, run, None)["success"] is True
 
 
@@ -131,8 +133,22 @@ def test_first_tool_skips_context_gpu_stats_preamble():
 
 def test_first_tool_query_as_expected_is_not_skipped():
     sc = {"expected_first_tools": ["ppsspp_query"], "gates": [{"type": "first_tool"}]}
-    assert evaluate(sc, _run(_call("ppsspp_query", {"action": "register", "name": "pc"})), None)["success"] is True
-    assert evaluate(sc, _run(_call("ppsspp_health"), _call("ppsspp_query", {"action": "register", "name": "pc"})), None)["success"] is True
+    assert (
+        evaluate(sc, _run(_call("ppsspp_query", {"action": "register", "name": "pc"})), None)[
+            "success"
+        ]
+        is True
+    )
+    assert (
+        evaluate(
+            sc,
+            _run(
+                _call("ppsspp_health"), _call("ppsspp_query", {"action": "register", "name": "pc"})
+            ),
+            None,
+        )["success"]
+        is True
+    )
 
 
 def test_no_tool_pass_and_fail():
@@ -318,16 +334,22 @@ def test_resolve_value_plain_string_passthrough():
 
 def test_answer_contains_env_token_set_matches(monkeypatch):
     monkeypatch.setenv("PPSSPP_DFX_EVAL_TEST_ID", "ULJS-00000")
-    sc = {"gates": [{"type": "answer_contains", "mode": "any",
-                     "values": ["{{PPSSPP_DFX_EVAL_TEST_ID}}"]}]}
+    sc = {
+        "gates": [
+            {"type": "answer_contains", "mode": "any", "values": ["{{PPSSPP_DFX_EVAL_TEST_ID}}"]}
+        ]
+    }
     assert evaluate(sc, _run(final_answer="got ULJS-00000"), None)["success"] is True
 
 
 def test_answer_contains_all_tokens_unset_does_not_pass(monkeypatch):
     """Unset tokens must not score: '' is a substring of every answer."""
     monkeypatch.delenv("PPSSPP_DFX_EVAL_TEST_ID", raising=False)
-    sc = {"gates": [{"type": "answer_contains", "mode": "any",
-                     "values": ["{{PPSSPP_DFX_EVAL_TEST_ID}}"]}]}
+    sc = {
+        "gates": [
+            {"type": "answer_contains", "mode": "any", "values": ["{{PPSSPP_DFX_EVAL_TEST_ID}}"]}
+        ]
+    }
     res = evaluate(sc, _run(final_answer="anything at all"), None)
     assert res["success"] is False
     assert "SKIP" in res["gates"][0]["detail"]
@@ -336,8 +358,7 @@ def test_answer_contains_all_tokens_unset_does_not_pass(monkeypatch):
 def test_match_in_answer_empty_expected_never_matches():
     """An expectation with no surviving alnum/CJK normalizes to '' — which is
     a substring of every answer and used to pass unrelated replies."""
-    sc = {"gates": [{"type": "answer_contains", "mode": "any",
-                     "values": ["---"]}]}
+    sc = {"gates": [{"type": "answer_contains", "mode": "any", "values": ["---"]}]}
     assert evaluate(sc, _run(final_answer="完全无关的回答"), None)["success"] is False
 
 

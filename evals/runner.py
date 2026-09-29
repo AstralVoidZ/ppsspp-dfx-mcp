@@ -39,10 +39,13 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 _EVALS_DIR = Path(__file__).resolve().parent  # .../ppsspp-dfx-mcp/evals
+# Repo root. Everything the runner touches (src/, tests/, skills/, git
+# provenance) lives under here — never assume a parent directory, which
+# only existed in the monorepo layout and points outside a standalone
+# checkout.
 _PKG_ROOT = _EVALS_DIR.parent  # .../ppsspp-dfx-mcp
 _SRC_ROOT = _PKG_ROOT / "src"
 _TESTS_ROOT = _PKG_ROOT / "tests"
-_REPO_ROOT = _PKG_ROOT.parents[1]
 
 # Ensure `evals` package is importable without external PYTHONPATH
 sys.path.insert(0, str(_PKG_ROOT))
@@ -104,7 +107,7 @@ def build_provenance(instructions: str | None) -> dict[str, str]:
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=_REPO_ROOT,
+            cwd=_PKG_ROOT,
             capture_output=True,
             text=True,
             check=True,
@@ -274,7 +277,7 @@ def _result_text(result: Any) -> str:
 SKILL_DIR = Path(
     os.environ.get(
         "PPSSPP_DFX_SKILL_DIR",
-        str(_REPO_ROOT / ".zcode" / "skills" / "ppsspp-dfx"),
+        str(_PKG_ROOT / "skills" / "ppsspp-dfx"),
     )
 ).resolve()
 SKILL_TOOL_NAME = "skill_read"

@@ -32,7 +32,11 @@ from ppsspp_dfx_mcp.models.input import (
 )
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors, wait_frames_chunked
+from ppsspp_dfx_mcp.tools._common import (
+    require_int_not_bool,
+    translate_tool_errors,
+    wait_frames_chunked,
+)
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.input import (
     ButtonPressResponse,
@@ -129,6 +133,8 @@ async def press_button(
     """
     if button not in _VALID_BUTTONS:
         raise ArgsInvalid(f"invalid button={button!r}; expected one of {_VALID_BUTTONS}")
+    # S11/A8: `duration=True` used to pass as 1 frame.
+    duration = require_int_not_bool(duration, "duration")
     if duration < 0:
         raise ArgsInvalid(f"duration must be >= 0; got {duration}")
     if duration > MAX_PRESS_DURATION_FRAMES:
@@ -285,6 +291,9 @@ async def send_analog(
 
     RETURNS: {x, y}.
     """
+    # S11/A8: `x=True` / `y=True` used to pass as coordinate 1.
+    x = require_int_not_bool(x, "x")
+    y = require_int_not_bool(y, "y")
     if not 0 <= x <= 255:
         raise ArgsInvalid(f"x must be in [0, 255]; got {x}")
     if not 0 <= y <= 255:

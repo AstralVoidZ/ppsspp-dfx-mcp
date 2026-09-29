@@ -67,7 +67,7 @@ _SCREENSHOT_S = 1.0
 
 def estimate_batch_seconds(
     steps: list[dict[str, Any]],
-    probe_counts: dict[int, int] | None = None,
+    probe_round_trips: dict[int, int] | None = None,
 ) -> float:
     """Estimate the wall-clock duration of a validated step list.
 
@@ -75,7 +75,7 @@ def estimate_batch_seconds(
     - press:   duration frames at 60fps + a fixed ticket-RTT overhead
     - wait:    frames × interval (interval defaults to 1/60, matching
                wait_frames_chunked)
-    - state_probe: 0.25s per sample
+    - state_probe: 0.25s per SAMPLE ROUND-TRIP
     - screenshot: 1.0s flat
     - cpu_step: count × 0.05s (pause probe + step + broadcast confirm per
       instruction, ISS-001) + 0.5s for the with_stepping pause/resume dance
@@ -112,14 +112,13 @@ def estimate_batch_seconds(
         elif stype == "state_probe":
             samples = step.get("samples", 1)
             n_samples = samples if isinstance(samples, (int, float)) and samples >= 1 else 1
-            # W12 (review v2): cost scales with PROBE COUNT, not just
-            # samples — names='' observes every registered probe, so a
-            # 50-probe × 1400-sample step used to estimate 350s while
-            # actually burning ~70 minutes (all with the session lock
-            # held). Callers resolve the per-step probe count; 1 is the
-            # conservative floor for unknown shapes.
-            n_probes = (probe_counts or {}).get(i, 1)
-            total += max(0.25, n_samples * n_probes * _PROBE_PER_SAMPLE_S)
+            # W12 (review v3): adjacent probes are folded into one block read
+            # per sample (`_merge_runs`), so the cost scales with the number of
+            # merged ROUND-TRIPS, not with the probe count. Callers pass the
+            # per-step round-trip count; 1 is the conservative floor for
+            # unknown shapes.
+            round_trips = (probe_round_trips or {}).get(i, 1)
+            total += max(0.25, n_samples * round_trips * _PROBE_PER_SAMPLE_S)
         elif stype == "screenshot":
             total += _SCREENSHOT_S
     return total

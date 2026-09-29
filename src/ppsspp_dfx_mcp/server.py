@@ -34,11 +34,13 @@ from pydantic import Field
 from ppsspp_dfx_mcp import __version__
 from ppsspp_dfx_mcp.config import (
     configure_logging,
-    project_root as _config_project_root,
     rate_limit,
     validate_config,
     ws_host,
     ws_port,
+)
+from ppsspp_dfx_mcp.config import (
+    project_root as _config_project_root,
 )
 from ppsspp_dfx_mcp.instructions import INSTRUCTIONS
 from ppsspp_dfx_mcp.middleware import (
@@ -439,7 +441,6 @@ async def sync_exposed_tools() -> dict[str, Any]:
     when an add/remove raised unexpectedly AND the registry could not be
     reconciled — callers surface it so agents know to restart the server.
     """
-    from pathlib import Path
 
     from ppsspp_dfx_mcp.spec.script_manifest import get_manifest
 

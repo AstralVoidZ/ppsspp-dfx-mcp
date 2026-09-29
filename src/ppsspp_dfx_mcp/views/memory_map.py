@@ -68,7 +68,9 @@ class MemoryMapResponse(FrozenModel):
                 start_int = int(start) if not isinstance(start, int) else start
                 size_int = int(size) if not isinstance(size, int) else size
                 end_int = start_int + size_int
-                lines.append(f"{format_address(start_int)}-{format_address(end_int)} {type_}/{subtype} {name}")
+                lines.append(
+                    f"{format_address(start_int)}-{format_address(end_int)} {type_}/{subtype} {name}"
+                )
             except (TypeError, ValueError):
                 lines.append(f"{start}-{size} {type_}/{subtype} {name}")
         # Normalize address fields in the structured ranges and raw mapping

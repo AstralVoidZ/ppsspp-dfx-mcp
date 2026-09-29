@@ -311,7 +311,14 @@ async def query(
                 try:
                     listing = await client.func_list()
                     entries = listing.get("functions", []) if isinstance(listing, dict) else []
-                    data["verified"] = any(f.get("address") == (addr or 0) for f in entries)
+                    if addr is None:
+                        # W4 (review v3): a name-only func_add has no address to
+                        # compare; `f.get("address") == (addr or 0)` actually
+                        # asked "is there an address-0 entry?" — a false negative
+                        # normally and a false positive if such an entry exists.
+                        data["verified"] = any(f.get("name") == name for f in entries)
+                    else:
+                        data["verified"] = any(f.get("address") == addr for f in entries)
                     if not data["verified"]:
                         data["verified_note"] = (
                             "added function not visible in hle.func.list — "

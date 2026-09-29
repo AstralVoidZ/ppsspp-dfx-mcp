@@ -9,10 +9,10 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Filter a PPSSPP log file for ERROR / WARNING / CRASH lines.\n\nUSAGE: log_path optional (defaults to the server-mirrored PPSSPP broadcast log at .ppsspp-dfx/output/ppsspp.log, written while a session runs); filter optional (keyword); session_id optional.\n\nBEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.\n\nRETURNS: {log_path, matches: [{line_no, text}...], count, filter, filter_mode, total_matches, truncated}.\n",
-   "description_chars": 446,
-   "description_words": 57,
-   "input_schema_chars": 1711,
+   "description": "PURPOSE: Filter a PPSSPP log file for ERROR / WARNING / CRASH lines.\n\nUSAGE: log_path optional (defaults to the server-mirrored PPSSPP broadcast log at .ppsspp-dfx/output/ppsspp.log, written while a session runs); filter optional (keyword); session_id optional.\n\nBEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.\n\nRETURNS: {log_path, matches: [{line_no, text}...], count, filter, filter_mode, total_matches, truncated}. truncated=true covers both an explicit `limit` cut and the internal 500-match cap; total_matches is a lower bound (>= the value) whenever truncated=true.",
+   "description_chars": 599,
+   "description_words": 79,
+   "input_schema_chars": 1815,
    "input_schema_properties": [
     "filter",
     "filter_mode",
@@ -20,7 +20,7 @@
     "log_path",
     "session_id"
    ],
-   "input_schema_sha1": "a05cb14e3f9169eeec23ffca6d6ff5efc8229b08",
+   "input_schema_sha1": "3417c451fd4ced59a3c8632b2ec38b8111746902",
    "output_schema_chars": 1386,
    "output_schema_sha1": "1af59cf7b2cba8801b8e14be9073d9907d1b7d6b"
   },
@@ -109,10 +109,10 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary MEMORY breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (defaults to read access; narrow with read/write/size). For EXECUTION breakpoints use action='set' + 'wait'.\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.\n\nRETURNS: stats → {mode:\"stats\", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
-   "description_chars": 1726,
-   "description_words": 210,
-   "input_schema_chars": 4673,
+   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary MEMORY breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (defaults to read access; narrow with read/write/size). For EXECUTION breakpoints use action='set' + 'wait'.\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait. CONDITION SEMANTICS: PPSSPP's IR mode ignores register conditions, so any condition is enforced MCP-side — the breakpoint is armed unconditionally and each hit's expression is evaluated with cpu.evaluate; a falsy hit is auto-resumed (not surfaced) and counted in filtered_hits.\n\nRETURNS: stats → {mode:\"stats\", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks, condition, condition_filtered, filtered_hits, storm_break}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
+   "description_chars": 2063,
+   "description_words": 253,
+   "input_schema_chars": 4968,
    "input_schema_properties": [
     "action",
     "address",
@@ -128,9 +128,9 @@
     "want_registers",
     "write"
    ],
-   "input_schema_sha1": "58874af6b3c06e8cbc48f3d75932e923c2326586",
-   "output_schema_chars": 1901,
-   "output_schema_sha1": "0bb51a3b605389359450b0ee0f8e91bd5223e775"
+   "input_schema_sha1": "7edb90f3a6a67c1e0abf58d529ba2628cb7e6418",
+   "output_schema_chars": 2185,
+   "output_schema_sha1": "5c2aaa59b0e1967740cde76b36c56c4a9843a268"
   },
   "ppsspp_context": {
    "annotations": {
@@ -433,9 +433,9 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Read memory (read_bytes / read_u32 / read_string).\n\nUSAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); Memory scanning has moved to ppsspp_scan.\n\nBEHAVIOR: READ-ONLY. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).\n\nRETURNS: {action, address, value, size, text, file} — read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/).",
-   "description_chars": 677,
-   "description_words": 93,
+   "description": "PURPOSE: Read memory (read_bytes / read_u32 / read_string).\n\nUSAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); Memory scanning has moved to ppsspp_scan.\n\nBEHAVIOR: READ-ONLY. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text). Reading code segments: use ppsspp_disassemble — MCP provides no IR-encoding detection (a read_u32 over JIT-IR bytes just returns the raw value).\n\nRETURNS: {action, address, value, size, text, file} — read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/).",
+   "description_chars": 727,
+   "description_words": 102,
    "input_schema_chars": 1898,
    "input_schema_properties": [
     "action",
@@ -785,6 +785,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 25047,
- "total_input_schema_chars": 46003
+ "total_description_chars": 25587,
+ "total_input_schema_chars": 46402
 }

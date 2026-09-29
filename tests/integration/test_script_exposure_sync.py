@@ -110,8 +110,15 @@ def _manifest_entry(name: str, path: str, **overrides) -> dict:
 
 
 @pytest.fixture(autouse=True)
-def _manifest_and_registry_cleanup():
-    """Isolate the manifest singleton and never leak dynamic tools."""
+def _manifest_and_registry_cleanup(monkeypatch: pytest.MonkeyPatch):
+    """Isolate the manifest singleton and never leak dynamic tools.
+
+    W8 (review v3): the probe scripts here are injected by ABSOLUTE path
+    (``_write_script`` writes into tmp_path), which now requires the
+    explicit ``PPSSPP_DFX_ALLOW_ABS_SCRIPT`` opt-in. This module is a
+    trusted fixture, so it opts in rather than weaken the default.
+    """
+    monkeypatch.setenv("PPSSPP_DFX_ALLOW_ABS_SCRIPT", "1")
     yield
     for name in list(registered_exposed_names()):
         _unregister_exposed_tool(name)
