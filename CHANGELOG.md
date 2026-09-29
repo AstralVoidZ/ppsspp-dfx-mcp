@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+### Security（发布脱敏：真实游戏标识出库 + 两处空匹配缺陷修复）
+
+- **真实游戏标识移出仓库**：R1-REAL-BOOT 的身份门禁值原为真实光盘序号
+  与游戏名（命中发布闸门 `PRIVACY_PATTERNS`，阻塞 `sync_dfx_mcp_release.py`），
+  改为 `{{PPSSPP_DFX_EVAL_GAME_*}}` 环境变量令牌，由 `gates.resolve_value`
+  在评分时解析；未设/空白的令牌**跳过**而非空串匹配。
+- **修复空匹配虚假通过（既有缺陷）**：`_match_in_answer` 对归一化后为空
+  的期望值（纯标点或日文假名，如纯日文假名组成的期望值）判定为
+  `'' in <任意答案>` 恒真——该门禁此前对**任何**回答都通过。现归一化后
+  为空直接判否。
+- **修复 answer_contains 空集虚假通过**：`mode=any` 且所有值均不可解析时，
+  `any([])` 返回 False 但仍可能被上层误读；现显式返回失败并标注
+  `no resolvable values`，与 W25「无门禁不得算通过」的语义对齐。
+
 ### Added（D1 方案 B / D2 方案 B——代码审查后追加）
 
 - **`ppsspp_watch_value`（新工具，36→37）**: 值变化轮询观察——纯读、
@@ -57,6 +71,14 @@ func_add verified=true）。
 
 ### Changed
 
+- **BREAKING（嵌套地址格式统一）**：以下 4 个接口响应中嵌套列表的
+  `address` 字段类型从 `int`（十进制）变为 `str`（十六进制
+  `0x{VALUE:08X}` 格式），与顶层 `address` 字段格式统一。消费方（LLM
+  Agent）需更新解析逻辑，按字符串而非整数处理：
+  - `ppsspp_disassemble` 响应 `instructions[].address`
+  - `ppsspp_search_disasm` 响应 `results[].address`
+  - `ppsspp_scan`（pattern 模式）响应 `value[].address`
+  - `ppsspp_search_memory_info` 响应 `regions[].address`
 - **analyze_log（ISS-007/M11/M15）**：新增 `filter_mode`（`any`=旧 OR 语义
   默认；`all`=严重级别 AND filter 收窄）与 `limit`（响应新增
   `total_matches`/`truncated`，长日志不再整包返回）；log_path 白名单
@@ -80,6 +102,21 @@ func_add verified=true）。
   L3-03 first_tool 白名单放宽。实跑验证：CTL-01 / L3-03 / R1 全部转 PASS。
 
 回归：unit 1302 passed / evals gates 19 passed。
+
+### Fixed（2026-09-20 遗留清理批：ISS-009 B-1/B-4 + B-3 扩卡）
+
+- **ISS-009 B-1**：补 `cpu.getReg.json` fixture（v0.1.6 后 `query(register pc)` 走 `cpu.getReg` 事件，原 `cpu.status.json` fixture 未跟上事件路由变更），恢复 CTL-01/L1-02 两处 `answer_contains` 门禁（`from_fixture` + `transform: hex` 动态解析 PC 值，不硬编码漂移）。
+- **ISS-010 M8/M14**：确认已修（docstring 诚实化路线——`session.wait_ready` elapsed_s 语义、`breakpoint.stats` fixed ~30s window 声明），CHANGELOG 前批未单列。
+- **B-4 is_error 双通道归属**：定论为非缺陷——SDK 错误时单通道（text only，by design，见 `errors.py:43-48`），成功时双通道由 `_contract.py` 派生机制保证结构一致。
+- **B-3 real 卡扩充第一批**：新增 R3-R12 共 10 张 real 卡（GETPC/REGS/MEMAP/MEMREAD/DISASM/BPSET/STEP/SCAN/SCRIPT/HEALTH），real 卡 2→12，目标 ≥30 待续。
+
+### Fixed（2026-09-22 采集修复：evals first_tool 门禁）
+
+- **B-3 real 卡扩充第二批**：新增 R13-R30 共 18 张 real 卡（BPWAIT/BPSTATS/BPTRACE/WATCH/STATEOBS/FRAME/DUMP/GPUSTATS/PRESS/HOLD/ANALOG/WAITFRAMES/LISTSCRIPTS/ANALYZE/LISTADDR/MEMDIFF/MEMINFO/EVALUATE），real 卡 12→30，达成 ≥30 目标。
+- **R3-R30 补 `expected_first_tools`**：B-3 批 real 卡声明了 `first_tool` 门禁却未定义 `expected_first_tools`，门禁比对空列表恒判 FAIL——28 张 real 卡从设计上不可能通过。按各卡 prompt 意图补齐期望工具。
+- **`_gate_first_tool` 前置调用豁免**：模型先探活（`ppsspp_health`）或先取 session id（`ppsspp_session`）再执行任务属合理行为，不再计为"首个任务工具"；仅当该工具本身是声明的首工具时（L1-06 health / R1 session）保留首工具语义。
+- **R7/R8 允许 `ppsspp_query` 前置**：`ppsspp_disassemble` / `breakpoint set` 的 address 为必填，"反汇编当前 PC"/"在当前 PC 设断点"是隐含两阶段任务，模型须先 `query(register pc)` 取当前 PC。
+- 回归：evals gates 24 passed；对既有 runs-20260922.jsonl（187 格）按新门禁重新评分，通过 112→163（59.9%→87.2%），剩余 fail 均为能力/真机/参数类。
 
 ## [0.1.6] - 2026-09-18
 

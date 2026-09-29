@@ -45,17 +45,17 @@ def _format_read_text(action: str, address: int, value: Any, size: int) -> str:
     """
     if action == "read_u32":
         if isinstance(value, int):
-            return f"0x{address:08X}: {value} (0x{value:X})"
-        return f"0x{address:08X}: {value}"
+            return f"{format_address(address)}: {value} (0x{value:X})"
+        return f"{format_address(address)}: {value}"
     if action == "read_bytes":
         if isinstance(value, list):
             hex_bytes = " ".join(f"{b:02X}" for b in value)
-            return f"0x{address:08X}: {hex_bytes}"
-        return f"0x{address:08X}: {value}"
+            return f"{format_address(address)}: {hex_bytes}"
+        return f"{format_address(address)}: {value}"
     if action == "read_string":
         if isinstance(value, str):
-            return f"0x{address:08X}: {value!r}"
-        return f"0x{address:08X}: {value}"
+            return f"{format_address(address)}: {value!r}"
+        return f"{format_address(address)}: {value}"
     if action == "scan":
         # scan: 'scan: N matches at 0x{A1:08X}, 0x{A2:08X}, ...' (first 5)
         if isinstance(value, list):
@@ -66,7 +66,7 @@ def _format_read_text(action: str, address: int, value: Any, size: int) -> str:
             for m in value[:5]:
                 if isinstance(m, dict) and "address" in m:
                     try:
-                        addrs.append(f"0x{int(m['address']):08X}")
+                        addrs.append(format_address(int(m["address"])))
                     except (TypeError, ValueError):
                         addrs.append(str(m["address"]))
             head = ", ".join(addrs)
@@ -89,8 +89,8 @@ def _format_write_text(result: MemoryWriteResult) -> str:
         'Wrote {N} bytes → 0x{ADDR:08X}' for bytes.
     """
     if result.format == "u32" and result.value is not None:
-        return f"Wrote 0x{result.value:X} → 0x{result.address:08X}"
-    return f"Wrote {result.bytes_written} bytes → 0x{result.address:08X}"
+        return f"Wrote 0x{result.value:X} → {format_address(result.address)}"
+    return f"Wrote {result.bytes_written} bytes → {format_address(result.address)}"
 
 
 class MemoryReadResponse(FrozenModel):
@@ -191,8 +191,19 @@ class DisassemblyResponse(FrozenModel):
 
     @classmethod
     def from_result(cls, result: DisassemblyResult) -> DisassemblyResponse:
+        instructions: list[dict[str, Any]] = []
+        for ins in result.instructions:
+            if isinstance(ins, dict) and "address" in ins:
+                try:
+                    converted = dict(ins)
+                    converted["address"] = format_address(int(ins["address"]))
+                    instructions.append(converted)
+                except (TypeError, ValueError):
+                    instructions.append(ins)
+            else:
+                instructions.append(ins)
         return cls(
             address=format_address(result.address),
             count=result.count,
-            instructions=list(result.instructions),
+            instructions=instructions,
         )

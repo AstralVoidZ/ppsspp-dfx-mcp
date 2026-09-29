@@ -37,6 +37,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from ppsspp_dfx_mcp.config import addresses as _addresses
+from ppsspp_dfx_mcp.config import project_root as _config_project_root
 from ppsspp_dfx_mcp.errors import (
     ArgsInvalid,
     ManifestError,
@@ -256,8 +257,12 @@ def validate_script_contract(entry: ScriptEntry, project_root: Path) -> tuple[An
 
 
 def _project_root() -> Path:
-    """Project root is cwd (mirrors `config._project_root()`)."""
-    return Path.cwd()
+    """Project root (delegates to `config.project_root`).
+
+    Kept as a thin alias so existing callers and tests do not need to
+    change; the resolution policy (env override > cwd) lives in one place.
+    """
+    return _config_project_root()
 
 
 def _build_ctx(entry: ScriptEntry, session_id: str | None) -> ScriptContext:

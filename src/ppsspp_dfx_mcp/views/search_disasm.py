@@ -25,7 +25,7 @@ def _format_disasm_line(entry: dict[str, Any]) -> str:
     addr = entry.get("address", 0)
     try:
         addr_int = int(addr) if not isinstance(addr, int) else addr
-        addr_str = f"0x{addr_int:08X}"
+        addr_str = format_address(addr_int)
     except (TypeError, ValueError):
         addr_str = str(addr)
     text = entry.get("text")
@@ -61,10 +61,21 @@ class SearchDisasmResponse(FrozenModel):
     @classmethod
     def from_result(cls, result: SearchDisasmResult) -> SearchDisasmResponse:
         lines = [_format_disasm_line(entry) for entry in result.results]
+        results: list[dict[str, Any]] = []
+        for entry in result.results:
+            if isinstance(entry, dict) and "address" in entry:
+                try:
+                    converted = dict(entry)
+                    converted["address"] = format_address(int(entry["address"]))
+                    results.append(converted)
+                except (TypeError, ValueError):
+                    results.append(entry)
+            else:
+                results.append(entry)
         return cls(
             address=format_address(result.address),
             match=result.match,
             end=format_address(result.end),
-            results=list(result.results),
+            results=results,
             text="\n".join(lines),
         )

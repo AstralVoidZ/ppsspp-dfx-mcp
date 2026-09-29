@@ -14,7 +14,7 @@ from typing import Annotated, Any
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.address import parse_address
+from ppsspp_dfx_mcp.address import format_address, format_address_fields, parse_address
 from ppsspp_dfx_mcp.config import addresses as _addresses
 from ppsspp_dfx_mcp.errors import ArgsInvalid, to_tool_error
 from ppsspp_dfx_mcp.server import mcp
@@ -68,7 +68,7 @@ def _match_identity(address: int, funcs: dict[str, int]) -> IdentityView | None:
     if not candidates:
         return None
     start, name = max(candidates)
-    return IdentityView(name=name, start=f"0x{start:08X}", offset=address - start)
+    return IdentityView(name=name, start=format_address(start), offset=address - start)
 
 
 def _match_region(address: int, ranges: list[dict[str, Any]]) -> str:
@@ -171,12 +171,17 @@ async def context(
     disasm_views: list[DisasmLineView] = []
     for line in raw_lines or []:
         addr_value = line.get("address")
-        addr_text = (
-            (addr_value if isinstance(addr_value, str) else f"0x{int(addr_value):08X}")
-            if addr_value is not None
-            else ""
-        )
+        if addr_value is None:
+            addr_text = ""
+        elif isinstance(addr_value, str):
+            addr_text = addr_value
+        else:
+            addr_text = format_address(int(addr_value))
         disasm_views.append(DisasmLineView(address=addr_text, text=str(line.get("text", ""))))
+    # Normalize address fields in backtrace frames (PPSSPP returns decimal
+    # ints for pc/entry; format_address_fields converts them to hex strings
+    # so the caller never sees mixed formats).
+    normalized_backtrace = format_address_fields(backtrace_list)
     return ContextResponse.build(
-        addr, identity, region, disasm_views, backtrace_list, note
+        addr, identity, region, disasm_views, normalized_backtrace, note
     ).model_dump(mode="json")

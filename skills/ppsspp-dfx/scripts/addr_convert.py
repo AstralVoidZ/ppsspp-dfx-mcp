@@ -19,6 +19,7 @@ input is rejected — the bare-string-is-decimal trap this skill warns about.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -28,9 +29,17 @@ _TOP_BASE_RE = re.compile(r"^\s*ppsspp:\s*(0x[0-9A-Fa-f]+|\d+)\s*(?:#.*)?$")
 
 
 def find_base() -> int | None:
-    """Marker-upward search from CWD for addresses.yaml, parse top_base.ppsspp."""
-    cwd = Path.cwd()
-    for parent in [cwd, *cwd.parents]:
+    """Marker-upward search for addresses.yaml, parse top_base.ppsspp.
+
+    Search root: PPSSPP_DFX_PROJECT_ROOT env var if set (expanded and
+    resolved), else CWD (backward compatible).
+    """
+    raw = os.environ.get("PPSSPP_DFX_PROJECT_ROOT", "")
+    if raw:
+        search_root = Path(raw).expanduser().resolve()
+    else:
+        search_root = Path.cwd()
+    for parent in [search_root, *search_root.parents]:
         config = parent / MARKER
         if not config.is_file():
             continue

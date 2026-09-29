@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
+from ppsspp_dfx_mcp.address import format_address, format_address_fields
 from ppsspp_dfx_mcp.models.search_memory_info import SearchMemoryInfoResult
 from ppsspp_dfx_mcp.views._base import FrozenModel
 
@@ -55,12 +56,18 @@ class SearchMemoryInfoResponse(FrozenModel):
                 size_int = int(size) if not isinstance(size, int) else size
                 end_int = addr_int + size_int
                 tag_str = f" {tag}" if tag else ""
-                lines.append(f"0x{addr_int:08X}-0x{end_int:08X} {type_}{tag_str}")
+                lines.append(f"{format_address(addr_int)}-{format_address(end_int)} {type_}{tag_str}")
             except (TypeError, ValueError):
                 lines.append(f"{addr}-{size} {type_} {tag}")
+        # Normalize all address-bearing fields (address, pc, etc.) in both
+        # the structured regions and the raw response. Previously only
+        # `address` was converted; `pc` and other address fields were left
+        # as decimal ints — format_address_fields handles them uniformly.
+        regions = format_address_fields(result.regions)
+        normalized_raw = format_address_fields(dict(result.raw))
         return cls(
-            regions=list(result.regions),
+            regions=regions,
             count=result.count,
-            raw=dict(result.raw),
+            raw=normalized_raw,
             text="\n".join(lines),
         )

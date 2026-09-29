@@ -143,6 +143,31 @@ def derive_output_contract(
     return contract
 
 
+def _resolved_type(td: type, key: str, ann: Any) -> Any:
+    """Resolve one annotation to a comparable type descriptor.
+
+    `get_type_hints` folds the string/ForwardRef forms that `from
+    __future__ import annotations` leaves behind, so two branches that mean
+    the same type compare equal. It is best-effort: a shape that will not
+    resolve (e.g. a bare ForwardRef to a name absent from the module) falls
+    back to its string form, which still catches the int-vs-str class of
+    conflict that matters here.
+    """
+    import typing
+
+    try:
+        resolved = typing.get_type_hints(td).get(key, ann)
+    except Exception:
+        resolved = ann
+    if isinstance(resolved, typing.ForwardRef):
+        resolved = resolved.__forward_arg__
+    # Annotated[...] compares on its underlying type: descriptions differ
+    # legitimately between branches (cosmetic) and must not trip the guard.
+    if typing.get_origin(resolved) is typing.Annotated:
+        resolved = typing.get_args(resolved)[0]
+    return resolved
+
+
 def flatten_union(name: str, *contracts: type) -> type:
     """Merge multiple partial contracts into ONE flat TypedDict.
 
@@ -151,8 +176,33 @@ def flatten_union(name: str, *contracts: type) -> type:
     every other branch's keys get silently stripped from
     structuredContent. A flat, single-level TypedDict behaves identically
     across SDK versions.
+
+    Conflicting annotations for the same key are REJECTED. The merge is
+    last-wins, so a later branch silently redefines an earlier branch's
+    field type — and because the SDK validates return values against this
+    schema, one wrong branch breaks EVERY action of the tool (not just the
+    offending one). That is exactly how `ppsspp_breakpoint` died: a
+    `_TraceKeys.address: int` shadowed `BreakpointResponse.address: str`,
+    so even `action="list"` failed output conversion with a bare
+    "Error executing tool" (issue_dfx_toolchain_defects_v1 D3).
+
+    Field *descriptions* may differ across branches (they are cosmetic);
+    only the resolved type must agree.
     """
     annotations: dict[str, Any] = {}
+    seen: dict[str, Any] = {}
     for td in contracts:
-        annotations.update(dict(getattr(td, "__annotations__", {})))
+        for key, ann in getattr(td, "__annotations__", {}).items():
+            resolved = _resolved_type(td, key, ann)
+            prev = seen.get(key)
+            if prev is not None and prev != resolved:
+                raise ValueError(
+                    f"flatten_union({name!r}): conflicting annotations for "
+                    f"{key!r}: {prev!r} vs {resolved!r} (from {td.__name__}). "
+                    "The merge is last-wins, so the later type would shadow "
+                    "the earlier one and break output validation for every "
+                    "action — reconcile the branch shapes instead."
+                )
+            seen[key] = resolved
+            annotations[key] = ann
     return TypedDict(name, annotations, total=False)  # type: ignore[misc]

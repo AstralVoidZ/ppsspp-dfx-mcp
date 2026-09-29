@@ -149,6 +149,8 @@ POSIX 上请用 `.venv/ppsspp-dfx-mcp/bin/python` 代替 `Scripts/python.exe`。
 | `PPSSPP_DFX_WS_PORT` | `12345` | PPSSPP WebSocket 端口 |
 | `PPSSPP_DFX_EXE_PATH` | （来自 yaml） | PPSSPP 可执行文件路径 |
 | `PPSSPP_DFX_SESSIONS_PATH` | `~/.ppsspp-dfx/sessions.json` | 会话状态路径 |
+| `PPSSPP_DFX_PROJECT_ROOT` | `cwd` | 项目根目录，覆盖 cwd 发现（MCP host 从临时目录启动时需设置）。路径不存在时报 `CONFIG_INVALID`；路径有效但无 `.ppsspp-dfx/` 标记目录时告警不阻断 |
+| `PPSSPP_DFX_CONFIG_DIR` | `<project_root>/.ppsspp-dfx/config` | 配置目录路径，覆盖默认发现逻辑 |
 
 项目级 YAML 配置位于 `.ppsspp-dfx/config/`（相对工作目录）：
 
@@ -258,6 +260,8 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 | `ppsspp_script_*` 工具全部消失（服务器正常启动） | `.ppsspp-dfx/config/scripts.manifest.yaml` 缺失——缺失仅告警不阻断，动态工具静默清空。从 `examples/` 拷贝三份模板修复（`check_env.py --check` 会提示） |
 | `[PPSSPP_NOT_FOUND]` | PPSSPP 可执行文件未配置。设 `PPSSPP_DFX_EXE_PATH`，或 `.ppsspp-dfx/config/project.yaml` 的 `ppsspp_exe`（优先级 env > yaml） |
 | 找不到 `.ppsspp-dfx/config` | 配置目录按 cwd 发现（无父级上溯）。从含 `.ppsspp-dfx/` 的目录启动，或设 `PPSSPP_DFX_CONFIG_DIR` 指向它 |
+| `cwd` 无 `.ppsspp-dfx/` 标记目录（告警） | MCP host 从临时目录启动服务器。设 `PPSSPP_DFX_PROJECT_ROOT` 显式 pin 项目根目录（告警不阻断，向后兼容） |
+| `[CONFIG_INVALID] PPSSPP_DFX_PROJECT_ROOT=... does not exist` | 环境变量指向的路径不存在。这是显式配置错误——修正路径或取消设置该环境变量以回退到 cwd |
 | WebSocket 连接失败 / `WS_DISCONNECTED` | PPSSPP 未运行、端口不对，或未启用 WebSocket debugger。`check_env.py --check` 验证环境，`ppsspp_session(action='get')` 验证会话 |
 | 工具调用挂起 / 超时（`WS_TIMEOUT`） | PPSSPP 主循环负责 dispatch WebSocket 请求：UI 卡死、模态对话框弹出或模拟暂停时请求不会被处理。先截图确认 UI 状态 |
 | boot 阶段 `[BOOT_TIMEOUT]` | 启动楔死疑似。`start(resilient=true)` 会隔离 GPU 后端黑名单（仅重命名 `FailedGraphicsBackends.txt`，不删除）并自愈重启（≤2 次重试） |

@@ -28,9 +28,11 @@ from __future__ import annotations
 import pytest
 
 from ppsspp_dfx_mcp.address import (
+    ADDRESS_FIELD_NAMES,
     Address,
     Value,
     format_address,
+    format_address_fields,
     parse_address,
     parse_value,
 )
@@ -322,3 +324,162 @@ class TestW13AddressRange:
     def test_bool_rejected(self):
         with pytest.raises(ToolError):
             parse_address(True)  # type: ignore[arg-type]
+
+class TestFormatAddressFields:
+    """format_address_fields recursively normalizes address int fields.
+
+    Contract:
+    - Only int values whose key is in ADDRESS_FIELD_NAMES are converted.
+    - Non-address ints (size, count, priority, id, ...) are left as int.
+    - Already-string address fields are left unchanged (idempotent).
+    - dict / list structures are traversed recursively; input is not mutated.
+    - bool values are NOT treated as addresses (bool is an int subclass).
+    """
+
+    def test_converts_address_field_in_flat_dict(self):
+        """{'address': 142622720} → {'address': '0x08804000'}."""
+        result = format_address_fields({"address": 142622720})
+        assert result == {"address": "0x08804000"}
+
+    def test_converts_pc_field(self):
+        """Thread pc is an address field → hex string."""
+        result = format_address_fields({"pc": 143585524, "name": "user_main"})
+        assert result == {"pc": "0x088EF0F4", "name": "user_main"}
+
+    def test_converts_entry_field(self):
+        """Thread entry is an address field → hex string."""
+        result = format_address_fields({"entry": 134217728})
+        assert result == {"entry": "0x08000000"}
+
+    def test_preserves_non_address_int_fields(self):
+        """size / priority / id / count are NOT addresses → stay as int."""
+        result = format_address_fields(
+            {"address": 142622720, "size": 824, "priority": 32, "id": 272, "count": 10}
+        )
+        assert result == {
+            "address": "0x08804000",
+            "size": 824,
+            "priority": 32,
+            "id": 272,
+            "count": 10,
+        }
+
+    def test_preserves_string_address_fields(self):
+        """Already-string address fields are left unchanged (idempotent)."""
+        result = format_address_fields({"address": "0x08804000"})
+        assert result == {"address": "0x08804000"}
+
+    def test_traverses_list_of_dicts(self):
+        """List of dicts (e.g. threads/functions) is recursively formatted."""
+        result = format_address_fields(
+            [
+                {"address": 142622720, "size": 824, "name": "func_a"},
+                {"address": 142623544, "size": 364, "name": "func_b"},
+            ]
+        )
+        assert result == [
+            {"address": "0x08804000", "size": 824, "name": "func_a"},
+            {"address": "0x08804338", "size": 364, "name": "func_b"},
+        ]
+
+    def test_traverses_nested_dict(self):
+        """Nested dicts (e.g. response wrapper) are recursively formatted."""
+        result = format_address_fields(
+            {"threads": [{"pc": 143585524, "entry": 134217728, "id": 272}]}
+        )
+        assert result == {"threads": [{"pc": "0x088EF0F4", "entry": "0x08000000", "id": 272}]}
+
+    def test_traverses_deeply_nested_structure(self):
+        """Deeply nested list/dict structures are fully traversed."""
+        result = format_address_fields(
+            {"data": {"frames": [{"pc": 0x08804000, "info": {"address": 0xDEADBEEF}}]}}
+        )
+        assert result == {
+            "data": {"frames": [{"pc": "0x08804000", "info": {"address": "0xDEADBEEF"}}]}
+        }
+
+    def test_does_not_mutate_input(self):
+        """The input dict is not mutated — a copy is returned."""
+        original = {"address": 142622720}
+        format_address_fields(original)
+        assert original == {"address": 142622720}, "input must not be mutated"
+
+    def test_passthrough_scalars(self):
+        """Non-dict/non-list scalars are returned unchanged."""
+        assert format_address_fields(42) == 42
+        assert format_address_fields("hello") == "hello"
+        assert format_address_fields(None) is None
+        assert format_address_fields(3.14) == 3.14
+
+    def test_empty_structures(self):
+        """Empty dict / list return empty dict / list."""
+        assert format_address_fields({}) == {}
+        assert format_address_fields([]) == []
+
+    def test_bool_not_treated_as_address(self):
+        """bool is an int subclass but must NOT be formatted as an address."""
+        result = format_address_fields({"pc": True})
+        assert result == {"pc": True}, "bool must not be converted to hex string"
+
+    def test_all_address_field_names_are_formatted(self):
+        """Every name in ADDRESS_FIELD_NAMES triggers formatting when int."""
+        for name in ADDRESS_FIELD_NAMES:
+            result = format_address_fields({name: 0x08804000})
+            assert result[name] == "0x08804000", (
+                f"field {name!r} in ADDRESS_FIELD_NAMES must be formatted as hex"
+            )
+
+    def test_realistic_thread_list_response(self):
+        """End-to-end: a realistic hle.thread.list response is normalized.
+
+        PPSSPP returns pc/entry as decimal ints; size/priority/id stay as int.
+        """
+        threads = [
+            {
+                "id": 272,
+                "name": "idle0",
+                "status": 1,
+                "pc": 143585524,
+                "entry": 134217728,
+                "initialStackSize": 138407936,
+                "currentStackSize": 4096,
+                "priority": 127,
+            },
+            {
+                "id": 276,
+                "name": "user_main",
+                "status": 2,
+                "pc": 143586212,
+                "entry": 143830736,
+                "initialStackSize": 167508992,
+                "currentStackSize": 262144,
+                "priority": 32,
+            },
+        ]
+        result = format_address_fields(threads)
+        assert result[0]["pc"] == "0x088EF0F4"
+        assert result[0]["entry"] == "0x08000000"
+        assert result[0]["id"] == 272  # not an address
+        assert result[0]["priority"] == 127  # not an address
+        assert result[0]["initialStackSize"] == 138407936  # not an address
+        assert result[1]["pc"] == "0x088EF3A4"
+        assert result[1]["entry"] == "0x0892AED0"
+
+    def test_realistic_func_list_response(self):
+        """End-to-end: a realistic hle.func.list response is normalized."""
+        functions = [
+            {"name": "z_un_08804000", "address": 142622720, "size": 824},
+            {"name": "z_un_08804338", "address": 142623544, "size": 364},
+        ]
+        result = format_address_fields(functions)
+        assert result[0]["address"] == "0x08804000"
+        assert result[0]["size"] == 824  # not an address
+        assert result[1]["address"] == "0x08804338"
+
+    def test_realistic_module_list_response(self):
+        """End-to-end: a realistic hle.module.list response is normalized."""
+        modules = [{"name": "GAME", "address": 142622720, "size": 3439872, "isActive": True}]
+        result = format_address_fields(modules)
+        assert result[0]["address"] == "0x08804000"
+        assert result[0]["size"] == 3439872  # not an address
+        assert result[0]["isActive"] is True

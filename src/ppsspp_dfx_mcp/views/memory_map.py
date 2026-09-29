@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import Field
 
+from ppsspp_dfx_mcp.address import format_address, format_address_fields
 from ppsspp_dfx_mcp.models.memory_map import MemoryMapResult
 from ppsspp_dfx_mcp.views._base import FrozenModel
 
@@ -67,11 +68,17 @@ class MemoryMapResponse(FrozenModel):
                 start_int = int(start) if not isinstance(start, int) else start
                 size_int = int(size) if not isinstance(size, int) else size
                 end_int = start_int + size_int
-                lines.append(f"0x{start_int:08X}-0x{end_int:08X} {type_}/{subtype} {name}")
+                lines.append(f"{format_address(start_int)}-{format_address(end_int)} {type_}/{subtype} {name}")
             except (TypeError, ValueError):
                 lines.append(f"{start}-{size} {type_}/{subtype} {name}")
+        # Normalize address fields in the structured ranges and raw mapping
+        # (PPSSPP returns decimal ints for address; format_address_fields
+        # converts them to hex strings so the Agent never sees mixed formats
+        # between the text rendering and the structured fields).
+        normalized_ranges = format_address_fields(ranges)
+        normalized_mapping = format_address_fields(dict(result.mapping))
         return cls(
-            ranges=ranges,
-            mapping=dict(result.mapping),
+            ranges=normalized_ranges,
+            mapping=normalized_mapping,
             text="\n".join(lines),
         )

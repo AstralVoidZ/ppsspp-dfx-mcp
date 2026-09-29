@@ -58,14 +58,14 @@ class _StatsKeys(TypedDict, total=False):
     total_hits: int
     by_pc: list[dict]
     probe_changes: list[dict]
-    note: str
+    note: str | None
 
 
 class _TraceKeys(TypedDict, total=False):
     """trace 分支形状。"""
 
     note: str | None
-    address: int
+    address: str
     access: str
     hits: list[dict]
     bp_removed: bool
@@ -397,7 +397,7 @@ async def breakpoint(
                 e = by_pc.setdefault(
                     pc,
                     {
-                        "pc": f"0x{pc:08X}",
+                        "pc": format_address(pc),
                         "count": 0,
                         "first_seen": round(time.time(), 1),
                         "last_seen": round(time.time(), 1),

@@ -270,6 +270,52 @@ def test_resolve_value_hex_format(fixtures_dir: Path):
 
 
 # ---------------------------------------------------------------------------
+# {{ENV_VAR}} tokens — operator-local identities must not enter the repo
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_value_env_token(monkeypatch):
+    monkeypatch.setenv("PPSSPP_DFX_EVAL_TEST_ID", "ULJS-00000")
+    assert resolve_value("{{PPSSPP_DFX_EVAL_TEST_ID}}", None) == "ULJS-00000"
+
+
+def test_resolve_value_env_token_unset_or_blank_is_none(monkeypatch):
+    monkeypatch.delenv("PPSSPP_DFX_EVAL_TEST_ID", raising=False)
+    assert resolve_value("{{PPSSPP_DFX_EVAL_TEST_ID}}", None) is None
+    monkeypatch.setenv("PPSSPP_DFX_EVAL_TEST_ID", "   ")
+    assert resolve_value("{{PPSSPP_DFX_EVAL_TEST_ID}}", None) is None
+
+
+def test_resolve_value_plain_string_passthrough():
+    assert resolve_value("幻域传", None) == "幻域传"
+
+
+def test_answer_contains_env_token_set_matches(monkeypatch):
+    monkeypatch.setenv("PPSSPP_DFX_EVAL_TEST_ID", "ULJS-00000")
+    sc = {"gates": [{"type": "answer_contains", "mode": "any",
+                     "values": ["{{PPSSPP_DFX_EVAL_TEST_ID}}"]}]}
+    assert evaluate(sc, _run(final_answer="got ULJS-00000"), None)["success"] is True
+
+
+def test_answer_contains_all_tokens_unset_does_not_pass(monkeypatch):
+    """Unset tokens must not score: '' is a substring of every answer."""
+    monkeypatch.delenv("PPSSPP_DFX_EVAL_TEST_ID", raising=False)
+    sc = {"gates": [{"type": "answer_contains", "mode": "any",
+                     "values": ["{{PPSSPP_DFX_EVAL_TEST_ID}}"]}]}
+    res = evaluate(sc, _run(final_answer="anything at all"), None)
+    assert res["success"] is False
+    assert "SKIP" in res["gates"][0]["detail"]
+
+
+def test_match_in_answer_empty_expected_never_matches():
+    """An expectation with no surviving alnum/CJK normalizes to '' — which is
+    a substring of every answer and used to pass unrelated replies."""
+    sc = {"gates": [{"type": "answer_contains", "mode": "any",
+                     "values": ["---"]}]}
+    assert evaluate(sc, _run(final_answer="完全无关的回答"), None)["success"] is False
+
+
+# ---------------------------------------------------------------------------
 # recovery
 # ---------------------------------------------------------------------------
 

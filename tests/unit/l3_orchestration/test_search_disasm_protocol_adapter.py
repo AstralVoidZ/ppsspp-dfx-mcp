@@ -142,7 +142,7 @@ class TestSearchDisasmTextPopulation:
         mock_client.disasm.assert_awaited_once_with(address=0x08808400, count=1)
         # Verify the result entry has the text field populated.
         assert len(result["results"]) == 1
-        assert result["results"][0]["address"] == 0x08808400
+        assert result["results"][0]["address"] == "0x08808400"
         assert result["results"][0]["text"] == "jr ra", (
             "tool wrapper must populate 'text' field via client.disasm() — "
             "PPSSPP memory.searchDisasm returns only address, no text."
@@ -198,5 +198,5 @@ class TestSearchDisasmTextPopulation:
 
         # Match is still returned, just without text.
         assert len(result["results"]) == 1
-        assert result["results"][0]["address"] == 0x08808400
+        assert result["results"][0]["address"] == "0x08808400"
         assert "text" not in result["results"][0] or not result["results"][0].get("text")

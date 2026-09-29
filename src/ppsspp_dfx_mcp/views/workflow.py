@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import Field
 
-from ppsspp_dfx_mcp.address import format_address
+from ppsspp_dfx_mcp.address import format_address, format_address_fields
 from ppsspp_dfx_mcp.models.workflow import (
     FrameSnapshotResult,
     TraceAccessResult,
@@ -149,6 +149,11 @@ class TraceAccessResponse(FrozenModel):
             for key in ("pc", "related_address"):
                 if key in formatted:
                     formatted[key] = _hex_or_none(formatted[key])
+            # Normalize address fields inside nested backtrace frames
+            # (PPSSPP returns decimal ints for pc/entry; without this the
+            # Agent sees mixed hex/decimal within a single hit entry).
+            if "backtrace" in formatted:
+                formatted["backtrace"] = format_address_fields(formatted["backtrace"])
             hits.append(formatted)
         return cls(
             hit=result.hit,

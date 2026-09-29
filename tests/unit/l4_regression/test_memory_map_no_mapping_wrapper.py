@@ -149,8 +149,19 @@ class TestV016MemoryMapNoMappingWrapper:
 
         result = await memory_map(session_id="sess-1")
 
-        # Final tool output structure unchanged: {ranges, mapping, text}.
-        assert result["ranges"] == ranges
-        # `mapping` field retains the raw response (now without wrapper).
-        assert result["mapping"] == {"ranges": ranges}
+        # Final tool output structure: {ranges, mapping, text}.
+        # Address fields are normalized to hex strings (issue: unified hex
+        # format) — the raw int address is converted via format_address.
+        expected_ranges = [
+            {
+                "type": "ram",
+                "subtype": "primary",
+                "name": "User Memory",
+                "address": "0x08800000",
+                "size": 0x01800000,
+            },
+        ]
+        assert result["ranges"] == expected_ranges
+        # `mapping` field retains the raw response with address normalized.
+        assert result["mapping"] == {"ranges": expected_ranges}
         assert "0x08800000" in result["text"]

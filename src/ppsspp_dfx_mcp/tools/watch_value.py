@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal, TypedDict
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.address import parse_address
+from ppsspp_dfx_mcp.address import format_address, parse_address
 from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import (
@@ -131,7 +131,7 @@ async def watch_value(
                 frame += 1
 
     return {
-        "address": f"0x{addr_int:08X}",
+        "address": format_address(addr_int),
         "size": size,
         "mode": mode,
         "samples": samples,

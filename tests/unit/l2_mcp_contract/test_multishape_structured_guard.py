@@ -49,7 +49,7 @@ BRANCH_SAMPLES: dict[tuple[object, str], dict] = {
     (session.session, "list"): {"sessions": [], "count": 0},
     (breakpoint.breakpoint, "set/get"): {
         "action": "set",
-        "address": 1,
+        "address": "0x08804000",
         "enabled": True,
         "breakpoints": [],
     },
@@ -70,7 +70,7 @@ BRANCH_SAMPLES: dict[tuple[object, str], dict] = {
     },
     (breakpoint.breakpoint, "trace"): {
         "hit": True,
-        "address": 1,
+        "address": "0x08804000",
         "access": "r",
         "timeout_s": 1.0,
         "hits": [],

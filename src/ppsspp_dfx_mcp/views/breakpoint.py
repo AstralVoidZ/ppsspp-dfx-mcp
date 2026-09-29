@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import Field
 
-from ppsspp_dfx_mcp.address import format_address
+from ppsspp_dfx_mcp.address import format_address, format_address_fields
 from ppsspp_dfx_mcp.models.breakpoint import BreakpointResult
 from ppsspp_dfx_mcp.views._base import FrozenModel
 
@@ -39,9 +39,13 @@ class BreakpointResponse(FrozenModel):
 
     @classmethod
     def from_result(cls, result: BreakpointResult) -> BreakpointResponse:
+        # Normalize address fields inside breakpoint list entries (PPSSPP
+        # returns decimal ints for address; format_address_fields converts
+        # them to hex strings so the Agent never sees mixed formats).
+        normalized_breakpoints = format_address_fields(result.breakpoints)
         return cls(
             action=result.action,
             address=format_address(result.address),
             enabled=result.enabled,
-            breakpoints=list(result.breakpoints),
+            breakpoints=list(normalized_breakpoints),
         )

@@ -54,11 +54,22 @@ class ScanResponse(FrozenModel):
 
     @classmethod
     def build_pattern(cls, start: int, matches: list[dict[str, Any]]) -> ScanResponse:
+        value: list[dict[str, Any]] = []
+        for m in matches:
+            if isinstance(m, dict) and "address" in m:
+                try:
+                    converted = dict(m)
+                    converted["address"] = format_address(int(m["address"]))
+                    value.append(converted)
+                except (TypeError, ValueError):
+                    value.append(m)
+            else:
+                value.append(m)
         return cls(
             mode="pattern",
             action="scan",
             address=format_address(start),
-            value=matches,
+            value=value,
             size=len(matches),
             # M13: `count` used to stay 0 in pattern mode (it was
             # strings-only), which read as "no matches" to callers

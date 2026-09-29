@@ -29,12 +29,16 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 _HEXISH_RE = re.compile(r"^(0x)?[0-9a-fA-F]+$")
 _CODE_RE = re.compile(r"^\[([A-Z0-9_]+)\]")
+# Operator-local gate values (e.g. a real disc id) stay out of the repo as
+# {{ENV_VAR}} tokens, resolved from the environment at scoring time.
+_ENV_TOKEN_RE = re.compile(r"^\{\{([A-Z][A-Z0-9_]*)\}\}$")
 
 # Tools that only make sense after a session boots (used by boot_order).
 _READ_CLASS_TOOLS = {
@@ -77,7 +81,18 @@ def _dig(obj: Any, dotted: str) -> Any:
 
 
 def resolve_value(spec: Any, fixtures_dir: Path | None) -> Any:
-    """Resolve a literal or {'from_fixture': ...} value spec."""
+    """Resolve a literal, {{ENV_VAR}} token, or {'from_fixture': ...} spec.
+
+    An ``{{ENV_VAR}}`` token resolves to the environment value so
+    operator-local identities never enter the repository. An unset or blank
+    variable resolves to ``None`` — callers skip it instead of matching the
+    empty string, which is a substring of every answer.
+    """
+    if isinstance(spec, str):
+        m = _ENV_TOKEN_RE.match(spec.strip())
+        if m:
+            # A whitespace-only value is as unusable as an unset one.
+            return (os.environ.get(m.group(1)) or "").strip() or None
     if not (isinstance(spec, dict) and "from_fixture" in spec):
         return spec
     if fixtures_dir is None:
@@ -108,6 +123,11 @@ def _normalize_answer(answer: str) -> str:
 def _match_in_answer(answer: str, expected: Any) -> bool:
     norm = _normalize_answer(answer)
     e = _normalize_answer(str(expected))
+    if not e:
+        # Nothing survives normalization (all punctuation/kana), so `e in
+        # norm` is True for every answer — a gate that would pass even on an
+        # unrelated reply. Treat it as unusable instead of a silent pass.
+        return False
     if _HEXISH_RE.match(str(expected)):
         e = e[2:] if e.startswith("0X") else e
     return e in norm
@@ -235,9 +255,17 @@ def _gate_answer_contains(gate: dict, run: dict, fixtures_dir: Path | None) -> t
     ok_flags: list[bool] = []
     for value_spec in spec.get("values", []):
         expected = resolve_value(value_spec, fixtures_dir)
+        if expected is None:
+            # Unset env token: skip it. Matching "" would vacuously pass,
+            # since the empty string is a substring of every answer.
+            results.append(f"{value_spec!r}:SKIP (env unset)")
+            continue
         ok = _match_in_answer(answer, expected)
         ok_flags.append(ok)
         results.append(f"{expected!r}:{'hit' if ok else 'MISS'}")
+    if not ok_flags:
+        # No resolvable value on either mode must not read as success.
+        return False, f"mode={mode}, no resolvable values: " + ", ".join(results)
     ok = all(ok_flags) if mode == "all" else any(ok_flags)
     return ok, f"mode={mode}, " + ", ".join(results)
 

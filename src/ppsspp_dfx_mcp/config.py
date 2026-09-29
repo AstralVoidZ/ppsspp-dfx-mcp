@@ -6,6 +6,13 @@ Three-layer parallel config (no parent walking, git/npm/ripgrep style):
 3. cwd default (lowest)
 
 PPSSPP exe path is configured via yaml, not hardcoded.
+
+Project root resolution (``project_root()``):
+- ``PPSSPP_DFX_PROJECT_ROOT`` env var > cwd.
+- Env var set but invalid (missing/non-dir) → ``ConfigInvalid`` (explicit
+  config errors fail immediately; source: cwd-config-refactor experience).
+- Env var unset and cwd lacks the ``.ppsspp-dfx/`` marker dir → warning
+  only, not blocking (backward compat; source: cwd-config-refactor experience).
 """
 
 from __future__ import annotations
@@ -29,15 +36,81 @@ DEFAULT_SESSIONS_PATH = "~/.ppsspp-dfx/sessions.json"
 # Config file location (project-level, discovered via cwd, no parent walking).
 _CONFIG_DIR_ENV = "PPSSPP_DFX_CONFIG_DIR"
 _DEFAULT_CONFIG_DIR = ".ppsspp-dfx/config"
+_PROJECT_ROOT_ENV = "PPSSPP_DFX_PROJECT_ROOT"
+
+# Project marker directory: its presence distinguishes a real project root
+# from an arbitrary directory (e.g. a MCP host's temp spawn dir). Used for
+# early-warning detection — absence does NOT block (backward compat), but
+# surfaces a warning so misconfiguration is not silent.
+_PROJECT_MARKER_DIR = ".ppsspp-dfx"
+
+# Module-level guard so the marker-missing warning fires at most once per
+# process. project_root() is called on every config read; without this
+# guard, a misconfigured root would flood the stderr log.
+_project_root_marker_warned = False
 
 
-def _project_root() -> Path:
-    """Project root is cwd (no parent walking).
+def project_root() -> Path:
+    """Project root: PPSSPP_DFX_PROJECT_ROOT env var > cwd.
 
-    Follows the same pattern as git/npm/ripgrep: caller is responsible
-    for invoking from the project root. We do NOT search upward.
+    Default follows the git/npm/ripgrep pattern: caller is responsible
+    for invoking from the project root, and we do NOT search upward.
+
+    The env override exists because MCP hosts do not always honor a
+    configured ``cwd``: some spawn stdio servers from a temp directory,
+    which silently misresolves the PPSSPP exe path, the script manifest
+    paths, and ``output_dir()``. Setting this pins the root regardless
+    of the host's spawn directory.
+
+    Error handling (env var > cwd policy):
+    - Env var set but path does not exist → raises ``ConfigInvalid``
+      (an explicit config error should fail immediately, not silently
+      fall back to cwd — that would mask the user's intent).
+    - Env var set but path is not a directory → raises ``ConfigInvalid``.
+    - Env var set, path valid, but no ``.ppsspp-dfx/`` marker dir →
+      warning (not blocking; the root may be intentionally non-standard).
+    - Env var unset and cwd has no ``.ppsspp-dfx/`` marker dir →
+      warning (not blocking; preserves backward compat, but surfaces
+      the likely-misconfigured spawn directory instead of silently
+      using a temp dir as the project root).
     """
-    return Path.cwd()
+    global _project_root_marker_warned
+    raw = os.environ.get(_PROJECT_ROOT_ENV, "")
+    if raw:
+        p = Path(raw).expanduser()
+        if not p.exists():
+            from ppsspp_dfx_mcp.errors import ConfigInvalid
+
+            raise ConfigInvalid(
+                f"PPSSPP_DFX_PROJECT_ROOT={raw!r} does not exist — "
+                f"unset the env var to fall back to cwd, or fix the path",
+            )
+        if not p.is_dir():
+            from ppsspp_dfx_mcp.errors import ConfigInvalid
+
+            raise ConfigInvalid(
+                f"PPSSPP_DFX_PROJECT_ROOT={raw!r} is not a directory",
+            )
+        root = p.resolve()
+        if not (root / _PROJECT_MARKER_DIR).exists() and not _project_root_marker_warned:
+            log.warning(
+                "PPSSPP_DFX_PROJECT_ROOT=%s has no %s/ marker directory — "
+                "config/output paths may not resolve as expected",
+                raw,
+                _PROJECT_MARKER_DIR,
+            )
+            _project_root_marker_warned = True
+        return root
+    cwd = Path.cwd()
+    if not (cwd / _PROJECT_MARKER_DIR).exists() and not _project_root_marker_warned:
+        log.warning(
+            "cwd=%s has no %s/ marker directory — if the MCP host spawned "
+            "from a temp dir, set PPSSPP_DFX_PROJECT_ROOT to pin the project root",
+            cwd,
+            _PROJECT_MARKER_DIR,
+        )
+        _project_root_marker_warned = True
+    return cwd
 
 
 def config_dir() -> Path:
@@ -48,7 +121,7 @@ def config_dir() -> Path:
     raw = os.environ.get(_CONFIG_DIR_ENV, "")
     if raw:
         return Path(raw).expanduser().resolve()
-    return (_project_root() / _DEFAULT_CONFIG_DIR).resolve()
+    return (project_root() / _DEFAULT_CONFIG_DIR).resolve()
 
 
 def log_level() -> str:
@@ -90,7 +163,7 @@ def output_dir() -> Path:
 
     Auto-creates the directory. Output is gitignored.
     """
-    path = _project_root() / ".ppsspp-dfx" / "output"
+    path = project_root() / ".ppsspp-dfx" / "output"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -99,6 +172,8 @@ def ppsspp_exe_path() -> Path | None:
     """Return PPSSPP executable path.
 
     Priority: PPSSPP_DFX_EXE_PATH env var > .ppsspp-dfx/config/project.yaml:ppsspp_exe.
+    A relative yaml value resolves against `project_root()` (not cwd), so a
+    host that spawns the server from elsewhere cannot silently redirect it.
     Returns None if not configured (caller may raise).
     """
     raw = os.environ.get("PPSSPP_DFX_EXE_PATH", "")
@@ -106,7 +181,8 @@ def ppsspp_exe_path() -> Path | None:
         return Path(raw).expanduser().resolve()
     val = _load_yaml_value("project.yaml", "ppsspp_exe", default="")
     if val:
-        return Path(val).expanduser().resolve()
+        p = Path(val).expanduser()
+        return p.resolve() if p.is_absolute() else (project_root() / p).resolve()
     return None
 
 

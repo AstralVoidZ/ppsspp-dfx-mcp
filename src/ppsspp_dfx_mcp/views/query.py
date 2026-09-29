@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import Field
 
-from ppsspp_dfx_mcp.address import format_address
+from ppsspp_dfx_mcp.address import format_address, format_address_fields
 from ppsspp_dfx_mcp.models.query import GetPcResult, QueryResult
 from ppsspp_dfx_mcp.views._base import FrozenModel
 
@@ -56,7 +56,7 @@ def _format_registers_text(data: Any) -> str:
                 val_int = int(val)
             except (TypeError, ValueError):
                 val_int = 0
-            lines.append(f"  {str(reg_name):<7} = 0x{val_int:08X}")
+            lines.append(f"  {str(reg_name):<7} = {format_address(val_int)}")
     return "\n".join(lines)
 
 
@@ -101,9 +101,16 @@ class QueryResponse(FrozenModel):
 
     @classmethod
     def from_result(cls, result: QueryResult) -> QueryResponse:
+        # Normalize address-bearing int fields in PPSSPP raw responses to
+        # hex strings. PPSSPP returns thread pc/entry, module/function
+        # addresses as decimal ints (e.g. pc=143585524); format_address_fields
+        # converts them to the hex convention used everywhere else, so the
+        # Agent never sees mixed decimal/hex formats across actions.
+        # registers' uintValues are NOT affected (field name not in whitelist).
+        normalized_data = format_address_fields(result.data)
         return cls(
             action=result.action,
-            data=result.data,
+            data=normalized_data,
             trust_level=result.trust_level,
             text=_format_query_text(result.action, result.data),
         )

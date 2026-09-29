@@ -42,6 +42,7 @@ from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from ppsspp_dfx_mcp.address import format_address
 from ppsspp_dfx_mcp.core.batch_jobs import (
     BACKGROUND_BUDGET_S,
     FINISHED_JOB_RETENTION,
@@ -309,11 +310,16 @@ async def _execute_batch(
                             step_error = (
                                 f"cpu_step confirmed {stepped}/{ccount} steps then stalled: {e}"
                             )
+                    pc_raw = last_step_info.get("pc", 0)
+                    # pc may arrive as int (from WS) or hex str (from
+                    # step helpers); format_address handles int, str
+                    # passthrough preserves already-hex values.
+                    last_pc = format_address(pc_raw) if isinstance(pc_raw, int) else str(pc_raw)
                     step_data = {
                         "mode": cmode,
                         "requested": ccount,
                         "stepped": stepped,
-                        "last_pc": last_step_info.get("pc"),
+                        "last_pc": last_pc,
                         "last_ticks": last_step_info.get("ticks"),
                         "resumed_after": True,
                     }

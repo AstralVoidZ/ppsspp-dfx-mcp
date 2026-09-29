@@ -380,9 +380,9 @@ class TestSearchDisasmLoopSearch:
         assert len(result["results"]) == 3, (
             "D-10/D-30: loop search must collect all 3 matches, not just the first one."
         )
-        assert result["results"][0]["address"] == 0x08804000
-        assert result["results"][1]["address"] == 0x08804100
-        assert result["results"][2]["address"] == 0x08804200
+        assert result["results"][0]["address"] == "0x08804000"
+        assert result["results"][1]["address"] == "0x08804100"
+        assert result["results"][2]["address"] == "0x08804200"
 
     @pytest.mark.asyncio
     async def test_loop_detects_wraparound(self, monkeypatch: pytest.MonkeyPatch) -> None:

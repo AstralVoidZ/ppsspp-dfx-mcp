@@ -34,6 +34,7 @@ from pydantic import Field
 from ppsspp_dfx_mcp import __version__
 from ppsspp_dfx_mcp.config import (
     configure_logging,
+    project_root as _config_project_root,
     rate_limit,
     validate_config,
     ws_host,
@@ -445,7 +446,7 @@ async def sync_exposed_tools() -> dict[str, Any]:
     manifest = get_manifest()
     manifest.ensure_loaded()
     exposed = manifest.list_exposed()
-    project_root = Path.cwd()
+    project_root = _config_project_root()
 
     desired: dict[str, Any] = {}
     skipped_skeleton: list[str] = []
