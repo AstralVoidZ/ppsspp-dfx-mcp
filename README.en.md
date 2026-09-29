@@ -348,6 +348,16 @@ annotated in the corresponding tool description; summarized here:
   section with `read_u32` does not error but may yield a meaningless value (not
   a real MIPS instruction) — read code sections with `ppsspp_disassemble`
   (`ppsspp_search_disasm` for instruction search).
+- **Breakpoint conditions are evaluated MCP-side**: this build's IR mode ignores
+  register conditions (upstream defect, verified on real hardware), so
+  `breakpoint` never forwards `condition` to PPSSPP — `action='wait'` evaluates
+  it with `cpu.evaluate` when the hit lands, and **the evaluator only runs while
+  a `wait` is active**; falsy hits are auto-resumed and counted in
+  `filtered_hits`, and ≥10 hits/<1s at one address trip the hit-storm breaker
+  (auto-disarm + `storm_break=true`). If the CPU was already paused before
+  arming, the pause cannot be attributed (a manual pause is indistinguishable
+  from a hit): the call returns `hit=true` with a `note` stating that the
+  registered condition was **not** evaluated.
 - **No save-state API**: PPSSPP's WebSocket debugger exposes no `savestate.*`
   events; save/load cannot be provided. Use PPSSPP's UI hotkeys (F1–F8 slots).
 - **Frame stepping is instruction-granular only**: `step` uses `cpu.stepInto`.

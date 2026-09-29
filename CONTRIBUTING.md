@@ -164,6 +164,26 @@ its modules are marked `integration` + `real_ppsspp`.
   `ppsspp_script_*` tools at runtime, so a live server's `tool_count` is
   baseline + manifest count.
 
+## Real-machine acceptance
+
+`tests/integration/` is the authoritative real-environment gate. Two practical
+requirements beyond the env vars:
+
+- Set `PPSSPP_DFX_TEST_EXE_PATH` (PPSSPP binary) and `PPSSPP_DFX_TEST_ISO_PATH`
+  (your ISO). Unset runs auto-skip with **documented** reasons — a new skip
+  reason must be added to the `ALLOWLIST` in `scripts/check_skips.py` with a
+  justification, or the audit fails.
+- Run PPSSPP **outside restrictive sandboxes**: it writes GPU driver caches
+  under `%ProgramData%\NVIDIA` / `%LocalAppData%\AMD`, and a filesystem policy
+  that blocks those turns real runs into flaky failures instead of clean skips.
+
+A real assertion must prove the *mechanism* ran, not merely the absence of an
+error. `tests/integration/test_cond_filter_real.py` is the template: it starts
+`wait` **before** arming the conditional breakpoint at a hot PC (a hit landing
+before the wait is reported as `already_paused` and never reaches the
+evaluator), then asserts both `hit is False` **and** `filtered_hits >= 1` — a
+bare `hit=False` could equally mean the breakpoint never fired.
+
 ## PPSSPP ini key naming (config writes)
 
 When writing PPSSPP config keys programmatically (appendconfig ini,

@@ -318,6 +318,12 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 - **IR 编码无法在 MCP 侧可靠判别**：PPSSPP 的 JIT-IR 代码段用 `read_u32` 读取不会报错，
   但可能得到无意义的值（不是真实 MIPS 指令）——要读代码段请改用 `ppsspp_disassemble`
   （搜索指令用 `ppsspp_search_disasm`）。
+- **条件断点由 MCP 侧求值**：该构建的 IR 模式忽略寄存器条件（上游缺陷，已实机建档），
+  因此 `breakpoint` 的 `condition` 不下发 PPSSPP，改由 `action='wait'` 在命中时用
+  `cpu.evaluate` 求值——**求值器只在 `wait` 运行期间生效**；假命中自动 resume 并计入
+  `filtered_hits`，同一地址 ≥10 次命中且间隔 <1s 触发风暴熔断（自动撤防 +
+  `storm_break=true`）。CPU 若在布防前已处于暂停态，则无法归因（手动暂停与命中不可
+  区分）：返回 `hit=true` 并附 `note` 说明注册的条件**未被求值**。
 - **无存档 API**：PPSSPP 的 WebSocket debugger 不暴露 `savestate.*` 事件，
   服务器无法提供存档保存/加载。用 PPSSPP 的 UI 快捷键（F1-F8 存档槽）。
 - **帧推进只有指令级**：`step` 走 `cpu.stepInto`。整帧推进的替代：在
