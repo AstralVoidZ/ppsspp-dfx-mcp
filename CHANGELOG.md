@@ -70,6 +70,12 @@
   `scan.max_results+chunk_size` 五处。
 - **A9/A10**：`views/_contract.py` 修正指向失效符号的引用（防漂移文档自身漂移）；
   `sessions.json` 写入后 `chmod 0o600`（含 iso 路径/pid/ws_url）。
+- **CI 红修复（跨平台，发布前发现）**：`tests/unit/core/test_launcher.py` 的暴露
+  告警测试隐含 Windows 专属假设（patch 的是 Windows 绑址探针），在 ubuntu/macos
+  上必失败——CI 自 v0.1.6-dev 提交起即为红（本项与 W13 的 ruff 红是同一次 CI
+  失败的两个原因）。已按平台拆分：3 条 Windows-only 标记 + 3 条 POSIX 对应断言
+  （探针不可用→保守告警 / 通配绑定→告警 / 回环→静默），并以 `sys.platform`
+  强制探针在本地复核 POSIX 分支 4/4 断言为真。
 
 ### Security（v3 审查修复批：W7/W8 + 文档面）
 

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -43,6 +44,14 @@ from ppsspp_dfx_mcp.core.launcher import (
     _write_appendconfig_ini,
 )
 from ppsspp_dfx_mcp.errors import IsoNotFound, PpssppNotFound
+
+# Platform gate for the exposure-warning tests below: they patch the
+# **Windows** bind probe, which is only consulted on win32 (POSIX goes
+# through `_get_listening_binds_for_pid_posix`, whose availability depends
+# on lsof/iproute2). Skip reasons intentionally contain the phrases the
+# `scripts/check_skips.py` allowlist matches ("Windows-only test" /
+# "POSIX-only test").
+_WIN = sys.platform == "win32"
 
 # ============================================================================
 # Module-level helpers
@@ -843,6 +852,7 @@ class TestWarnDebuggerExposedExternally:
             lambda pid: binds,
         )
 
+    @pytest.mark.skipif(not _WIN, reason="Windows-only test (patches the Windows bind probe)")
     def test_nonloopback_bind_logs_warning_without_raising(self, monkeypatch, caplog):
         """0.0.0.0 bind → WSDBG-EXPOSED warning, no exception."""
         import logging
@@ -855,6 +865,7 @@ class TestWarnDebuggerExposedExternally:
         assert "WSDBG-EXPOSED" in caplog.text
         assert "RemoteDebuggerLocal" in caplog.text
 
+    @pytest.mark.skipif(not _WIN, reason="Windows-only test (patches the Windows bind probe)")
     def test_loopback_bind_is_silent(self, monkeypatch, caplog):
         """127.0.0.1 bind → no warning (healthy configuration)."""
         import logging
@@ -866,6 +877,7 @@ class TestWarnDebuggerExposedExternally:
             launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
         assert "WSDBG-EXPOSED" not in caplog.text
 
+    @pytest.mark.skipif(not _WIN, reason="Windows-only test (patches the Windows bind probe)")
     def test_port_mismatch_is_silent(self, monkeypatch, caplog):
         """Debugger port different from the tracked one → no warning."""
         import logging
@@ -873,6 +885,59 @@ class TestWarnDebuggerExposedExternally:
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
 
         self._patch_binds(monkeypatch, [(9999, "0.0.0.0")])
+        with caplog.at_level(logging.WARNING):
+            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert "WSDBG-EXPOSED" not in caplog.text
+
+    # ── POSIX counterparts ──────────────────────────────────────────────
+    # The Windows tests above cannot express POSIX behaviour: on POSIX the
+    # probe is `_get_listening_binds_for_pid_posix`, and `None` means the
+    # probe itself is unavailable (no lsof/iproute2). Locking both POSIX
+    # branches here is what keeps CI green on ubuntu/macos — the previous
+    # miss was exactly "the assertions were Windows-only but ran everywhere".
+
+    @pytest.mark.skipif(_WIN, reason="POSIX-only test (patches the POSIX bind probe)")
+    def test_posix_unavailable_probe_warns_conservatively(self, monkeypatch, caplog):
+        """Probe unavailable (None) → W7's explicit 'check unavailable' warning."""
+        import logging
+
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        monkeypatch.setattr(launcher_mod, "_get_listening_binds_for_pid_posix", lambda pid: None)
+        with caplog.at_level(logging.WARNING):
+            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert "WSDBG-EXPOSED" in caplog.text
+        assert "unavailable on this platform" in caplog.text
+
+    @pytest.mark.skipif(_WIN, reason="POSIX-only test (patches the POSIX bind probe)")
+    def test_posix_nonloopback_bind_warns(self, monkeypatch, caplog):
+        """Probe available + wildcard bind → same non-loopback warning as Windows."""
+        import logging
+
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        monkeypatch.setattr(
+            launcher_mod,
+            "_get_listening_binds_for_pid_posix",
+            lambda pid: [(7777, "0.0.0.0")],
+        )
+        with caplog.at_level(logging.WARNING):
+            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert "WSDBG-EXPOSED" in caplog.text
+        assert "not loopback" in caplog.text
+
+    @pytest.mark.skipif(_WIN, reason="POSIX-only test (patches the POSIX bind probe)")
+    def test_posix_loopback_bind_is_silent(self, monkeypatch, caplog):
+        """Probe available + loopback bind → silent (healthy configuration)."""
+        import logging
+
+        from ppsspp_dfx_mcp.core import launcher as launcher_mod
+
+        monkeypatch.setattr(
+            launcher_mod,
+            "_get_listening_binds_for_pid_posix",
+            lambda pid: [(7777, "127.0.0.1")],
+        )
         with caplog.at_level(logging.WARNING):
             launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
         assert "WSDBG-EXPOSED" not in caplog.text
