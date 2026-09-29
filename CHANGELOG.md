@@ -23,6 +23,10 @@
 
 ### Added（D1 方案 B / D2 方案 B——代码审查后追加）
 
+- **`evals/bridge.py`（子代理采集 HTTP bridge）**: stdlib `http.server` 长驻
+  mcp stdio `ClientSession`，暴露 `GET /tools` / `POST /call` / `POST /seed`
+  为本地 REST（127.0.0.1 only），供外部 agent 子代理用 curl 驱动采集，
+  绕开 LLM API 依赖。配套 `test_bridge.py` 5 用例。
 - **`ppsspp_watch_value`（新工具，36→37）**: 值变化轮询观察——纯读、
   零暂停；热读地址"谁/何时改了值"需求的观察点替代（D2 命中风暴的
   结构性消除）；变化记录含 frame/相对时间/old/new，上限 64 条。
@@ -36,6 +40,10 @@
 
 ### Fixed（实机盲测回归修复：D3 / D8-MCP / D11 + 接口契约面 S1）
 
+- **`first_tool` 门禁扩大前导豁免**：`_PREAMBLE_TOOLS` 增补
+  `ppsspp_query`/`ppsspp_memory_map`/`ppsspp_context`/`ppsspp_gpu_stats`
+  （场景相关前导探查），修复 R9/R10/R24 因模型先查寄存器/内存布局/GPU
+  状态再调 expected 工具被误判 fail（runs-20260929 pass 78.3%→83.7%）。
 - **D3 会话锁同任务可重入**：`batch_step` 全程持锁期间内嵌 `screenshot`
   步骤的嵌套获取不再自死锁（此前 100% SESSION_BUSY）。跨任务互斥语义
   不变（仍一条工具调用独占会话，等锁超 5s 报 SESSION_BUSY）。
