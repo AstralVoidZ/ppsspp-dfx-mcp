@@ -36,11 +36,16 @@ def bridge_url():
     server = BridgeServer(core, port=0, token=_TOKEN)
     t = threading.Thread(target=server.serve, daemon=True)
     t.start()
-    deadline = time.time() + 30
-    while time.time() < deadline and server._httpd is None:
+    # 90s budget (was 30s): macOS runners need more headroom for the stdio
+    # MCP child to import + initialize. If the core start failed outright we
+    # surface ITS exception instead of a bare timeout.
+    deadline = time.time() + 90
+    while time.time() < deadline and server._httpd is None and server.start_error is None:
         time.sleep(0.05)
+    if server.start_error is not None:
+        raise RuntimeError(f"bridge core failed to start: {server.start_error!r}")
     if server._httpd is None:
-        raise RuntimeError("bridge failed to start within 30s")
+        raise RuntimeError("bridge failed to start within 90s")
     port = server._httpd.server_address[1]
     yield f"http://127.0.0.1:{port}"
     server._httpd.shutdown()

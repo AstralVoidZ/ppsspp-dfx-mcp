@@ -180,6 +180,11 @@ class BridgeServer:
         self.loop = asyncio.new_event_loop()
         self._loop_thread: threading.Thread | None = None
         self._httpd: ThreadingHTTPServer | None = None
+        # W19 (review v3): if the MCP core fails to start (it runs on the
+        # background loop, i.e. inside a thread), callers/tests would only
+        # ever observe "bridge never became ready" — the actual exception
+        # died with the thread. Record it here so diagnostics survive.
+        self.start_error: Exception | None = None
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self.loop)
@@ -192,7 +197,11 @@ class BridgeServer:
     def serve(self) -> None:
         self._loop_thread = threading.Thread(target=self._run_loop, daemon=True)
         self._loop_thread.start()
-        self.submit(self.core.start())
+        try:
+            self.submit(self.core.start())
+        except Exception as e:  # noqa: BLE001 — 记录后重抛：让测试/调用方看到真实原因
+            self.start_error = e
+            raise
         self._httpd = ThreadingHTTPServer(("127.0.0.1", self.port), self._make_handler())
         print(
             f"bridge on http://127.0.0.1:{self.port} (real={self.core.real})\n"
