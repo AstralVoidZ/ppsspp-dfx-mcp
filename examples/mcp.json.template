@@ -1,0 +1,77 @@
+{
+  "$comment": [
+    "ppsspp-dfx-mcp — MCP client registration template.",
+    "",
+    "Copy this file into YOUR project as .mcp.json and adjust the three",
+    "PLACEHOLDER paths below. The server is registered per-project:",
+    "  - command : the venv interpreter that has ppsspp-dfx-mcp installed",
+    "  - cwd     : the directory holding .ppsspp-dfx/config/ (project root)",
+    "",
+    "The env block is entirely OPTIONAL — every variable has a working",
+    "default. Only set what you actually need; see the commented groups.",
+    "",
+    "Do NOT wrap the command in a shell/batch script: on Windows os.execv",
+    "is CreateProcess + parent wait (not a POSIX exec), and the extra layer",
+    "makes the inner server read stdin EOF immediately and exit silently —",
+    "the symptom is a bare '-32000: Connection closed'.",
+    "cwd is OPTIONAL. Some harnesses reject an unknown 'cwd' key. The server",
+    "resolves its project root from env.PPSSPP_DFX_PROJECT_ROOT first, so you",
+    "may delete 'cwd' entirely as long as that variable is set — both are",
+    "equivalent (verified by launching the server from %TEMP% with no cwd).",
+    "",
+    "cwd is OPTIONAL — some harnesses reject the key. The server resolves its",
+    "project root from env.PPSSPP_DFX_PROJECT_ROOT first, so you may drop",
+    "'cwd' entirely as long as that variable is set (the two are equivalent;",
+    "verified by launching from %TEMP% with no cwd). Omitting BOTH degrades to",
+    "a warning and loses scripts.manifest.yaml, so ppsspp_script_* tools vanish."
+  ],
+  "mcpServers": {
+    "ppsspp-dfx": {
+      "command": "C:/absolute/path/to/.venv/ppsspp-dfx-mcp/Scripts/python.exe",
+      "args": [
+        "-m",
+        "ppsspp_dfx_mcp"
+      ],
+      "cwd": "C:/absolute/path/to/your-project",
+      "env": {
+        "PPSSPP_DFX_PROJECT_ROOT": "C:/absolute/path/to/your-project",
+        "PPSSPP_DFX_LOG_LEVEL": "INFO"
+      }
+    }
+  },
+  "_env_reference": {
+    "_note": "All optional. Grouped by purpose; defaults shown after '->'.",
+    "path_and_root": {
+      "PPSSPP_DFX_PROJECT_ROOT": "Project root holding .ppsspp-dfx/ (-> cwd). Set this when the MCP host spawns the server from a temp dir. Invalid path => CONFIG_INVALID; valid path without the marker dir => warning only.",
+      "PPSSPP_DFX_CONFIG_DIR": "Config dir override (-> <project_root>/.ppsspp-dfx/config).",
+      "PPSSPP_DFX_WORKSPACE_ROOT": "Workspace root used by scripts/_wire.py (-> auto-detected: nearest ancestor with .mcp.json). Bootstrap-time only.",
+      "PPSSPP_DFX_EXE_PATH": "PPSSPP executable (-> project.yaml:ppsspp_exe). Takes precedence over the yaml key.",
+      "PPSSPP_DFX_MEMSTICK_DIR": "Memstick dir for log/screenshot capture (-> auto-detected).",
+      "PPSSPP_DFX_SESSIONS_PATH": "Cross-process session registry (-> ~/.ppsspp-dfx/sessions.json)."
+    },
+    "websocket": {
+      "PPSSPP_DFX_WS_HOST": "PPSSPP WS host (-> 127.0.0.1).",
+      "PPSSPP_DFX_WS_PORT": "PPSSPP WS port (-> 12345). NOTE: only used when connecting to an ALREADY-RUNNING PPSSPP. When the server launches PPSSPP itself it picks a random free port and discovers it post-launch, so a fixed value here is ignored in that flow."
+    },
+    "runtime_behaviour": {
+      "PPSSPP_DFX_LOG_LEVEL": "DEBUG / INFO / WARNING / ERROR (-> INFO).",
+      "PPSSPP_DFX_LOG_FORMAT": "text | json (-> text).",
+      "PPSSPP_DFX_RATE_LIMIT": "Per-tool calls per minute, 0 disables (-> 60).",
+      "PPSSPP_DFX_IR": "Set to 1 to force CPUCore=2 interpreter mode. Required for memory breakpoints to fire: under JIT fastmem they are silently skipped. Costs speed — use for trace/breakpoint sessions only.",
+      "PPSSPP_DFX_BOOT_HEAL_QUARANTINE": "1 = allow boot-wedge self-heal to quarantine the GPU backend blacklist file (rename only, never delete); 0 disables that step (-> 1)."
+    },
+    "testing_and_evals": {
+      "PPSSPP_DFX_TEST_MODE": "Set to 'fake' to serve recorded fixtures instead of a live emulator.",
+      "PPSSPP_DFX_FIXTURE_DIR": "Fixture dir for fake mode.",
+      "PPSSPP_DFX_TEST_EXE_PATH": "PPSSPP binary used by real-mode evals (-> falls back to a default name; unset skips real cards).",
+      "PPSSPP_DFX_TEST_ISO_PATH": "Game ISO used by real-mode evals and seeded sessions (-> game.iso; unset skips real cards).",
+      "PPSSPP_DFX_TEST_PPSSPP_LOG": "PPSSPP log consumed by verify_real_mcp.py (-> ppsspp_debug.log).",
+      "PPSSPP_DFX_SKILL_DIR": "Skill dir for the B2 (skill-as-pseudo-tool) eval variant.",
+      "PPSSPP_DFX_EVALS_LLM_API_PATH": "llm_api.json path for the eval runner (overrides config.yaml).",
+      "PPSSPP_DFX_EVAL_GAME_PRODUCT_CODE": "Real disc product code (e.g. <REGION>-<ID>) asserted by the R1 boot card. Unset => that token is skipped at scoring time (the card keeps passing).",
+      "PPSSPP_DFX_EVAL_GAME_CODE": "Product code without the dash.",
+      "PPSSPP_DFX_EVAL_GAME_TITLE": "Game title, English.",
+      "PPSSPP_DFX_EVAL_GAME_TITLE_JP": "Game title, Japanese."
+    }
+  }
+}

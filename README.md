@@ -24,7 +24,7 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
 
 ## 功能特性
 
-- **36 个静态工具**，全部带结构化 `inputSchema` / `outputSchema`——没有无约束的
+- **37 个静态工具**，全部带结构化 `inputSchema` / `outputSchema`——没有无约束的
   返回值，每个参数都有类型和说明。
 - **动态脚本工具**：项目专属的诊断脚本通过 `scripts.manifest.yaml` 暴露为
   `ppsspp_script_<name>` 工具，输入类型由脚本自带的 Pydantic model 决定；
@@ -39,7 +39,7 @@ Protocol）服务器。它把 PSP 模拟器的 WebSocket 调试器封装为面�
   恢复建议。
 - **后台自动化**：批量任务跑在独立的服务端任务上，不受 MCP 客户端工具调用超时的
   影响；支持状态轮询、取消与注册表盘点（`ppsspp_batch_status(batch_id 省略)`）。
-- **内建评估体系**（`evals/`）：21 张场景卡 + 确定性门禁 + 对录制夹具的盲测
+- **内建评估体系**（`evals/`）：49 张场景卡 + 确定性门禁 + 对录制夹具的盲测
   runner + 汇总报告——工具面按 agent 实际使用的方式被测试。
 - **诚实的协议面**：能力只在其背后存在可用实现时才声明；刻意置 `false` 的开关
   附有设计理由说明。
@@ -81,7 +81,15 @@ python3.14 -m venv .venv
 
 `command` 指向安装 venv 内的入口可执行文件，POSIX 上为
 `.venv/bin/ppsspp-dfx-mcp`；`cwd` 是服务器发现 `.ppsspp-dfx/` 配置的目录
-（见[配置](#配置)）。手动启动验证：
+（见[配置](#配置)）。
+
+> **`cwd` 可以省略**（部分 harness 不支持该字段）：把项目根同时写进
+> `env.PPSSPP_DFX_PROJECT_ROOT` 即可，两者等价。实测从 `%TEMP%` 启动、不设
+> `cwd`、仅给该环境变量，服务器仍能正确定位 `project_root` / `config_dir` /
+> `output_dir` 并完成握手；反之若两者都缺，会退化为告警并丢失
+> `scripts.manifest.yaml`（`ppsspp_script_*` 工具静默消失）。
+
+手动启动验证：
 
 ```bash
 .venv/Scripts/ppsspp-dfx-mcp.exe   # Windows
@@ -151,6 +159,21 @@ POSIX 上请用 `.venv/ppsspp-dfx-mcp/bin/python` 代替 `Scripts/python.exe`。
 | `PPSSPP_DFX_SESSIONS_PATH` | `~/.ppsspp-dfx/sessions.json` | 会话状态路径 |
 | `PPSSPP_DFX_PROJECT_ROOT` | `cwd` | 项目根目录，覆盖 cwd 发现（MCP host 从临时目录启动时需设置）。路径不存在时报 `CONFIG_INVALID`；路径有效但无 `.ppsspp-dfx/` 标记目录时告警不阻断 |
 | `PPSSPP_DFX_CONFIG_DIR` | `<project_root>/.ppsspp-dfx/config` | 配置目录路径，覆盖默认发现逻辑 |
+| `PPSSPP_DFX_IR` | 未设 | 设为 `1` 强制 `CPUCore=2` 解释器模式。**内存断点必需**——JIT fastmem 直写下断点不触发；代价是速度，只用于 trace/breakpoint 会话 |
+| `PPSSPP_DFX_BOOT_HEAL_QUARANTINE` | `1` | `1` = 允许 boot 楔死自愈隔离 GPU 后端黑名单文件（仅重命名，从不删除）；`0` = 该步不执行 |
+| `PPSSPP_DFX_MEMSTICK_DIR` | 自动探测 | memstick 目录（日志/截图捕获用） |
+| `PPSSPP_DFX_WORKSPACE_ROOT` | 自动探测 | `scripts/_wire.py` 的工作区根（取最近的含 `.mcp.json` 的祖先目录）。仅引导脚本使用 |
+
+> **`PPSSPP_DFX_WS_PORT` 只在连接「已在运行的 PPSSPP」时生效**：服务器自己启动
+> PPSSPP 时会随机选空闲端口并在启动后发现它（避开 12345 冲突），此时该变量被忽略。
+
+评测专用变量（跑 `evals/` 时才需要，日常使用无需设置）：
+`PPSSPP_DFX_TEST_MODE`、`PPSSPP_DFX_FIXTURE_DIR`、`PPSSPP_DFX_TEST_EXE_PATH`、
+`PPSSPP_DFX_TEST_ISO_PATH`、`PPSSPP_DFX_TEST_PPSSPP_LOG`、`PPSSPP_DFX_SKILL_DIR`、
+`PPSSPP_DFX_EVALS_LLM_API_PATH`、`PPSSPP_DFX_EVAL_GAME_*`。
+
+完整可复制的配置模板（含全部变量注释、按用途分组）见
+[`examples/mcp.json.template`](examples/mcp.json.template)。
 
 项目级 YAML 配置位于 `.ppsspp-dfx/config/`（相对工作目录）：
 
@@ -193,7 +216,7 @@ cp examples/project.yaml examples/addresses.yaml \
 
 | 能力 | 声明 | 说明 |
 |---|---------|-------|
-| `tools` | ✅ | 36 个静态工具 + 动态 `ppsspp_script_<name>` |
+| `tools` | ✅ | 37 个静态工具 + 动态 `ppsspp_script_<name>` |
 | `resources` | ✅ | `ppsspp://game-state`、`ppsspp://registers`（快照） |
 | `prompts` | ✅ | `memory-breakpoint-wizard`、`memory-trace-wizard` |
 | `completions` | ✅ | 两个内存向导的 `address` 参数，候选来自 `addresses.yaml` |

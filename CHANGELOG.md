@@ -7,6 +7,21 @@
 
 ## [Unreleased]
 
+### Fixed（文档计数漂移 + 计数守卫）
+
+- **静态工具数漂移**：README.md / README.en.md（feature 条目、协议面表格）与
+  `skills/ppsspp-dfx/references/architecture.md`（L3 架构图）仍写 36，实际 37
+  （`ppsspp_watch_value` 加入后未刷新）。四处全部对齐实测。
+- **场景卡数漂移**：README 两份仍写 21 张，实际 49 张（real tier 扩至 30 后
+  未刷新）。两份全部对齐。
+- **新增计数守卫** `tests/unit/l2_mcp_contract/test_readme_claims.py`（7 例）：
+  - 工具数 → 锚定 `tool_surface_baseline.json["tool_count"]`，覆盖三份文档；
+  - 场景卡数 → 锚定 `evals/scenarios.yaml`；
+  - 测试套件规模 → 以 AST 统计 `test_*` 函数数为下界（与文档「不含参数化
+    展开」口径一致），既抓陈旧也不因新增用例而误报。
+  覆盖范围写成**显式文件列表**而非 glob——v0.1.6 漂移清扫漏掉 `skills/`
+  子树正是因为按「顶层 .md」的目录直觉扫描。
+
 ### Security（发布脱敏：真实游戏标识出库 + 两处空匹配缺陷修复）
 
 - **真实游戏标识移出仓库**：R1-REAL-BOOT 的身份门禁值原为真实光盘序号

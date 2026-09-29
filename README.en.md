@@ -26,7 +26,7 @@ before running.
 
 ## Features
 
-- **36 static tools**, all with structured `inputSchema` / `outputSchema` — no
+- **37 static tools**, all with structured `inputSchema` / `outputSchema` — no
   unconstrained return values; every parameter is typed and documented.
 - **Dynamic script tools**: project-specific diagnostic scripts are exposed as
   `ppsspp_script_<name>` tools via `scripts.manifest.yaml`, with input types
@@ -42,7 +42,7 @@ before running.
 - **Background automation**: batch jobs run in detached server tasks,
   immune to MCP client tool-call timeouts; supports status polling,
   cancellation, and registry inventory (`ppsspp_batch_status` with `batch_id` omitted).
-- **Built-in evaluations** (`evals/`): 21 scenario cards + deterministic gates
+- **Built-in evaluations** (`evals/`): 49 scenario cards + deterministic gates
   + a blind-test runner over recorded fixtures + summary reports — the tool
   surface is tested the way agents actually use it.
 - **Honest protocol surface**: capabilities are only declared when a working
@@ -89,6 +89,14 @@ package; no in-repo scripts needed):
 `command` points at the entry executable inside the install venv —
 `.venv/bin/ppsspp-dfx-mcp` on POSIX. `cwd` is the directory where the server
 discovers its `.ppsspp-dfx/` configuration (see [Configuration](#configuration)).
+
+> **`cwd` is optional** — some harnesses reject the key. Setting the project
+> root in `env.PPSSPP_DFX_PROJECT_ROOT` instead is equivalent: verified by
+> launching from `%TEMP%` with no `cwd` and only that variable set, where the
+> server still resolves `project_root` / `config_dir` / `output_dir` and
+> completes the handshake. With neither, it degrades to a warning and loses
+> `scripts.manifest.yaml`, so the `ppsspp_script_*` tools vanish silently.
+
 Smoke-test manually:
 
 ```bash
@@ -162,6 +170,25 @@ Environment variables (all optional):
 | `PPSSPP_DFX_WS_PORT` | `12345` | PPSSPP WebSocket port |
 | `PPSSPP_DFX_EXE_PATH` | (from yaml) | PPSSPP executable path |
 | `PPSSPP_DFX_SESSIONS_PATH` | `~/.ppsspp-dfx/sessions.json` | Session state path |
+| `PPSSPP_DFX_PROJECT_ROOT` | `cwd` | Project root, overriding cwd discovery (set it when the MCP host spawns the server from a temp dir). A missing path raises `CONFIG_INVALID`; a valid path without the `.ppsspp-dfx/` marker dir only warns |
+| `PPSSPP_DFX_CONFIG_DIR` | `<project_root>/.ppsspp-dfx/config` | Config dir, overriding the default discovery |
+| `PPSSPP_DFX_IR` | unset | Set `1` to force `CPUCore=2` interpreter mode. **Required for memory breakpoints** — they do not fire under JIT fastmem. Costs speed; use for trace/breakpoint sessions |
+| `PPSSPP_DFX_BOOT_HEAL_QUARANTINE` | `1` | `1` = let boot-wedge self-heal quarantine the GPU backend blacklist file (rename only, never delete); `0` = skip that step |
+| `PPSSPP_DFX_MEMSTICK_DIR` | auto-detected | Memstick dir (log / screenshot capture) |
+| `PPSSPP_DFX_WORKSPACE_ROOT` | auto-detected | Workspace root for `scripts/_wire.py` (nearest ancestor holding `.mcp.json`). Bootstrap scripts only |
+
+> **`PPSSPP_DFX_WS_PORT` only applies when connecting to an already-running
+> PPSSPP.** When the server launches PPSSPP itself it picks a random free port
+> and discovers it post-launch (avoiding the 12345 conflict), so the variable
+> is ignored in that flow.
+
+Eval-only variables (needed only when running `evals/`):
+`PPSSPP_DFX_TEST_MODE`, `PPSSPP_DFX_FIXTURE_DIR`, `PPSSPP_DFX_TEST_EXE_PATH`,
+`PPSSPP_DFX_TEST_ISO_PATH`, `PPSSPP_DFX_TEST_PPSSPP_LOG`, `PPSSPP_DFX_SKILL_DIR`,
+`PPSSPP_DFX_EVALS_LLM_API_PATH`, `PPSSPP_DFX_EVAL_GAME_*`.
+
+A complete, copy-ready config template (every variable annotated, grouped by
+purpose) is in [`examples/mcp.json.template`](examples/mcp.json.template).
 
 Project-level YAML configuration lives in `.ppsspp-dfx/config/` (relative to
 the working directory):
@@ -207,7 +234,7 @@ request handler exists, so everything listed here is real):
 
 | Capability | Declared | Notes |
 |---|---------|-------|
-| `tools` | ✅ | 36 static tools + dynamic `ppsspp_script_<name>` |
+| `tools` | ✅ | 37 static tools + dynamic `ppsspp_script_<name>` |
 | `resources` | ✅ | `ppsspp://game-state`, `ppsspp://registers` (snapshots) |
 | `prompts` | ✅ | `memory-breakpoint-wizard`, `memory-trace-wizard` |
 | `completions` | ✅ | the wizards' `address` argument, candidates from `addresses.yaml` |
