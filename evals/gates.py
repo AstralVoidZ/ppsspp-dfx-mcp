@@ -191,7 +191,14 @@ def _real_calls(run: dict) -> list[dict[str, Any]]:
     return [c for c in (run.get("tool_calls") or []) if not c.get("pseudo")]
 
 
-_PREAMBLE_TOOLS = ("ppsspp_health", "ppsspp_session")
+_PREAMBLE_TOOLS = (
+    "ppsspp_health",
+    "ppsspp_session",
+    "ppsspp_query",
+    "ppsspp_memory_map",
+    "ppsspp_context",
+    "ppsspp_gpu_stats",
+)
 
 
 def _gate_first_tool(scenario: dict, run: dict) -> tuple[bool, str]:

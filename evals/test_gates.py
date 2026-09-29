@@ -109,6 +109,32 @@ def test_first_tool_session_as_expected_is_not_skipped():
     assert evaluate(sc, _run(_call("ppsspp_health")), None)["success"] is False
 
 
+def test_first_tool_skips_query_memory_map_preamble():
+    sc = {"expected_first_tools": ["ppsspp_step"], "gates": [{"type": "first_tool"}]}
+    run = _run(
+        _call("ppsspp_query", {"action": "register", "name": "pc"}),
+        _call("ppsspp_memory_map"),
+        _call("ppsspp_step"),
+    )
+    assert evaluate(sc, run, None)["success"] is True
+
+
+def test_first_tool_skips_context_gpu_stats_preamble():
+    sc = {"expected_first_tools": ["ppsspp_wait_frames"], "gates": [{"type": "first_tool"}]}
+    run = _run(
+        _call("ppsspp_gpu_stats"),
+        _call("ppsspp_context"),
+        _call("ppsspp_wait_frames", {"frames": 10}),
+    )
+    assert evaluate(sc, run, None)["success"] is True
+
+
+def test_first_tool_query_as_expected_is_not_skipped():
+    sc = {"expected_first_tools": ["ppsspp_query"], "gates": [{"type": "first_tool"}]}
+    assert evaluate(sc, _run(_call("ppsspp_query", {"action": "register", "name": "pc"})), None)["success"] is True
+    assert evaluate(sc, _run(_call("ppsspp_health"), _call("ppsspp_query", {"action": "register", "name": "pc"})), None)["success"] is True
+
+
 def test_no_tool_pass_and_fail():
     sc = {"gates": [{"type": "no_tool"}]}
     assert evaluate(sc, _run(), None)["success"] is True

@@ -1,0 +1,275 @@
+"""MCP HTTP bridge for subagent-driven eval collection.
+
+A long-lived stdlib HTTP server (127.0.0.1 only) that holds a single
+long-lived mcp stdio ClientSession to ppsspp-dfx-mcp. Subagents call it
+with plain curl instead of speaking MCP JSON-RPC, and the bridge injects
+evals-specific logic (pre_state seed + real settle wait) that the MCP
+protocol layer has no place for.
+
+Usage (from mcps/ppsspp-dfx-mcp/):
+  <venv python> -m evals.bridge --port 8765           # fake mode
+  <venv python> -m evals.bridge --port 8765 --real    # real PPSSPP (needs EXE/ISO env)
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import json
+import os
+import sys
+import tempfile
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+import yaml
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+_EVALS_DIR = Path(__file__).resolve().parent
+_PKG_ROOT = _EVALS_DIR.parent
+_SRC_ROOT = _PKG_ROOT / "src"
+_TESTS_ROOT = _PKG_ROOT / "tests"
+
+_CALL_TIMEOUT_S = 300
+
+
+def _result_text(result: Any) -> str:
+    """Flatten a tool result into text (three channels, same as runner.py)."""
+    parts: list[str] = []
+    for block in getattr(result, "content", None) or []:
+        text = getattr(block, "text", None)
+        if text:
+            parts.append(text)
+        elif getattr(block, "data", None) is not None:
+            mime = getattr(block, "mime_type", "image")
+            raw = str(getattr(block, "data", ""))
+            parts.append(f"[ImageContent {mime}, {len(raw)} base64 chars]")
+    sc = getattr(result, "structured_content", None) or getattr(result, "structuredContent", None)
+    if sc:
+        parts.append(json.dumps(sc, ensure_ascii=False, sort_keys=True))
+    return "\n".join(parts)
+
+
+def _structured(result: Any) -> Any:
+    return getattr(result, "structured_content", None) or getattr(result, "structuredContent", None)
+
+
+class BridgeCore:
+    """Async core owning the long-lived mcp stdio ClientSession."""
+
+    def __init__(self, real: bool, config_path: Path) -> None:
+        self.real = real
+        self.config_path = config_path
+        self.session: ClientSession | None = None
+        self._stack: contextlib.AsyncExitStack | None = None
+        self._sessions_dir: Path | None = None
+        self._real_settle_s: float = 8.0
+
+    def _build_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        if self.real:
+            env.pop("PPSSPP_DFX_TEST_MODE", None)
+            env.pop("PPSSPP_DFX_FIXTURE_DIR", None)
+            env["PPSSPP_DFX_EXE_PATH"] = os.environ.get(
+                "PPSSPP_DFX_TEST_EXE_PATH", "PPSSPPWindows64.exe"
+            )
+        else:
+            scen_cfg = yaml.safe_load((_EVALS_DIR / "scenarios.yaml").read_text(encoding="utf-8"))
+            fixtures_dir = (_EVALS_DIR / scen_cfg["fixtures_dir"]).resolve()
+            env["PPSSPP_DFX_TEST_MODE"] = "fake"
+            env["PPSSPP_DFX_FIXTURE_DIR"] = str(fixtures_dir)
+        env["PPSSPP_DFX_LOG_LEVEL"] = "WARNING"
+        env["PPSSPP_DFX_SESSIONS_PATH"] = str(self._sessions_dir / "sessions.json")
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(_SRC_ROOT), str(_TESTS_ROOT), env.get("PYTHONPATH", "")]
+        ).rstrip(os.pathsep)
+        return env
+
+    async def start(self) -> None:
+        cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        self._real_settle_s = float(cfg.get("limits", {}).get("real_settle_s", 8))
+        self._sessions_dir = Path(tempfile.mkdtemp(prefix="ppsspp-dfx-bridge-sessions-"))
+        self._stack = contextlib.AsyncExitStack()
+        env = self._build_env()
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "ppsspp_dfx_mcp"], env=env
+        )
+        read, write = await self._stack.enter_async_context(stdio_client(params))
+        self.session = await self._stack.enter_async_context(ClientSession(read, write))
+        await self.session.initialize()
+
+    async def stop(self) -> None:
+        if self._stack:
+            await self._stack.aclose()
+
+    async def list_tools(self) -> list[dict[str, Any]]:
+        tools = (await self.session.list_tools()).tools
+        return [
+            {
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": getattr(t, "input_schema", None)
+                or getattr(t, "inputSchema", None)
+                or {"type": "object", "properties": {}},
+            }
+            for t in tools
+        ]
+
+    async def call_tool(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        t0 = time.monotonic()
+        result = await self.session.call_tool(tool, args)
+        is_error = bool(getattr(result, "is_error", getattr(result, "isError", False)))
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        return {
+            "is_error": is_error,
+            "text": _result_text(result),
+            "structured_content": _structured(result),
+            "latency_ms": latency_ms,
+        }
+
+    async def seed(self, iso_path: str, count: int) -> list[str]:
+        ids: list[str] = []
+        for _ in range(max(0, count)):
+            result = await self.session.call_tool(
+                "ppsspp_session",
+                {"action": "start", "iso_path": iso_path, "wait_ready": True, "resilient": True},
+            )
+            if getattr(result, "is_error", getattr(result, "isError", False)):
+                raise RuntimeError(f"session start failed: {_result_text(result)[:300]}")
+            sid = (_structured(result) or {}).get("session_id")
+            if not sid:
+                try:
+                    sid = json.loads(_result_text(result)).get("session_id")
+                except (json.JSONDecodeError, AttributeError):
+                    sid = None
+            if not sid:
+                raise RuntimeError(f"no session_id: {_result_text(result)[:300]}")
+            ids.append(str(sid))
+        if self.real and ids:
+            await asyncio.sleep(self._real_settle_s)
+        return ids
+
+
+class BridgeServer:
+    """Sync HTTP facade over BridgeCore (runs core on a background loop)."""
+
+    def __init__(self, core: BridgeCore, port: int) -> None:
+        self.core = core
+        self.port = port
+        self.loop = asyncio.new_event_loop()
+        self._loop_thread: threading.Thread | None = None
+        self._httpd: ThreadingHTTPServer | None = None
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+
+    def submit(self, coro: Any) -> Any:
+        future = asyncio.run_coroutine_threadsafe(coro, self.loop)
+        return future.result(timeout=_CALL_TIMEOUT_S)
+
+    def serve(self) -> None:
+        self._loop_thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._loop_thread.start()
+        self.submit(self.core.start())
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", self.port), self._make_handler())
+        print(
+            f"bridge on http://127.0.0.1:{self.port} (real={self.core.real})",
+            flush=True,
+        )
+        try:
+            self._httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                self.submit(self.core.stop())
+            self.loop.call_soon_threadsafe(self.loop.stop)
+            self._httpd.server_close()
+
+    def _make_handler(self) -> type[BaseHTTPRequestHandler]:
+        core = self.core
+        submit = self.submit
+
+        class Handler(BaseHTTPRequestHandler):
+            def _send(self, code: int, body: Any) -> None:
+                data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self) -> None:
+                if self.path == "/tools":
+                    try:
+                        self._send(200, submit(core.list_tools()))
+                    except Exception as exc:
+                        self._send(500, {"error": str(exc)})
+                else:
+                    self._send(404, {"error": "not found"})
+
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length) if length else b"{}"
+                try:
+                    body = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    self._send(400, {"error": f"invalid json: {exc}"})
+                    return
+                if self.path == "/call":
+                    self._handle_call(body)
+                elif self.path == "/seed":
+                    self._handle_seed(body)
+                else:
+                    self._send(404, {"error": "not found"})
+
+            def _handle_call(self, body: dict[str, Any]) -> None:
+                tool = body.get("tool")
+                if not tool:
+                    self._send(400, {"error": "missing tool"})
+                    return
+                args = body.get("args") or {}
+                sid = body.get("session_id")
+                if sid and "session_id" not in args:
+                    args["session_id"] = sid
+                try:
+                    self._send(200, submit(core.call_tool(tool, args)))
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+
+            def _handle_seed(self, body: dict[str, Any]) -> None:
+                iso_path = body.get("iso_path")
+                if not iso_path:
+                    self._send(400, {"error": "missing iso_path"})
+                    return
+                count = int(body.get("count", 1))
+                try:
+                    ids = submit(core.seed(iso_path, count))
+                    self._send(200, {"session_ids": ids})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+
+            def log_message(self, fmt: str, *a: Any) -> None:
+                pass
+
+        return Handler
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="ppsspp-dfx MCP HTTP bridge for subagent collection")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--real", action="store_true", help="real PPSSPP mode (needs EXE/ISO env)")
+    p.add_argument("--config", default=str(_EVALS_DIR / "config.yaml"))
+    args = p.parse_args()
+    core = BridgeCore(args.real, Path(args.config))
+    BridgeServer(core, args.port).serve()
+
+
+if __name__ == "__main__":
+    main()
