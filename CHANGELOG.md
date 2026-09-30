@@ -7,6 +7,27 @@
 
 ## [Unreleased]
 
+### Changed（扫描预算守卫：前台撞超时"假冻结"根因消除）
+
+- **超限自动后台化**：`ppsspp_scan` 的 pattern/strings 区间超过 2 MiB 时，
+  即使未传 `background=true` 也自动提交为 detached 后台作业（返回
+  `{action:'submitted', batch_id, ...}`）。实机证据：24 MB 全频段前台
+  4 KiB 分块扫描实测 53–96 s（构建相关），恒定超出 MCP 客户端 ~30 s
+  超时——客户端取消→重试→再超时的循环正是字段报告中"会话冻结、只能
+  stop 重启"的真实来源。value 模式保留原有 8 MiB 前台硬顶契约。
+- **逐块读超时 + 连续中止**：`DebugClient.scan_memory` 与 `_read_segments`
+  的每次分块读加 10 s 超时；连续 >5 次超时中止扫描并干净释放会话锁
+  （普通异常=合法不可映射区，仍静默跳过，不计入中止）。悬挂的 PPSSPP
+  从此必然把扫描推到终态，不再存在"只能 stop/restart"的楔死路径。
+- **后台扫描墙钟预算**：后台扫描作业带 600 s 总预算，超时以
+  `SCAN_BUDGET_EXCEEDED` 干净失败。
+- **`chunk_size` 默认值 4096 → 65536**：同区间分块往返数降 16 倍
+  （实测 24 MB 前台 53 s ↔ 96 s 的每块开销差主要来自构建读路径）。
+- 契约与文档：`tool_surface_baseline.json` 再生；新增守卫测试
+  `tests/unit/l3_orchestration/test_scan_budget_guard.py`（8 例：
+  自动后台路由、前台预算内不变、value 契约不回归、后台预算失败、
+  逐块超时中止/跳过语义分层）；README 性能参考补双构建实测口径。
+
 ### Fixed（文档计数漂移 + 计数守卫）
 
 - **静态工具数漂移**：README.md / README.en.md（feature 条目、协议面表格）与

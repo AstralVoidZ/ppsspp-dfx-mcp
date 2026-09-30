@@ -24,7 +24,7 @@ category: tools
 |------|------|---------|
 | `ppsspp_read_memory` | bytes/u32/string | read_bytes ≤65536，`output`=value（默认，字节列表+hex text）/hex（只回 hex text，`value=null`）/file（落盘 `output/memory_reads/` 回路径+64B 预览，顶格读取必用）；read_string 内部即 read_bytes+找 NUL（max_len 默认 4096，解码触顶 `truncated=true`） |
 | `ppsspp_write_memory` | u8/u16/u32/bytes | DESTRUCTIVE；受保护区需 `force=True`（`PROTECTED_ADDRESS`）；bytes 接受 hex 或 base64 |
-| `ppsspp_scan` | pattern/value/strings 三模式扫描 | `mode="pattern"`：hex/ascii 模式，区间 ≤256MiB；`mode="value"`：u8/u16/u32 + eq/ne/lt/gt，initial→narrow→list→drop，handle 会话绑定；`mode="strings"`：shift_jis/utf8/ascii + CJK 占比质量过滤；initial 上限 8MiB 前台 / 32MiB 后台（`background=true` 提交 detached 作业，24MB ≈40s）；不可读块静默跳过；handle 注册表进程级 4 FIFO（并行会话共享容量） |
+| `ppsspp_scan` | pattern/value/strings 三模式扫描 | `mode="pattern"`：hex/ascii 模式，区间 ≤256MiB；`mode="value"`：u8/u16/u32 + eq/ne/lt/gt，initial→narrow→list→drop，handle 会话绑定；`mode="strings"`：shift_jis/utf8/ascii + CJK 占比质量过滤；initial 上限 8MiB 前台 / 32MiB 后台；**pattern/strings 区间 >2MiB 自动后台化**（返回 batch_id，实测 24MB 前台 4KiB 分块 53–96s 必撞客户端 ~30s 超时；64KiB 分块 3.4–40s 随构建）；chunk_size 默认 65536；逐块 10s 超时、连续 >5 次中止（普通异常=不可映射区仍静默跳过）；后台作业 600s 墙钟预算；handle 注册表进程级 4 FIFO（并行会话共享容量） |
 | `ppsspp_diff_memory` | 快照→差分定位"什么变了" | snapshot（≤8MiB，64KB 分块）→ compare（变更字节清单，内联 256+truncated）→ drop/list；handle 会话绑定，注册表进程级 4 FIFO；不可读区段式跳过 |
 
 ## 断点
