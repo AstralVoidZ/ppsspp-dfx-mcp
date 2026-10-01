@@ -8,8 +8,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 语法/JSON 预检，单独成 job 而不是塞进 lint：文件一旦解析不了，ruff 对该
+  # 文件只报 invalid-syntax，里面的其它违规全部隐身；生成物的 JSON 损坏则
+  # 会在无关测试模块的收集期炸出 JSONDecodeError。两者都是毫秒级可判定，
+  # 放在最前面、与 lint/format 并行，谁也遮蔽不了谁。
+  precheck:
+    name: precheck (syntax + JSON)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # stdlib only —— 不装任何依赖，秒级返回。
+      - name: Parse every tracked .py / .json
+        run: python scripts/check_syntax.py
+
   lint:
-    name: ruff (check + format)
+    name: ruff check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -30,6 +49,24 @@ jobs:
       # 防止 2026-09 清债前"声明了规则但从不执行"的存量债再次累积。
       - name: ruff check
         run: ruff check .
+
+  # 与 `ruff check` 拆成两个 job：合在一个 job 里时 check 失败会让 format
+  # 步骤直接 skip，格式漂移在下次 CI 之前完全看不到（本仓库真实发生过：
+  # check 报了 4 条、format 从未跑过，而实际有 2 个文件未格式化）。
+  format:
+    name: ruff format --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install ruff (pinned)
+        run: pip install "ruff==0.16.6"
 
       - name: ruff format --check
         run: ruff format --check .
@@ -79,20 +116,28 @@ jobs:
       - name: evals (all pure-logic tests)
         run: python -m pytest evals -q
 
+  # 唯一门禁信号：分支保护/规则集只要求它，所以新增 job 时必须同步加到这里
+  # （否则新 job 红了也不挡合入）。
   ci-ok:
     name: ci-ok
-    needs: [lint, test]
+    needs: [precheck, lint, format, test]
     runs-on: ubuntu-latest
     if: ${{ always() }}
     steps:
       - name: Verify all jobs passed
         run: |
-          if [ "${{ needs.lint.result }}" != "success" ]; then
-            echo "lint did not succeed: ${{ needs.lint.result }}"
-            exit 1
-          fi
-          if [ "${{ needs.test.result }}" != "success" ]; then
-            echo "matrix did not fully succeed: ${{ needs.test.result }}"
+          failed=0
+          check() {
+            if [ "$2" != "success" ]; then
+              echo "::error::$1 did not succeed: $2"
+              failed=1
+            fi
+          }
+          check precheck "${{ needs.precheck.result }}"
+          check lint "${{ needs.lint.result }}"
+          check format "${{ needs.format.result }}"
+          check test "${{ needs.test.result }}"
+          if [ "$failed" != "0" ]; then
             exit 1
           fi
           echo "all jobs passed"

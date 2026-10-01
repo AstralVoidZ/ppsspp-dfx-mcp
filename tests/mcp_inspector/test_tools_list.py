@@ -26,7 +26,18 @@ _BASELINE_PATH = (
 
 
 def _expected_static_tools() -> frozenset[str]:
-    baseline = json.loads(_BASELINE_PATH.read_text(encoding="utf-8"))
+    try:
+        baseline = json.loads(_BASELINE_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        # A generated file that fails to parse would otherwise surface as a
+        # collection error in this module, which has nothing to do with it.
+        pytest.fail(
+            f"{_BASELINE_PATH.name} is unparseable "
+            f"({exc.lineno}:{exc.colno} {exc.msg}) — regenerate it with "
+            f"`python scripts/dump_tool_surface.py`; never hand-edit or "
+            f"hand-merge this generated file",
+            pytrace=False,
+        )
     return frozenset(baseline["tools"].keys())
 
 
