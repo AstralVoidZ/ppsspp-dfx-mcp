@@ -1667,7 +1667,7 @@ class PpssppDebugClient:
                     self.read_bytes(address=cursor, size=read_size),
                     timeout=SCAN_READ_TIMEOUT_S,
                 )
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 consecutive_timeouts += 1
                 if consecutive_timeouts > SCAN_MAX_CONSECUTIVE_READ_FAILURES:
                     raise RuntimeError(

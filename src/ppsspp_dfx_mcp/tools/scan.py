@@ -198,7 +198,6 @@ async def _iter_segments(client: Any, start: int, size: int):
     ppsspp_scan BEHAVIOR contract — and segment pairs (not one flat buffer)
     keep addresses exact when a hole splits the range.
     """
-    segs: list[tuple[int, bytes]] = []
     # Per-read timeout + consecutive-timeout abort (v0.1.7): only
     # TIMEOUTS count toward the abort — plain exceptions are legitimately
     # unmapped regions and stay silent skips.
@@ -210,7 +209,7 @@ async def _iter_segments(client: Any, start: int, size: int):
                 client.read_bytes(address=start + offset, size=chunk),
                 timeout=SCAN_READ_TIMEOUT_S,
             )
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             consecutive_timeouts += 1
             if consecutive_timeouts > SCAN_MAX_CONSECUTIVE_READ_FAILURES:
                 raise RuntimeError(
@@ -222,8 +221,6 @@ async def _iter_segments(client: Any, start: int, size: int):
         except Exception:
             continue
         consecutive_timeouts = 0
-        segs.append((start + offset, bytes(raw)))
-    return segs
         yield (start + offset, bytes(raw))
 
 
@@ -402,13 +399,13 @@ async def scan(
         and mode in ("pattern", "strings")
         and start_addr
         and end_addr
+        and parse_address(end_addr) - parse_address(start_addr) > FOREGROUND_SCAN_LIMIT_BYTES
     ):
-        if parse_address(end_addr) - parse_address(start_addr) > FOREGROUND_SCAN_LIMIT_BYTES:
-            background = True
-            logger.info(
-                "scan auto-backgrounded: range exceeds %d bytes",
-                FOREGROUND_SCAN_LIMIT_BYTES,
-            )
+        background = True
+        logger.info(
+            "scan auto-backgrounded: range exceeds %d bytes",
+            FOREGROUND_SCAN_LIMIT_BYTES,
+        )
     logger.info(
         "tool_call",
         extra={"tool": "ppsspp_scan", "mode": mode, "session_id": session_id_resolved},

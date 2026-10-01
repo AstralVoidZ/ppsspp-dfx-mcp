@@ -785,8 +785,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 25530,
- "total_input_schema_chars": 46212
- "total_description_chars": 25587,
- "total_input_schema_chars": 46402
+ "total_description_chars": 26070,
+ "total_input_schema_chars": 46611
 }

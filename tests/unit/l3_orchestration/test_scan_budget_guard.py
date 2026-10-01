@@ -158,9 +158,7 @@ class SlowClient(FakeClient):
         return await super().read_bytes(address, size)
 
 
-async def test_bg_budget_exceeded_fails_job_cleanly(
-    fake_scan, monkeypatch: pytest.MonkeyPatch
-):
+async def test_bg_budget_exceeded_fails_job_cleanly(fake_scan, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(scan_mod, "SCAN_BG_BUDGET_S", 0.05)
     monkeypatch.setattr(
         scan_mod, "session_client", lambda session_id: FakeSessionClient(SlowClient())
@@ -192,7 +190,7 @@ async def test_scan_memory_consecutive_timeouts_abort(monkeypatch):
 
     async def hang(address: int, size: int) -> list[int]:
         calls.append(address)
-        raise asyncio.TimeoutError()
+        raise TimeoutError()
 
     monkeypatch.setattr(client, "read_bytes", hang)
     with pytest.raises(RuntimeError, match="timed out"):
@@ -225,15 +223,13 @@ async def test_scan_memory_plain_errors_still_skip(monkeypatch):
     assert len(calls) > 6
 
 
-async def test_read_segments_timeouts_abort_tool_level(
-    fake_scan, monkeypatch: pytest.MonkeyPatch
-):
-    """_read_segments (value/strings path) aborts after consecutive
+async def test_read_segments_timeouts_abort_tool_level(fake_scan, monkeypatch: pytest.MonkeyPatch):
+    """_iter_segments (value/strings path) aborts after consecutive
     timeouts and the tool surfaces a clean error instead of hanging."""
 
     class HangingClient(FakeClient):
         async def read_bytes(self, address: int, size: int) -> list[int]:
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
 
     monkeypatch.setattr(
         scan_mod, "session_client", lambda session_id: FakeSessionClient(HangingClient())
