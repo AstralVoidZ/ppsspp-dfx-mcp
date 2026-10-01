@@ -29,6 +29,9 @@
 - `frame_snapshot` = 暂停 + PC/寄存器/探针采样 + 恢复的单调用编排
 - `context` = 崩溃归因包（地址身份识别 + 反汇编窗口 + 可选回溯）
 - `breakpoint(action='trace')` = 内存断点武装 → 命中捕获（寄存器/回溯）→ 清理 → 恢复
+- `breakpoint(action='wait')` = 广播订阅等待 + **条件断点 MCP 侧求值**（上游 IR 模式
+  忽略寄存器条件：布防一律无条件，命中后用 `cpu.evaluate` 裁决——假命中自动 resume
+  并计入 `filtered_hits`；≥10 次/<1s 触发风暴熔断 `storm_break` + 自动撤防）
 - `health` = 四点会话电池（iso/cpu/ws/game_mode）+ 服务器生存探针
 - `scan` = pattern / value / strings 三模内存扫描（可后台化）
 - `batch_step` = press/wait/state_probe/cpu_step/screenshot 的后台任务编排

@@ -35,10 +35,7 @@ def find_base() -> int | None:
     resolved), else CWD (backward compatible).
     """
     raw = os.environ.get("PPSSPP_DFX_PROJECT_ROOT", "")
-    if raw:
-        search_root = Path(raw).expanduser().resolve()
-    else:
-        search_root = Path.cwd()
+    search_root = Path(raw).expanduser().resolve() if raw else Path.cwd()
     for parent in [search_root, *search_root.parents]:
         config = parent / MARKER
         if not config.is_file():

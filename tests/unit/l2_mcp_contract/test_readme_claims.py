@@ -11,6 +11,10 @@ truth:
 - static tool count  -> tool_surface_baseline.json["tool_count"]
 - scenario cards      -> evals/scenarios.yaml["scenarios"]
 
+It also guards a non-numeric drift: retired tool names (v0.1.6 surface
+merge) must not survive in the user-facing docs, where they advertise
+tools that no longer exist.
+
 Coverage is an explicit file list, not a glob. The v0.1.6 drift sweep
 missed `skills/ppsspp-dfx/references/` because it scanned "the top-level
 .md files" by intuition — and that subtree is a primary knowledge source
@@ -52,9 +56,34 @@ _SCENARIOS = _REPO / "evals" / "scenarios.yaml"
 _TOOL_COUNT_DOCS = (
     "README.md",
     "README.en.md",
+    "CONTRIBUTING.md",
     "skills/ppsspp-dfx/references/architecture.md",
 )
+_SCENARIO_DOCS = ("README.md", "README.en.md", "evals/README.md")
 _PAIR_DOCS = ("README.md", "README.en.md")
+
+# Retired v0.1.6 tool names. They merged into dispatchers / other tools
+# (mapping table in CHANGELOG.md); a surviving mention advertises a tool
+# that cannot be called, so it is checked by an explicit list rather than
+# by every "ppsspp_*" token in prose (renamed/absorbed tools are still
+# legitimately named in CHANGELOG history and in code comments).
+_RETIRED_NAME_DOCS = (
+    "README.md",
+    "README.en.md",
+    "CONTRIBUTING.md",
+    "evals/README.md",
+    "docs/SCOPE.md",
+)
+_RETIRED_TOOL_NAMES = (
+    "ppsspp_get_pc",
+    "ppsspp_smoke_test",
+    "ppsspp_dump_texture",
+    "ppsspp_dump_clut",
+    "ppsspp_session_list",
+    "ppsspp_convert_address",
+    "ppsspp_wait_breakpoint",
+    "ppsspp_trace_memory_access",
+)
 
 
 def _baseline_tool_count() -> int:
@@ -85,6 +114,10 @@ def test_static_tool_count_matches_baseline(doc: str) -> None:
     found = re.findall(r"\*\*(\d+) (?:个静态工具|static tools)\*\*", text)
     found += re.findall(r"\|\s*✅\s*\|\s*(\d+) (?:个静态工具|static tools)", text)
     found += re.findall(r"(\d+) (?:个静态工具|static tools)", text)
+    # CONTRIBUTING.md states it in prose: "snapshots the *static* registry
+    # (36 tools)". Parenthesized so the module-docstring example in that
+    # file ("3 tools exposed:") cannot be mistaken for a claim.
+    found += re.findall(r"\((\d+) tools\)", text)
     assert found, f"{doc}: no static-tool count claim found — wording changed?"
     bad = sorted({n for n in found if int(n) != expected})
     assert not bad, (
@@ -94,10 +127,30 @@ def test_static_tool_count_matches_baseline(doc: str) -> None:
     )
 
 
+# --- retired tool names: must not survive in the user-facing docs ---------
+
+
+@pytest.mark.parametrize("doc", _RETIRED_NAME_DOCS)
+def test_no_retired_tool_names(doc: str) -> None:
+    """v0.1.6 retired the names below; the docs must not advertise them.
+
+    The mapping old name -> current tool lives in CHANGELOG.md (that is the
+    history channel); the READMEs / SCOPE / evals README are the *current*
+    contract and a renamed base is enough to give an agent a tool that
+    cannot be called.
+    """
+    text = _read(doc)
+    hits = sorted(name for name in _RETIRED_TOOL_NAMES if name in text)
+    assert not hits, (
+        f"{doc}: retired tool name(s) {hits} still referenced. Use the "
+        f"current tool (mapping table in CHANGELOG.md, v0.1.6 surface merge)."
+    )
+
+
 # --- scenario cards: must equal the number of cards in scenarios.yaml ----
 
 
-@pytest.mark.parametrize("readme", _PAIR_DOCS)
+@pytest.mark.parametrize("readme", _SCENARIO_DOCS)
 def test_scenario_card_count_matches_yaml(readme: str) -> None:
     text = _read(readme)
     expected = _scenario_card_count()

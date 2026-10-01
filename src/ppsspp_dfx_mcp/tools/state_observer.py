@@ -63,6 +63,7 @@ from ppsspp_dfx_mcp.models.state_observer import (
 from ppsspp_dfx_mcp.server import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
+from ppsspp_dfx_mcp.tools.scan import _merge_runs
 from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
 
@@ -186,40 +187,77 @@ async def _observe_probes(
     opening a nested `session_client` (each session_client opens a fresh
     WS connection — see client_helper.py:14 "No client caching").
 
+    W12 (review v3): one sample used to cost one WS round-trip PER PROBE
+    (50 probes × 1400 samples ≈ 70k round-trips). Each sample now folds the
+    probe addresses into merged spans (`_merge_runs`) and reads them with a
+    block `read_bytes`, then extracts each probe's value by offset. Only
+    single-member runs and failed/short block reads use the original
+    per-point `read_u8/u16/u32` path, so error semantics match.
+
     Sample-failure policy (see module docstring "Sample-failure semantics"):
     - If ANY sample fails, the probe is marked failed (error set, value
       retains the last successfully read value for debugging).
-    - Samples loop breaks on first failure (fail-fast).
+    - A probe stops sampling after its first failure (fail-fast).
     """
-    observations: list[ProbeObservation] = []
-    for probe in probes:
-        read_fn = _read_method(client, probe.size)
-        value = 0
-        err = ""
-        # F-04 (2026-09-08): the old `max(1, samples)` clamp was dead
-        # code — every caller validates samples >= 1 up front (observe
-        # rejects 0, batch_step rejects < 1, frame_snapshot passes 1).
-        for _ in range(samples):
-            if _:
-                # 🟢8: let the loop breathe between samples — back-to-back
-                # awaits gave identical values, defeating the median.
-                await asyncio.sleep(0.05)
-            try:
-                value = await read_fn(probe.address)
-            except Exception as e:
-                err = str(e) or e.__class__.__name__
-                # value retains the last successfully read value (or 0
-                # if the first sample failed) for debugging.
-                break
-        observations.append(
-            ProbeObservation(
-                name=probe.name,
-                address=probe.address,
-                size=probe.size,
-                value=value,
-                error=err,
-            )
+    n = len(probes)
+    values = [0] * n
+    errors = [""] * n
+    active = [True] * n
+    # Merge window = widest probe; a wider probe may span a few narrow ones.
+    merge_size = max((p.size for p in probes), default=1)
+
+    for sample in range(samples):
+        if sample:
+            # 🟢8: let the loop breathe between samples — back-to-back
+            # awaits gave identical values, defeating the median.
+            await asyncio.sleep(0.05)
+        targets = sorted(
+            ((probes[i].address, probes[i].size, i) for i in range(n) if active[i]),
+            key=lambda t: t[0],
         )
+        if not targets:
+            break
+        pos = 0
+        for run_start, span, run_addrs in _merge_runs([t[0] for t in targets], merge_size):
+            members = targets[pos : pos + len(run_addrs)]
+            pos += len(run_addrs)
+            if len(members) == 1:
+                # Single address: keep the plain per-point read (same call
+                # shape and error surface as the pre-batching implementation).
+                addr, size, idx = members[0]
+                try:
+                    values[idx] = await _read_method(client, size)(addr)
+                except Exception as e:
+                    errors[idx] = str(e) or e.__class__.__name__
+                    active[idx] = False
+                continue
+            try:
+                blob = bytes(await client.read_bytes(address=run_start, size=span))
+            except Exception:
+                blob = b""
+            if len(blob) < span:
+                # Partial/unmapped span → per-point reads (fail-fast per probe).
+                for addr, size, idx in members:
+                    try:
+                        values[idx] = await _read_method(client, size)(addr)
+                    except Exception as e:
+                        errors[idx] = str(e) or e.__class__.__name__
+                        active[idx] = False
+                continue
+            for addr, size, idx in members:
+                off = addr - run_start
+                values[idx] = int.from_bytes(blob[off : off + size], "little")
+
+    observations = [
+        ProbeObservation(
+            name=probes[i].name,
+            address=probes[i].address,
+            size=probes[i].size,
+            value=values[i],
+            error=errors[i],
+        )
+        for i in range(n)
+    ]
     success = sum(1 for o in observations if not o.error)
     failure = len(observations) - success
     return ObservationResult(

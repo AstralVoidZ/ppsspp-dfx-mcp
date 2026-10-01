@@ -93,6 +93,14 @@ async def watch_value(
         raise ArgsInvalid(f"duration_frames {duration_frames} exceeds the cap 18000")
     if interval_frames < 1:
         raise ArgsInvalid(f"interval_frames must be >= 1 (got {interval_frames})")
+    if interval_frames > duration_frames:
+        # W2 (review v3): the interval had no upper bound, so a huge value
+        # kept the polling loop — and the session lock — alive for hours
+        # (10**6 frames ≈ 4.6 h) while the tool advertised a frame cap.
+        raise ArgsInvalid(
+            f"interval_frames {interval_frames} exceeds duration_frames "
+            f"{duration_frames} — the poll cadence cannot outrun the watch window"
+        )
 
     await validate_session_alive(session_id)
     logger.info(
@@ -126,7 +134,9 @@ async def watch_value(
                     break
             last_value = value
             samples += 1
-            for _ in range(interval_frames):
+            # W2 (review v3): bound the inner wait by the frames left in the
+            # window — otherwise the last interval can overshoot duration_frames.
+            for _ in range(min(interval_frames, duration_frames - frame)):
                 await asyncio.sleep(1 / 60)
                 frame += 1
 

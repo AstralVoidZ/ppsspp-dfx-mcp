@@ -325,6 +325,7 @@ class TestW13AddressRange:
         with pytest.raises(ToolError):
             parse_address(True)  # type: ignore[arg-type]
 
+
 class TestFormatAddressFields:
     """format_address_fields recursively normalizes address int fields.
 

@@ -36,9 +36,9 @@ before running.
 - **Session model**: multiple concurrent PPSSPP sessions, readiness probing
   (`wait_ready`), and wedge self-healing (`resilient` start).
 - **Agent ergonomics**: composite tools (`ppsspp_frame_snapshot`,
-  `ppsspp_trace_memory_access`, `ppsspp_batch_step`), `session_id` auto
-  resolution, defensive error codes (`[CODE] message` format; CPU-freeze vs
-  disconnect disambiguation), with recovery hints embedded in error text.
+  `ppsspp_breakpoint(action="wait"/"trace")`, `ppsspp_batch_step`), `session_id`
+  auto resolution, defensive error codes (`[CODE] message` format; CPU-freeze
+  vs disconnect disambiguation), with recovery hints embedded in error text.
 - **Background automation**: batch jobs run in detached server tasks,
   immune to MCP client tool-call timeouts; supports status polling,
   cancellation, and registry inventory (`ppsspp_batch_status` with `batch_id` omitted).
@@ -59,6 +59,10 @@ launches it and connects to `ws://<host>:<port>/debugger`); any MCP client
 (ZCode, Claude Desktop, MCP Inspector, ...).
 
 ### Install from PyPI
+
+> **Version status**: PyPI carries an _alpha_-stage release snapshot and may
+> lag the repository's `main`. Go by the wheel you actually installed
+> (`pip show ppsspp-dfx-mcp`); see [CHANGELOG.md](CHANGELOG.md) for changes.
 
 Use a dedicated venv — this server's MCP SDK v2 cannot coexist with the 1.x
 `mcp` package many other MCP servers pin:
@@ -205,17 +209,34 @@ the working directory):
 
 ### Standalone quick start
 
-Ready-to-copy templates for the three config files are in
-[`examples/`](examples/) — start there, don't hand-write YAML from scratch:
+The three config files (`project.yaml` / `addresses.yaml` /
+`scripts.manifest.yaml`) ship as ready-to-copy templates — start there, don't
+hand-write YAML from scratch. Where you get them depends on how you installed:
+
+**From a source checkout** (the templates are in the repo):
 
 ```bash
 mkdir -p .ppsspp-dfx/config
 cp examples/project.yaml examples/addresses.yaml \
    examples/scripts.manifest.yaml .ppsspp-dfx/config/
-# Then edit .ppsspp-dfx/config/project.yaml: point ppsspp_exe at your
-# WS-debugger-enabled PPSSPP build, and replace the PLACEHOLDER addresses in
-# addresses.yaml with values you reverse-engineered for your own game.
 ```
+
+**From PyPI** (the wheel packages only `src/ppsspp_dfx_mcp` and does **not**
+contain `examples/` — fetch the same templates from GitHub):
+
+```bash
+mkdir -p .ppsspp-dfx/config
+for f in project.yaml addresses.yaml scripts.manifest.yaml; do
+  curl -fsSL "https://raw.githubusercontent.com/AstralVoidZ/ppsspp-dfx-mcp/main/examples/$f" \
+    -o ".ppsspp-dfx/config/$f"
+done
+```
+
+You can also browse/download them one by one from
+[`examples/`](https://github.com/AstralVoidZ/ppsspp-dfx-mcp/tree/main/examples).
+Once copied, edit `.ppsspp-dfx/config/project.yaml`: point `ppsspp_exe` at your
+WS-debugger-enabled PPSSPP build, and replace the PLACEHOLDER addresses in
+`addresses.yaml` with values you reverse-engineered for your own game.
 
 Two things to know before the first session:
 
@@ -300,13 +321,12 @@ step exists.
 | `-32000: Connection closed` (no other info) | A wrapper script sits between the MCP client and the server: on Windows `os.execv` is really `CreateProcess` + parent wait (not POSIX exec-replacement), so the inner server's stdin hits EOF immediately and exits silently. Remove the middle layer and use the venv interpreter as `command` (see [Run from source](#run-from-source)) |
 | `check_env` reports "standalone venv missing" | `.venv/` is gitignored, so a fresh clone never has it. Run `python scripts/check_env.py --bootstrap` |
 | `mcp SDK version unsatisfied` / import-time crash | The system Python's `mcp` package is often pinned to 1.x by other MCP servers — irreconcilable with SDK v2. Don't install globally — use `check_env.py --bootstrap`, or install into a dedicated venv per [Install from PyPI](#install-from-pypi) |
-| All `ppsspp_script_*` tools vanish (server starts fine) | `.ppsspp-dfx/config/scripts.manifest.yaml` missing — absence only warns, dynamic tools silently empty. Copy the three templates from `examples/` (`check_env.py --check` tells you) |
+| All `ppsspp_script_*` tools vanish (server starts fine) | `.ppsspp-dfx/config/scripts.manifest.yaml` missing — absence only warns, dynamic tools silently empty. Follow [Standalone quick start](#standalone-quick-start) to fetch the three templates (`check_env.py --check` tells you; under a PyPI install they are not in the wheel, so fetch them from GitHub) |
 | `[PPSSPP_NOT_FOUND]` | PPSSPP executable not configured. Set `PPSSPP_DFX_EXE_PATH`, or `ppsspp_exe` in `.ppsspp-dfx/config/project.yaml` (env > yaml precedence) |
 | Can't find `.ppsspp-dfx/config` | The config dir resolves from CWD (no upward search). Start from a directory containing `.ppsspp-dfx/`, or set `PPSSPP_DFX_CONFIG_DIR` |
 | WebSocket connect fails / `WS_DISCONNECTED` | PPSSPP not running, wrong port, or the WebSocket debugger isn't enabled. Verify with `check_env.py --check` and `ppsspp_session(action='get')` |
 | Tool call hangs / times out (`WS_TIMEOUT`) | PPSSPP's main loop dispatches WebSocket requests: when the UI is frozen, a modal dialog is up, or emulation is paused, requests are not serviced. Screenshot first to check the UI state |
 | `[BOOT_TIMEOUT]` during boot | Wedged-boot suspicion. `start(resilient=true)` quarantines the GPU-backend blacklist (renames `FailedGraphicsBackends.txt`, never deletes) and self-heals (≤2 retries) |
-| `read_u32` returns `IR_ENCODING_DETECTED` | You read JIT-IR code, not MIPS instructions. Use `ppsspp_disassemble` |
 
 ### `structuredContent` serialization caveat
 
@@ -324,6 +344,20 @@ consumers should fall back to the text-channel JSON.
 Honest statement of the protocol surface's boundaries — each item is also
 annotated in the corresponding tool description; summarized here:
 
+- **IR encoding cannot be reliably detected MCP-side**: reading a JIT-IR code
+  section with `read_u32` does not error but may yield a meaningless value (not
+  a real MIPS instruction) — read code sections with `ppsspp_disassemble`
+  (`ppsspp_search_disasm` for instruction search).
+- **Breakpoint conditions are evaluated MCP-side**: this build's IR mode ignores
+  register conditions (upstream defect, verified on real hardware), so
+  `breakpoint` never forwards `condition` to PPSSPP — `action='wait'` evaluates
+  it with `cpu.evaluate` when the hit lands, and **the evaluator only runs while
+  a `wait` is active**; falsy hits are auto-resumed and counted in
+  `filtered_hits`, and ≥10 hits/<1s at one address trip the hit-storm breaker
+  (auto-disarm + `storm_break=true`). If the CPU was already paused before
+  arming, the pause cannot be attributed (a manual pause is indistinguishable
+  from a hit): the call returns `hit=true` with a `note` stating that the
+  registered condition was **not** evaluated.
 - **No save-state API**: PPSSPP's WebSocket debugger exposes no `savestate.*`
   events; save/load cannot be provided. Use PPSSPP's UI hotkeys (F1–F8 slots).
 - **Frame stepping is instruction-granular only**: `step` uses `cpu.stepInto`.

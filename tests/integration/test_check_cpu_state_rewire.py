@@ -72,8 +72,16 @@ def _gpu_error(stepping0: bool, stepping1: bool) -> CpuStateError:
 
 
 @pytest.fixture(autouse=True)
-def _manifest_and_registry_cleanup():
-    """Isolate the manifest singleton; never leak dynamic tools."""
+def _manifest_and_registry_cleanup(monkeypatch: pytest.MonkeyPatch):
+    """Isolate the manifest singleton; never leak dynamic tools.
+
+    W8 (review v3): ``_inject_manifest`` below points the manifest at an
+    ABSOLUTE script path (the real rewired file). Absolute paths now need
+    the explicit ``PPSSPP_DFX_ALLOW_ABS_SCRIPT`` opt-in, so this module —
+    a trusted fixture, not production config — opts in here instead of
+    weakening the production default.
+    """
+    monkeypatch.setenv("PPSSPP_DFX_ALLOW_ABS_SCRIPT", "1")
     yield
     for name in list(registered_exposed_names()):
         _unregister_exposed_tool(name)

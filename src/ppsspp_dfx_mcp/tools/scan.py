@@ -42,6 +42,7 @@ from ppsspp_dfx_mcp.tools._common import (
     SCAN_BG_BUDGET_S,
     SCAN_MAX_CONSECUTIVE_READ_FAILURES,
     SCAN_READ_TIMEOUT_S,
+    require_int_not_bool,
     translate_tool_errors,
 )
 from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
@@ -75,6 +76,10 @@ _MAX_STRINGS = 500
 _MAX_TEXT_CHARS = 4096
 
 _WIDTHS = {"u8": (1, "B"), "u16": (2, "H"), "u32": (4, "I")}
+# Precompiled little-endian readers (W10): building "<"+fmt and slicing
+# per element ran on the event loop and dominated 8 MiB scans.
+_STRUCTS = {fmt: struct.Struct("<" + fmt) for _, fmt in _WIDTHS.values()}
+_FMT_BY_SIZE = {1: "B", 2: "H", 4: "I"}
 _OPS = ("eq", "ne", "lt", "gt")
 
 
@@ -144,12 +149,54 @@ def _merge_runs(addresses: list[int], size: int) -> list[tuple[int, int, list[in
     return runs
 
 
-async def _read_segments(client: Any, start: int, size: int) -> list[tuple[int, bytes]]:
-    """Read [start, start+size) as readable (seg_start, bytes) segments.
+def _scan_block_hits(blob: bytes, fmt: str, op: str, value: int, limit: int) -> list[int]:
+    """Offsets inside ``blob`` whose little-endian <fmt> value satisfies ``op``.
 
-    Unreadable chunks are SKIPPED — the ppsspp_scan BEHAVIOR contract.
-    Segment pairs (not one flat buffer) keep addresses exact when a hole
-    splits the range.
+    W10 (review v3): the per-element ``struct.unpack("<"+fmt, blob[off:off+n])``
+    loop ran on the event loop (measured 1 MiB u16 ≈ 0.168 s → an 8 MiB
+    foreground scan ≈ 1.3 s of stalled event loop). Two fast paths:
+    ``op == "eq"`` searches the encoded target with ``bytes.find`` (C-level),
+    every other op uses the precompiled ``Struct.unpack_from`` (no slicing).
+    Returned offsets are identical to the naive per-offset loop, including
+    overlapping matches, and stop at ``limit`` hits.
+    """
+    out: list[int] = []
+    st = _STRUCTS[fmt]
+    size = st.size
+    if limit <= 0 or len(blob) < size:
+        return out
+    if op == "eq":
+        try:
+            target = value.to_bytes(size, "little", signed=False)
+        except (OverflowError, ValueError):
+            # The value cannot exist at this width — the naive comparison
+            # would never match either.
+            return out
+        start = 0
+        while len(out) < limit:
+            idx = blob.find(target, start)
+            if idx < 0:
+                break
+            out.append(idx)
+            start = idx + 1  # +1 keeps overlapping matches (naive semantics)
+        return out
+    unpack_from = st.unpack_from
+    for off in range(len(blob) - size + 1):
+        if _cmp(unpack_from(blob, off)[0], op, value):
+            out.append(off)
+            if len(out) >= limit:
+                break
+    return out
+
+
+async def _iter_segments(client: Any, start: int, size: int):
+    """Yield ``(seg_start, bytes)`` readable chunks over ``[start, start+size)``.
+
+    W11 (review v3): this used to append every chunk to a list and return it,
+    so a 256 MiB strings scan held the whole range in memory. Streaming keeps
+    the peak at one read chunk. Unreadable chunks are SKIPPED — the
+    ppsspp_scan BEHAVIOR contract — and segment pairs (not one flat buffer)
+    keep addresses exact when a hole splits the range.
     """
     segs: list[tuple[int, bytes]] = []
     # Per-read timeout + consecutive-timeout abort (v0.1.7): only
@@ -177,6 +224,7 @@ async def _read_segments(client: Any, start: int, size: int) -> list[tuple[int, 
         consecutive_timeouts = 0
         segs.append((start + offset, bytes(raw)))
     return segs
+        yield (start + offset, bytes(raw))
 
 
 def _decode_pattern(pattern: str, pattern_type: str) -> bytes:
@@ -522,8 +570,10 @@ async def _scan_pattern(
 ) -> ScanOutput:
     if not pattern:
         raise ArgsInvalid("pattern is required for mode='pattern'")
+    max_results = require_int_not_bool(max_results, "max_results")
     if max_results <= 0:
         raise ArgsInvalid(f"max_results must be > 0 (got {max_results})")
+    chunk_size = require_int_not_bool(chunk_size, "chunk_size")
     if chunk_size <= 0:
         raise ArgsInvalid(f"chunk_size must be > 0 (got {chunk_size})")
     if not start_addr or not end_addr:
@@ -587,17 +637,16 @@ async def _scan_value(
                 f"scan takes ~40 s over localhost WS; keep ≤1 MiB per "
                 f"call or split)."
             )
-        async with session_client(session_id) as client:
-            segments = await _read_segments(client, start_int, total)
         candidates: list[int] = []
-        for seg_start, blob in segments:
-            for off in range(0, len(blob) - size + 1):
-                if _cmp(struct.unpack("<" + fmt, blob[off : off + size])[0], op, value):
+        async with session_client(session_id) as client:
+            async for seg_start, blob in _iter_segments(client, start_int, total):
+                remaining = _VALUE_MAX_HITS - len(candidates)
+                if remaining <= 0:
+                    break
+                for off in _scan_block_hits(blob, fmt, op, value, remaining):
                     candidates.append(seg_start + off)
-                    if len(candidates) >= _VALUE_MAX_HITS:
-                        break
-            if len(candidates) >= _VALUE_MAX_HITS:
-                break
+                if len(candidates) >= _VALUE_MAX_HITS:
+                    break
         _evict_oldest_if_full()
         handle = uuid.uuid4().hex[:8]
         _VALUE_SESSIONS[handle] = {
@@ -668,8 +717,6 @@ async def _scan_strings(
     total = end_int - start_int
     if total > MAX_SCAN_RANGE_BYTES:
         raise ArgsInvalid(f"range too large: {total} bytes (cap {MAX_SCAN_RANGE_BYTES})")
-    async with session_client(session_id) as client:
-        segments = await _read_segments(client, start_int, total)
     run_re = re.compile(_RUNS[charset].pattern.replace(b"{6,}", f"{{{max(min_len, 1)},}}".encode()))
     decode = _DECODERS[charset]
 
@@ -681,32 +728,33 @@ async def _scan_strings(
 
     strings_out: list[dict[str, Any]] = []
     truncated = False
-    for seg_start, data in segments:
-        for m in run_re.finditer(data):
-            if m.end() - m.start() < min_len:
-                continue
-            try:
-                s = decode(m.group())
-            except UnicodeDecodeError:
-                continue
-            if charset == "shift_jis" and quality > 0 and _jp_ratio(s) < quality:
-                continue
-            # W13 (review v2): strings was the one unbounded scan mode —
-            # a single printable run can be megabytes (8MB of 'A' is one
-            # "string") and the full result used to persist in the
-            # background-job registry, re-serialized on every status
-            # poll. Cap hits and per-hit text.
-            if len(strings_out) >= _MAX_STRINGS:
-                truncated = True
+    async with session_client(session_id) as client:
+        async for seg_start, data in _iter_segments(client, start_int, total):
+            for m in run_re.finditer(data):
+                if m.end() - m.start() < min_len:
+                    continue
+                try:
+                    s = decode(m.group())
+                except UnicodeDecodeError:
+                    continue
+                if charset == "shift_jis" and quality > 0 and _jp_ratio(s) < quality:
+                    continue
+                # W13 (review v2): strings was the one unbounded scan mode —
+                # a single printable run can be megabytes (8MB of 'A' is one
+                # "string") and the full result used to persist in the
+                # background-job registry, re-serialized on every status
+                # poll. Cap hits and per-hit text.
+                if len(strings_out) >= _MAX_STRINGS:
+                    truncated = True
+                    break
+                strings_out.append(
+                    {
+                        "address": seg_start + m.start(),
+                        "text": s[:_MAX_TEXT_CHARS],
+                    }
+                )
+            if truncated:
                 break
-            strings_out.append(
-                {
-                    "address": seg_start + m.start(),
-                    "text": s[:_MAX_TEXT_CHARS],
-                }
-            )
-        if truncated:
-            break
 
     return ScanResponse.build_strings(charset, strings_out, truncated=truncated)
 
@@ -720,7 +768,8 @@ async def _narrow_candidates(
     fails fall back to per-address reads (partial unmapped spans)."""
     if not addresses:
         return []
-    fmt = "<" + {1: "B", 2: "H", 4: "I"}[size]
+    fmt = _FMT_BY_SIZE[size]
+    unpack_from = _STRUCTS[fmt].unpack_from
     out: list[int] = []
     async with session_client(session_id) as client:
         for run_start, span, addrs in _merge_runs(addresses, size):
@@ -729,15 +778,19 @@ async def _narrow_candidates(
             except Exception:
                 for addr in addrs:
                     try:
-                        raw = await client.read_bytes(address=addr, size=size)
+                        raw = bytes(await client.read_bytes(address=addr, size=size))
                     except Exception:
                         continue
-                    if _cmp(struct.unpack(fmt, bytes(raw))[0], op, value):
+                    # W6 (review v3): a short payload used to reach struct.unpack
+                    # and raise struct.error, degrading the whole narrow batch to
+                    # [INTERNAL]. Skip the candidate instead.
+                    if len(raw) == size and _cmp(unpack_from(raw, 0)[0], op, value):
                         out.append(addr)
                 continue
             for addr in addrs:
                 off = addr - run_start
-                if _cmp(struct.unpack(fmt, blob[off : off + size])[0], op, value):
+                chunk = blob[off : off + size]
+                if len(chunk) == size and _cmp(unpack_from(chunk, 0)[0], op, value):
                     out.append(addr)
     return out
 

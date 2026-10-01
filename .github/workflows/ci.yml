@@ -71,8 +71,13 @@ jobs:
         run: python scripts/check_skips.py
 
       # 🔴-4 守卫：门禁引擎的纯逻辑单测纳入 CI（此前游离于门禁外）
-      - name: evals gate engine (pure unit, no API)
-        run: python -m pytest evals/test_gates.py evals/test_b2_skill.py -q
+      # W19 (review v3): 从"显式两个文件"改为整个 evals/ 目录——显式清单
+      # 漏掉了 evals/test_bridge.py（bridge 的 token/CORS/体积门禁），新增
+      # 测试文件也不会自动进 CI。当前 evals/ 下全部测试均为纯逻辑：fake 模式
+      # （BridgeCore(real=False)）、无 API key、无真机 PPSSPP/ISO、无外部网络，
+      # 因此无需 --ignore。
+      - name: evals (all pure-logic tests)
+        run: python -m pytest evals -q
 
   ci-ok:
     name: ci-ok

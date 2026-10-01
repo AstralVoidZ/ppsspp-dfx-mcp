@@ -9,6 +9,11 @@ protocol layer has no place for.
 Usage (from mcps/ppsspp-dfx-mcp/):
   <venv python> -m evals.bridge --port 8765           # fake mode
   <venv python> -m evals.bridge --port 8765 --real    # real PPSSPP (needs EXE/ISO env)
+
+The server prints a random bearer token at startup (W7, review v3); every
+request must present it, e.g.
+  curl -H "Authorization: Bearer <token>" http://127.0.0.1:8765/tools
+POST bodies must be application/json, ≤1 MiB, and carry no foreign Origin.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import asyncio
 import contextlib
 import json
 import os
+import secrets
 import sys
 import tempfile
 import threading
@@ -36,6 +42,12 @@ _SRC_ROOT = _PKG_ROOT / "src"
 _TESTS_ROOT = _PKG_ROOT / "tests"
 
 _CALL_TIMEOUT_S = 300
+
+# W7 (review v3): request guards. The bridge can drive an emulator
+# (memory read/write, input injection), so loopback binding alone is not a
+# trust boundary — any local process, and any web page that can reach
+# 127.0.0.1, would otherwise be able to call it.
+_MAX_BODY_BYTES = 1 << 20  # 1 MiB
 
 
 def _result_text(result: Any) -> str:
@@ -158,12 +170,21 @@ class BridgeCore:
 class BridgeServer:
     """Sync HTTP facade over BridgeCore (runs core on a background loop)."""
 
-    def __init__(self, core: BridgeCore, port: int) -> None:
+    def __init__(self, core: BridgeCore, port: int, token: str | None = None) -> None:
         self.core = core
         self.port = port
+        # W7 (review v3): per-process bearer token, printed by serve() so a
+        # human (and the eval runner) can use it. The constructor seam
+        # (token=None → random) exists so tests can inject a known value.
+        self.token: str = token if token is not None else secrets.token_urlsafe(32)
         self.loop = asyncio.new_event_loop()
         self._loop_thread: threading.Thread | None = None
         self._httpd: ThreadingHTTPServer | None = None
+        # W19 (review v3): if the MCP core fails to start (it runs on the
+        # background loop, i.e. inside a thread), callers/tests would only
+        # ever observe "bridge never became ready" — the actual exception
+        # died with the thread. Record it here so diagnostics survive.
+        self.start_error: Exception | None = None
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self.loop)
@@ -176,10 +197,17 @@ class BridgeServer:
     def serve(self) -> None:
         self._loop_thread = threading.Thread(target=self._run_loop, daemon=True)
         self._loop_thread.start()
-        self.submit(self.core.start())
+        try:
+            self.submit(self.core.start())
+        except Exception as e:  # noqa: BLE001 — 记录后重抛：让测试/调用方看到真实原因
+            self.start_error = e
+            raise
         self._httpd = ThreadingHTTPServer(("127.0.0.1", self.port), self._make_handler())
         print(
-            f"bridge on http://127.0.0.1:{self.port} (real={self.core.real})",
+            f"bridge on http://127.0.0.1:{self.port} (real={self.core.real})\n"
+            f"bridge token: {self.token}\n"
+            f'  send it as: -H "Authorization: Bearer {self.token}" '
+            f'(or -H "X-Bridge-Token: {self.token}")',
             flush=True,
         )
         try:
@@ -195,6 +223,7 @@ class BridgeServer:
     def _make_handler(self) -> type[BaseHTTPRequestHandler]:
         core = self.core
         submit = self.submit
+        token = self.token
 
         class Handler(BaseHTTPRequestHandler):
             def _send(self, code: int, body: Any) -> None:
@@ -205,7 +234,86 @@ class BridgeServer:
                 self.end_headers()
                 self.wfile.write(data)
 
+            # ── W7 guards ───────────────────────────────────────────────
+
+            def _authorized(self) -> bool:
+                """Bearer token (or X-Bridge-Token) must match the process token."""
+                header = self.headers.get("Authorization", "")
+                if header.lower().startswith("bearer "):
+                    presented = header[len("Bearer ") :].strip()
+                else:
+                    presented = self.headers.get("X-Bridge-Token", "").strip()
+                if not presented:
+                    return False
+                # Bytes compare: constant-time AND crash-free for non-ASCII
+                # header junk (str compare_digest raises on non-ASCII).
+                return secrets.compare_digest(presented.encode("utf-8"), token.encode("utf-8"))
+
+            def _origin_allowed(self) -> bool:
+                """Reject cross-origin browser requests (CSRF-lite).
+
+                Absent Origin = non-browser client (curl / eval runner) →
+                allowed. A present Origin must be this bridge's own
+                loopback origin.
+                """
+                origin = self.headers.get("Origin")
+                if not origin:
+                    return True
+                port = self.server.server_address[1]  # type: ignore[attr-defined]
+                return origin in (f"http://127.0.0.1:{port}", f"http://localhost:{port}")
+
+            def _require_authorized(self) -> bool:
+                if self._authorized():
+                    return True
+                self._send(401, {"error": "unauthorized: missing or invalid bridge token"})
+                return False
+
+            def _require_allowed_origin(self) -> bool:
+                if self._origin_allowed():
+                    return True
+                self._send(403, {"error": f"forbidden origin: {self.headers.get('Origin')}"})
+                return False
+
+            def _require_json_content_type(self) -> bool:
+                ctype = self.headers.get("Content-Type", "")
+                if ctype.split(";", 1)[0].strip().lower() == "application/json":
+                    return True
+                self._send(
+                    415,
+                    {
+                        "error": f"unsupported content-type: {ctype or '(missing)'}; "
+                        "expected application/json"
+                    },
+                )
+                return False
+
+            def _read_body(self) -> bytes | None:
+                """Read the declared body, rejecting anything over the cap.
+
+                The size check happens BEFORE the read: a hostile or
+                mistaken Content-Length would otherwise park this handler
+                reading bytes that never arrive.
+                """
+                try:
+                    declared = int(self.headers.get("Content-Length", 0))
+                except ValueError:
+                    self._send(400, {"error": "invalid Content-Length"})
+                    return None
+                if declared > _MAX_BODY_BYTES:
+                    self._send(
+                        413,
+                        {"error": f"body too large: {declared} bytes (limit {_MAX_BODY_BYTES})"},
+                    )
+                    return None
+                if declared <= 0:
+                    return b"{}"
+                return self.rfile.read(min(declared, _MAX_BODY_BYTES))
+
+            # ── Routes ──────────────────────────────────────────────────
+
             def do_GET(self) -> None:
+                if not self._require_authorized() or not self._require_allowed_origin():
+                    return
                 if self.path == "/tools":
                     try:
                         self._send(200, submit(core.list_tools()))
@@ -215,8 +323,15 @@ class BridgeServer:
                     self._send(404, {"error": "not found"})
 
             def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", 0))
-                raw = self.rfile.read(length) if length else b"{}"
+                if (
+                    not self._require_authorized()
+                    or not self._require_allowed_origin()
+                    or not self._require_json_content_type()
+                ):
+                    return
+                raw = self._read_body()
+                if raw is None:
+                    return
                 try:
                     body = json.loads(raw)
                 except json.JSONDecodeError as exc:

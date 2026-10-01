@@ -4,7 +4,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| `scenarios.yaml` | 21 张场景卡（CTL×2 / L1×8 / L2×6 / L3×3 / R1-R2 real 模式 ×2，v1.2），ground truth 全部 fixture 驱动 |
+| `scenarios.yaml` | 49 张场景卡（CTL×2 / L1×8 / L2×6 / L3×3 / REAL×30，v1.2），ground truth 全部 fixture 驱动 |
 | `gates.py` | 确定性门禁（first_tool / params / sequence / answer_contains / recovery / tool_used / final_call_ok / boot_order / no_tool） |
 | `test_gates.py` | 门禁单测（每类正反例） |
 | `runner.py` | Runner MVP：fake 模式 server 子进程（每 run 隔离）+ OpenAI 兼容 agent loop + 控频 + JSONL + 断点续跑 |

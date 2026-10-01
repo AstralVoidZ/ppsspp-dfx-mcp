@@ -5,7 +5,111 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.1.6] - 2026-09-30
+
+### Added（v3 审查修复批：条件断点求值器「接线」落地）
+
+- **条件断点 MCP 侧求值（S1 接线完成）**：v3 全仓审查实证——本能力此前只有
+  模块（`core/cond_filter.py`）、响应字段与本文档的承诺，**生产代码零调用点**：
+  `condition` 仍被下发给 IR 模式会静默忽略寄存器条件的 PPSSPP，导致条件断点
+  变无条件假命中。本批完成接线：
+  - `set / mem_set / update / mem_update` 一律以**无条件**方式布防（不再下发
+    `condition`），条件交 `cond_filter` 注册表；`update` 覆盖条件时先回收旧条目，
+    `condition=""` 表示显式清空。
+  - `action='wait'` 命中时用 `cpu.evaluate` 求值：假 → 自动 `resume` 并计入
+    `condition_filtered` / `filtered_hits`，继续等待；真 → 正常返回并携带
+    `condition`；**求值失败保守按命中处理**并在 `note` 说明（调试场景不静默丢命中）。
+  - **命中风暴熔断**：同一地址 ≥10 次命中且相邻间隔 <1s → 自动撤防（CPU 断点与
+    同址 memcheck 双撤）并返回 `storm_break=true` + `note`。
+  - 生命周期：`remove / mem_remove / stop_session / idle GC` 均回收过滤器条目。
+  - 新增单测 `tests/unit/l4_regression/test_cond_filter_wiring.py`（9 例）与真机
+    集成 `tests/integration/test_cond_filter_real.py`（env 门控；断言
+    `s1==0x711` 断点在 `s1≠0x711` 期间**不返回命中**）。
+
+### Fixed（v3 审查修复批：W1-W17 + A8/A9/A10）
+
+- **W1 错误上下文在真实调用边界失效**：`session_client*` 的 async generator
+  此前在 `finally` 中即复位 PID/游戏态 resolver，异常冒泡到工具层
+  `to_tool_error` 时已复位 → `CPU_FREEZE_SUSPECTED` 超时判别矩阵恒走保守分支
+  （README 承诺的冻结判别在生产路径失效）。改为**仅在正常退出时复位**，失败时
+  保留 resolver 至该 task 结束。新增 `test_error_context_scope.py`：with 之外
+  可观测断言 + 正常退出防泄漏 + 双会话并发隔离。
+- **W2 `ppsspp_watch_value` 预算失控**：`interval_frames` 无上界、内层 sleep 不受
+  `duration_frames` 约束（`interval_frames=10**6` 可持会话锁约 4.6 小时）。改为
+  拒绝 `interval_frames > duration_frames`，内层按剩余帧收敛。
+- **W3 `ppsspp_analyze_log` 截断语义失真**：内部 500 条上限触发时
+  `truncated=false`、`total_matches` 失真。`_filter_log_lines` 回传触顶标志 →
+  `truncated=true`；描述明确 `total_matches` 的"下限"语义。
+- **W4 `ppsspp_query(func_add)` verified 误判**：name-only 调用（协议允许）按
+  `address==0` 校验。改为 addr 缺省时按 name 匹配；反例断言防"假通过"。
+- **W6 `ppsspp_scan` narrow 短读崩溃**：短 payload 触发未捕获 `struct.error` →
+  整批 narrow 退化为 `[INTERNAL]`。合并读与逐点读两分支补长度守卫。
+- **W9 调试器暴露告警快路径遗漏**：`_wait_for_port` phase-1 命中即返回，跳过
+  `warn_if_debugger_exposed_externally`；现两分支公共出口均告警。
+- **W10 `ppsspp_scan` value 初扫热循环**：逐元素 `struct.unpack` 阻塞事件循环
+  （实测 1 MiB u16 ≈ 0.168 s）。eq 改走 `bytes.find`、其余用预编译
+  `unpack_from`；实测 1 MiB eq **213 ms → 0.51 ms**，全 op 逐元素等价（属性测试）。
+- **W11 `ppsspp_scan` 整段读内存**：`_read_segments` 聚合全区间（strings 前台
+  峰值可达 256 MiB）→ 改流式 `_iter_segments`，峰值降到单块级。
+- **W12 `ppsspp_state_observer` N+1 往返**：每 probe 每 sample 一次单点读
+  （50×1400 ≈ 7 万次）→ 同 sample 多探针合并块读 + 失败回退逐点读
+  （3 探针×2 sample：6 次 → 2 次）。
+- **W13 lint 门禁红（HEAD 实测 5 错 + 8 文件待格式化）**：修 F401/I001/SIM108；
+  全仓 `ruff format`（钉版 0.16.6）后 0 错 0 待排；dev 依赖与 CI 同步钉
+  `ruff==0.16.6`（消除本地/CI 版本漂移）。
+- **W14 `core/error_codes.py` 孤儿模块**：业务异常注册表全仓无人消费 → 改为从
+  `errors.py` 的 `ToolError` 子类自动派生（33 类）+ 双向一致性守卫测试。
+- **W15/W16 计数与退役名守卫盲区**：`test_readme_claims.py` 清单纳入
+  `CONTRIBUTING.md` 与 `evals/README.md`（36→37 工具、21→49 场景卡）；清
+  `README.en.md` 的退役工具名并新增 8 个退役名的显式不得出现断言。
+- **W17 evals B2 默认路径指向仓外**：`evals/runner.py` 的 monorepo 残留
+  `_REPO_ROOT.parents[1]`（fresh clone 必 `RuntimeError`，本机因工作区巧合通过）→
+  路径仓内化（`skills/ppsspp-dfx`）+ 存在性与"无父目录引用"守卫测试。
+- **A8 bool 当 int（S11 遗留）**：新增 `require_int_not_bool`，覆盖
+  `batch_step.count` / `input.duration+x` / `memory.size` /
+  `scan.max_results+chunk_size` 五处。
+- **A9/A10**：`views/_contract.py` 修正指向失效符号的引用（防漂移文档自身漂移）；
+  `sessions.json` 写入后 `chmod 0o600`（含 iso 路径/pid/ws_url）。
+- **CI 红修复（跨平台，发布前发现）**：`tests/unit/core/test_launcher.py` 的暴露
+  告警测试隐含 Windows 专属假设（patch 的是 Windows 绑址探针），在 ubuntu/macos
+  上必失败——CI 自 v0.1.6-dev 提交起即为红（本项与 W13 的 ruff 红是同一次 CI
+  失败的两个原因）。已按平台拆分：3 条 Windows-only 标记 + 3 条 POSIX 对应断言
+  （探针不可用→保守告警 / 通配绑定→告警 / 回环→静默），并以 `sys.platform`
+  强制探针在本地复核 POSIX 分支 4/4 断言为真。
+
+### Security（v3 审查修复批：W7/W8 + 文档面）
+
+- **W7 evals HTTP bridge 加固**（评估基建，不随 wheel 分发）：此前无鉴权、无
+  请求体上限、不校验 Content-Type/Origin（本机任意进程等价获得 MCP 全权；恶意
+  网页可用 `text/plain` 简单请求盲触发副作用）。补：body ≤1 MiB（413）、
+  `Content-Type: application/json`（415）、loopback `Origin`（403）、
+  Bearer token（401，启动打印，`compare_digest` 比较）。
+- **W8 manifest 绝对路径逃生口收敛**：绝对 `path` 现在必须显式
+  `PPSSPP_DFX_ALLOW_ABS_SCRIPT=1` 才放行（相对路径 containment 不变）；
+  `SECURITY.md` 新增「配置可信边界」段；示例清单注释同步。
+- **W5 撤除 `IR_ENCODING_DETECTED` / `VERIFY_MISMATCH` 宣称**：两码全仓零 raise
+  点，但 README×2 / `skills/**`×3 / 工具描述共六处宣称"读代码段会返回该码"。
+  裁决为**撤宣称**（无实机取证的判别式不启用启发式实现）；`errors.py` 保留类并
+  注明"待实机取证后再启用"。
+
+### Changed
+
+- **工具描述**（同笔重生成 `tests/unit/l2_mcp_contract/tool_surface_baseline.json`，
+  37 工具，`total_description_chars` 25047→25587）：`ppsspp_breakpoint` 条件语义
+  改为"MCP 侧求值"并补 wait 返回字段文档；`ppsspp_read_memory` 撤 IR 措辞；
+  `ppsspp_analyze_log` 明确 truncated/total_matches 语义。
+- **文档**：README 中英「独立部署快速开始」区分**源码检出**（`cp examples/…`）与
+  **PyPI 安装**（wheel 不含 `examples/`，给 raw.githubusercontent 链接）；
+  配置模板链接同步（W18）。
+
+### 回归（v3 审查修复批）
+
+- `pytest tests -q`：**1669 passed / 37 skipped / 1 xfailed / 0 failed**（修复前
+  基线 1593/36/1；新增 +76 用例）。
+- `ruff check .` + `ruff format --check .`（钉版 0.16.6）：**0 错 / 全量已格式化**
+  （排除他人工作流未跟踪文件 `evals/opencode_collect.py`）。
+- 真机（PPSSPP v1.20.4 dev 构建 + `cn.iso`）：条件断点过滤验收 —— 见
+  `tests/integration/test_cond_filter_real.py`。
 
 ### Changed（扫描预算守卫：前台撞超时"假冻结"根因消除）
 

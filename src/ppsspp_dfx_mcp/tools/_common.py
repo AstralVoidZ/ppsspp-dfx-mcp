@@ -195,6 +195,19 @@ async def wait_frames_chunked(
     return time.monotonic() - start
 
 
+def require_int_not_bool(value: Any, name: str, *, exc: type[ToolError] = ArgsInvalid) -> int:
+    """Guard: reject ``bool`` where an ``int`` parameter is expected.
+
+    ``isinstance(True, int)`` is True in Python, so an unguarded check let
+    ``size=True`` mean a 1-byte read and ``count=True`` a 1-step batch. The
+    caller passes the public parameter name (and, for step validation, the
+    step-local error class) so the message points at the offending argument.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise exc(f"{name} must be an int (bool is not accepted); got {value!r}")
+    return value
+
+
 def require_session_id(session_id: str | None) -> str:
     """Guard: raise the canonical ToolError when session_id is missing.
 

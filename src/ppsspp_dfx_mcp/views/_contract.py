@@ -23,7 +23,7 @@ Agent 无法据此判断会收到哪些字段（openspec `tool-schema-contract` 
 
 推论一：**一个工具若有多种返回形态**（按 action 分支返回不同 view），单形态契约
 必然在部分分支上失败。此类工具必须用 `partial=True`（全字段可选）或显式联合契约。
-`MultiShapeOutputRegistry`（见 `tools/_common.py`）登记全部此类工具，守卫测试
+`MULTI_SHAPE_OUTPUT_TOOLS`（见 `tools/_common.py`）登记全部此类工具，守卫测试
 `test_multi_shape_tools_are_registered` 以 AST 检测强制登记——**漏登记的工具会在
 真实调用时报错，而不是在测试里**。
 

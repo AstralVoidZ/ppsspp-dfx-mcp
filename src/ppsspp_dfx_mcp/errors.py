@@ -207,13 +207,30 @@ class NotImplemented(ToolError):
 
 
 class IrEncodingDetected(ToolError):
-    """read_u32 returned IR encoding — caller must use disassemble instead."""
+    """read_u32 returned IR encoding — caller must use disassemble instead.
+
+    W5 (review v3): the discriminant is NOT implemented — this repo has no
+    raise site for the class. It is kept only because the error
+    classification table (``core/error_codes.py``) and the documented agent
+    instructions reference the code. Code segments must be routed to
+    ``ppsspp_disassemble`` instead; do not build behavior on this class
+    (v3 ruling: retract the claim rather than enable an unproven
+    heuristic).
+    """
 
     code = "IR_ENCODING_DETECTED"
 
 
 class VerifyMismatch(ToolError):
-    """Disassembled instruction does not match expected."""
+    """Disassembled instruction does not match expected.
+
+    W5 (review v3): the discriminant is NOT implemented — no raise site
+    exists in this repo; the class is retained only because the error
+    classification table and agent-facing error docs reference the code.
+    Verify expectations by re-reading/disassembling explicitly instead of
+    relying on this error (retract the claim rather than enable an
+    unproven heuristic).
+    """
 
     code = "VERIFY_MISMATCH"
 
@@ -465,9 +482,12 @@ def set_error_context(
 def reset_error_context(token: ErrorContextToken) -> None:
     """Reset PID + game-state resolvers to their previous values.
 
-    Call when exiting the tool-call scope (e.g. in
-    ``session_client_with_transport`` ``__aexit__``) so the contextvar
-    does not leak to subsequent tool calls.
+    Call on the NORMAL exit of the tool-call scope (W1, review v3:
+    ``session_client_with_transport`` deliberately does NOT reset while an
+    exception unwinds — the tool layer's ``to_tool_error(e)`` runs after
+    the ``async with`` and still needs the resolvers; the resulting scope
+    leak is bounded to the failing asyncio task, which the MCP SDK ends
+    with the request).
     """
     t1, t2 = token
     _pid_resolver.reset(t1)

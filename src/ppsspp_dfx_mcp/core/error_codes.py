@@ -1,88 +1,64 @@
-"""Business exception code constants.
+"""Business exception code registry, **derived** from ppsspp_dfx_mcp.errors.
 
-Business exception classes live in ppsspp_dfx_mcp.errors.
-This module re-exports the code strings for use in tests / docs.
+Business exception classes live in ppsspp_dfx_mcp.errors; this module exposes
+their ``code`` strings as a lookup table for tests / docs / agent triage.
+
+W14 (review v3): the registry used to be a hand-maintained tuple of classes.
+That is a second definition of the same fact — it claimed 1:1 parity with
+errors.py while nothing enforced the claim, so a class added to errors.py
+would silently never appear here (the module was in fact orphaned: no
+in-repo consumer, so the drift had no symptom). It is now *derived* by
+walking ``ToolError.__subclasses__()``, which makes "registry == errors.py
+business exceptions" structurally true; the guard test
+``tests/unit/l2_mcp_contract/test_error_code_registry_consistency.py`` pins
+both directions (no omission, no extra) and code uniqueness.
 """
 
 from __future__ import annotations
 
 from ppsspp_dfx_mcp.errors import (
     AddrInvalid,
-    ArgsInvalid,
-    BootTimeout,
     BreakpointError,
-    CaptureEmpty,
-    ConfigInvalid,
-    CpuFreezeSuspected,
-    CpuStateError,
     IrEncodingDetected,
     IsoNotFound,
     ManifestError,
     NotImplemented,
-    PortConflict,
     PpssppError,
     PpssppNotFound,
-    PpssppProtocolError,
-    ProtectedAddress,
     RateLimitExceeded,
     ScanNoMatch,
     ScriptContractError,
     ScriptNotFound,
-    SessionAlreadyExists,
-    SessionAmbiguous,
-    SessionBusy,
     SessionExpired,
     SessionNotFound,
-    StepInvalid,
     StepNoAdvanceError,
-    StepOutError,
     ToolError,
     VerifyMismatch,
     WsConnectFailed,
-    WsDisconnected,
-    WsTimeout,
 )
 
+
+def _collect_business_exceptions() -> tuple[type[ToolError], ...]:
+    """Depth-first walk of ``ToolError`` subclasses that declare a str ``code``.
+
+    ToolError itself is skipped (its ``code`` is the generic ``INTERNAL``
+    fallback, not a business category), and non-ToolError exceptions raised
+    by this codebase (e.g. ``SteppingFailedError``, a plain RuntimeError that
+    ``to_tool_error`` translates) are outside the tree by construction.
+    Sorted by code so the tuple is stable across definition-order edits.
+    """
+    found: list[type[ToolError]] = []
+    stack: list[type[ToolError]] = list(ToolError.__subclasses__())
+    while stack:
+        cls = stack.pop()
+        if isinstance(getattr(cls, "code", None), str):
+            found.append(cls)
+        stack.extend(cls.__subclasses__())
+    return tuple(sorted(found, key=lambda c: c.code))
+
+
 # All business exception classes (for documentation / iteration).
-# W17 (review v2): the registry now mirrors errors.py's business
-# exception set 1:1 — it claims to be the single source for code strings,
-# so a class missing here is a class whose [CODE] is invisible to the
-# registry's consumers (docs generators, gate tests, agent triage).
-BUSINESS_EXCEPTIONS = (
-    PpssppError,
-    PpssppNotFound,
-    IsoNotFound,
-    WsConnectFailed,
-    ArgsInvalid,
-    ConfigInvalid,
-    SessionNotFound,
-    SessionExpired,
-    SessionBusy,
-    SessionAlreadyExists,
-    SessionAmbiguous,
-    BootTimeout,
-    ScriptNotFound,
-    ScriptContractError,
-    ManifestError,
-    AddrInvalid,
-    CaptureEmpty,
-    ProtectedAddress,
-    ScanNoMatch,
-    StepInvalid,
-    StepNoAdvanceError,
-    NotImplemented,
-    IrEncodingDetected,
-    VerifyMismatch,
-    BreakpointError,
-    RateLimitExceeded,
-    CpuStateError,
-    PortConflict,
-    WsTimeout,
-    WsDisconnected,
-    CpuFreezeSuspected,
-    PpssppProtocolError,
-    StepOutError,
-)
+BUSINESS_EXCEPTIONS = _collect_business_exceptions()
 
 # Error code → exception class lookup.
 ERROR_CODE_TO_CLASS = {cls.code: cls for cls in BUSINESS_EXCEPTIONS}

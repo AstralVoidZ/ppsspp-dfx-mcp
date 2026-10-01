@@ -21,6 +21,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import format_address, parse_address
+from ppsspp_dfx_mcp.core import cond_filter
 from ppsspp_dfx_mcp.errors import ArgsInvalid, BreakpointError, ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.breakpoint import BreakpointResult
 from ppsspp_dfx_mcp.server import mcp
@@ -48,6 +49,13 @@ class _WaitKeys(TypedDict, total=False):
     reason: str | None
     related_address: str | None
     ticks: int | None
+    # 🔴-1/D1 条件过滤器扩展（wait 分支携带；note 已由 _StatsKeys /
+    # _TraceKeys 并入扁平契约，这里显式声明以免依赖合并顺序）。
+    condition: str | None
+    condition_filtered: int
+    filtered_hits: int
+    storm_break: bool
+    note: str | None
 
 
 class _StatsKeys(TypedDict, total=False):
@@ -207,11 +215,14 @@ async def breakpoint(
                 "action='set' + 'wait' instead.\n"
                 "CPU breakpoint actions:\n"
                 "- 'set': add a CPU execution breakpoint (requires address; "
-                "enabled? defaults to True; condition? optional).\n"
+                "enabled? defaults to True; condition? optional — enforced "
+                "MCP-side (falsy hits auto-resumed, counted in "
+                "filtered_hits), NOT sent to PPSSPP).\n"
                 "- 'remove': delete a CPU breakpoint by address.\n"
                 "- 'list': list all current CPU breakpoints.\n"
                 "- 'update': update a CPU breakpoint's enabled/log/condition/"
-                "log_format (requires address; all other params optional).\n"
+                "log_format (requires address; all other params optional; "
+                "condition='' clears it).\n"
                 "Memory breakpoint actions:\n"
                 "- 'mem_set': add a memory access breakpoint (requires "
                 "address; size?/read?/write?/enabled?/log?/condition?/"
@@ -267,7 +278,10 @@ async def breakpoint(
             default=None,
             description=(
                 "Break condition expression (set / update / mem_set / "
-                "mem_update; None = don't send)."
+                "mem_update; None = don't send). Enforced MCP-side: PPSSPP's "
+                "IR mode silently ignores register conditions, so the "
+                "breakpoint is armed UNCONDITIONALLY and falsy hits are "
+                "auto-resumed and counted in filtered_hits."
             ),
         ),
     ] = None,
@@ -352,9 +366,9 @@ async def breakpoint(
 
 
     ROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.
-    BEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait.
+    BEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait. CONDITION SEMANTICS: PPSSPP's IR mode ignores register conditions, so any condition is enforced MCP-side — the breakpoint is armed unconditionally and each hit's expression is evaluated with cpu.evaluate; a falsy hit is auto-resumed (not surfaced) and counted in filtered_hits.
 
-    RETURNS: stats → {mode:"stats", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}."""
+    RETURNS: stats → {mode:"stats", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks, condition, condition_filtered, filtered_hits, storm_break}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}."""
     if action == "wait":
         from ppsspp_dfx_mcp.tools.workflows import wait_breakpoint
 
@@ -446,11 +460,20 @@ async def breakpoint(
     try:
         async with session_client(session_id) as client:
             if action == "set":
+                # 🔴-1/D1: PPSSPP v1.20.4 的 IR 模式静默忽略寄存器条件，因此
+                # 一律以无条件方式下发；condition 交给 MCP 侧 cond_filter 注册表，
+                # 命中时由 wait 路径用 cpu.evaluate 求值过滤（假命中自动 resume）。
                 await client.cpu_bp_add(
                     address=address_int,
                     enabled=effective_enabled,
-                    condition=condition,
+                    condition=None,
                 )
+                if condition:
+                    cond_filter.register(session_id, address_int, condition)
+                else:
+                    # 无条件（重新）布防：清掉同地址可能残留的旧过滤器，否则
+                    # 旧条件会错误地过滤这次无条件断点的命中。
+                    cond_filter.drop(session_id, address_int)
                 # cpu.breakpoint.add is fire-and-forget (no return data);
                 # follow-up breakpoint.list to populate the result.
                 resp = await client.cpu_bp_list()
@@ -482,6 +505,8 @@ async def breakpoint(
                 ):
                     raise BreakpointError(f"no CPU breakpoint at 0x{address_int:08X}")
                 await client.cpu_bp_remove(address=address_int)
+                # 断点已撤，同步回收 MCP 侧条件过滤器（避免残留条目误滤重挂的断点）。
+                cond_filter.drop(session_id, address_int)
                 resp = await client.cpu_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
                 result = BreakpointResult(
@@ -496,9 +521,16 @@ async def breakpoint(
                     address=address_int,
                     enabled=enabled,
                     log=log,
-                    condition=condition,
+                    condition=None,
                     log_format=log_format,
                 )
+                # 条件同样由 MCP 侧维护：None = “不改动”保留注册表现状；
+                # 显式传值则先 drop 再按新值 register；condition="" 是用户
+                # 显式清空条件的信号 → 只 drop 不 register。
+                if condition is not None:
+                    cond_filter.drop(session_id, address_int)
+                    if condition:
+                        cond_filter.register(session_id, address_int, condition)
                 # cpu.breakpoint.update returns no business data; follow-up list.
                 resp = await client.cpu_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
@@ -526,9 +558,13 @@ async def breakpoint(
                     write=effective_write,
                     enabled=effective_enabled,
                     log=log if log is not None else False,
-                    condition=condition,
+                    condition=None,
                     log_format=log_format,
                 )
+                if condition:
+                    cond_filter.register(session_id, address_int, condition)
+                else:
+                    cond_filter.drop(session_id, address_int)
                 # memory.breakpoint.add returns no business data; follow-up list.
                 resp = await client.mem_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
@@ -559,6 +595,7 @@ async def breakpoint(
                     )
                 actual_size = int(existing.get("size", size))
                 await client.mem_bp_remove(address=address_int, size=actual_size)
+                cond_filter.drop(session_id, address_int)
                 resp = await client.mem_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []
                 result = BreakpointResult(
@@ -605,12 +642,16 @@ async def breakpoint(
                     size=actual_size,
                     enabled=enabled,
                     log=log,
-                    condition=condition,
+                    condition=None,
                     log_format=log_format,
                     read=merged_read,
                     write=merged_write,
                     change=merged_change,
                 )
+                if condition is not None:
+                    cond_filter.drop(session_id, address_int)
+                    if condition:
+                        cond_filter.register(session_id, address_int, condition)
                 # memory.breakpoint.update returns no business data; follow-up list.
                 resp = await client.mem_bp_list()
                 bps = resp.get("breakpoints", []) if isinstance(resp, dict) else []

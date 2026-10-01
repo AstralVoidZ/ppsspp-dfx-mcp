@@ -36,6 +36,7 @@ from ppsspp_dfx_mcp.service.memory_protection import check_protected_address
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
 from ppsspp_dfx_mcp.tools._common import (
     DEFAULT_STRING_CAP,
+    require_int_not_bool,
     save_output_bytes,
     save_output_text,
     translate_tool_errors,
@@ -190,7 +191,7 @@ async def read_memory(
 
     USAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); Memory scanning has moved to ppsspp_scan.
 
-    BEHAVIOR: READ-ONLY. read_u32 on JIT-IR code returns IR encoding (IR_ENCODING_DETECTED) — disassemble code instead. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text).
+    BEHAVIOR: READ-ONLY. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text). Reading code segments: use ppsspp_disassemble — MCP provides no IR-encoding detection (a read_u32 over JIT-IR bytes just returns the raw value).
 
     RETURNS: {action, address, value, size, text, file} — read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/)."""
     session_id = await resolve_session_id(session_id)
@@ -213,6 +214,8 @@ async def read_memory(
     try:
         async with session_client(session_id) as client:
             if action == "read_bytes":
+                # S11/A8: `size=True` used to pass as a 1-byte read.
+                size = require_int_not_bool(size, "size")
                 if size <= 0:
                     raise ArgsInvalid("size must be > 0 for read_bytes")
                 # Bound single reads — a 1 MB read

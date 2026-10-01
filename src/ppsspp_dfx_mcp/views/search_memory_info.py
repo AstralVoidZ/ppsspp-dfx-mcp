@@ -56,7 +56,9 @@ class SearchMemoryInfoResponse(FrozenModel):
                 size_int = int(size) if not isinstance(size, int) else size
                 end_int = addr_int + size_int
                 tag_str = f" {tag}" if tag else ""
-                lines.append(f"{format_address(addr_int)}-{format_address(end_int)} {type_}{tag_str}")
+                lines.append(
+                    f"{format_address(addr_int)}-{format_address(end_int)} {type_}{tag_str}"
+                )
             except (TypeError, ValueError):
                 lines.append(f"{addr}-{size} {type_} {tag}")
         # Normalize all address-bearing fields (address, pc, etc.) in both

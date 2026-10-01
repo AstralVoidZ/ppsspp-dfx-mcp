@@ -40,7 +40,7 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",
     "pytest-cov",
-    "ruff",
+    "ruff==0.16.6",
 ]
 
 # uv 默认安装 dependency-groups（uv sync / uv run），pytest 在此声明，
@@ -51,7 +51,7 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",
     "pytest-cov",
-    "ruff",
+    "ruff==0.16.6",
 ]
 
 [project.scripts]

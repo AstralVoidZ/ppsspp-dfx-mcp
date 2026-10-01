@@ -203,12 +203,19 @@ async def session_client_with_transport(
         err_token = set_error_context(None, None)
         try:
             yield PpssppDebugClient(fake), fake
-        finally:
-            reset_error_context(err_token)
+        except BaseException:
+            # W1 (review v3): reset ONLY on normal exit. While an exception
+            # unwinds, the scope must survive until the tool layer's
+            # ``to_tool_error`` has read it — see the long comment in the
+            # session-transport branch below. Fake mode injects (None, None)
+            # so this is belt-and-braces, not a behavior change.
+            raise
+        else:
             # No per-call ws_connected persistence — touch_session folds
             # the live transport state in, and fake mode has no real
             # transport anyway. FakeTransport has no close() —
             # best-effort no-op.
+            reset_error_context(err_token)
         return
 
     # ── Per-session serialization ──
@@ -307,7 +314,32 @@ async def _session_transport_context(
                 ),
                 session_transport,
             )
-        finally:
+        except BaseException:
+            # W1 (review v3): reset the error context ONLY on normal exit.
+            #
+            # Why: the exception that leaves this ``yield`` is on its way to
+            # the tool layer, where ``except Exception as e:
+            # raise to_tool_error(e)`` runs AFTER the ``async with`` has
+            # already unwound this generator. Resetting in a ``finally``
+            # blanked the resolvers first, so on the real call boundary
+            # ``errors._resolve_pid_alive()`` / ``_resolve_game_state()``
+            # were ALWAYS None — ``_translate_timeout_error`` could only
+            # ever return the conservative ``WsTimeout`` and the documented
+            # ``CPU_FREEZE_SUSPECTED`` timeout judgment was unreachable in
+            # production. The old in-scope unit test masked this by setting
+            # the context and calling ``to_tool_error`` in the same frame.
+            #
+            # Why this is leak-safe: contextvars are per-asyncio-task, and
+            # the MCP SDK runs each tool call in its own task, so a scope
+            # left set by a failing call is invisible to concurrent calls
+            # (no cross-session pollution). Any later call on the same task
+            # re-enters this manager and overwrites both resolvers on entry.
+            # The rejected alternative (snapshotting the resolved values
+            # onto the exception) would require every raise site between
+            # here and the tool layer to cooperate; this keeps the single
+            # documented read point (``to_tool_error`` → ``_resolve_*``).
+            raise
+        else:
             reset_error_context(err_token)
             # No per-call ws_connected persistence — the transport is
             # session-level and its live state is folded into
@@ -340,12 +372,22 @@ async def _session_transport_context(
         await transport.connect()
         await transport.send_version()
         yield PpssppDebugClient(transport, pid=sess.pid), transport
-    finally:
+    except BaseException:
+        # W1 (review v3): reset the error context ONLY on normal exit. While
+        # an exception unwinds, the scope must survive until the tool
+        # layer's ``to_tool_error`` has read it — see the long comment in
+        # the session-transport branch above. That covers both the body
+        # raising and connect()/send_version() failing; the leak is bounded
+        # to the failing task either way. The transport is still closed.
+        # Best-effort close; do not mask the original exception.
+        with suppress(Exception):
+            await transport.close()
+        raise
+    else:
         reset_error_context(err_token)
         # No per-call ws_connected persistence — touch_session folds in
         # the live transport state instead. The per-call transport IS
         # closed here — this fallback path owns its lifecycle.
-        # Best-effort close; do not mask the original exception.
         with suppress(Exception):
             await transport.close()
 

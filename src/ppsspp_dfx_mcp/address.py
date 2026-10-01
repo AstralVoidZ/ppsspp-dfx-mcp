@@ -172,6 +172,7 @@ def format_address(value: int) -> str:
     """
     return f"0x{value & 0xFFFFFFFF:08X}"
 
+
 # ── Address field name whitelist ───────────────────────────────────────
 #
 # Field names that semantically represent a memory address (not a size,
@@ -187,16 +188,16 @@ def format_address(value: int) -> str:
 # — these are NOT addresses and hex formatting would mislead the caller.
 ADDRESS_FIELD_NAMES: frozenset[str] = frozenset(
     {
-        "pc",               # program counter
-        "entry",            # thread entry address
-        "address",          # generic address field
-        "start",            # range start address
-        "end",              # range end address
+        "pc",  # program counter
+        "entry",  # thread entry address
+        "address",  # generic address field
+        "start",  # range start address
+        "end",  # range end address
         "related_address",  # breakpoint related address
-        "entryPoint",       # camelCase legacy broadcast
-        "entryAddr",        # alternate entry naming
-        "loadAddress",      # module load address (camelCase)
-        "load_address",     # module load address (snake_case)
+        "entryPoint",  # camelCase legacy broadcast
+        "entryAddr",  # alternate entry naming
+        "loadAddress",  # module load address (camelCase)
+        "load_address",  # module load address (snake_case)
     }
 )
 

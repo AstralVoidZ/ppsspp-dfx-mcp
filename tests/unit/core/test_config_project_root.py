@@ -36,7 +36,9 @@ def _reset_project_root_warning_flag():
 class TestProjectRootEnvVarOverride:
     """PPSSPP_DFX_PROJECT_ROOT env var overrides cwd."""
 
-    def test_env_var_pins_project_root(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_env_var_pins_project_root(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """When env var is set to a valid dir with marker, returns that dir."""
         (tmp_path / ".ppsspp-dfx").mkdir()
         monkeypatch.setenv("PPSSPP_DFX_PROJECT_ROOT", str(tmp_path))
@@ -56,9 +58,7 @@ class TestProjectRootEnvVarOverride:
         assert result == other.resolve()
         assert result != Path.cwd().resolve()
 
-    def test_env_var_expands_user(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_env_var_expands_user(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Env var with ~ is expanded to the home directory."""
         home = Path.home()
         monkeypatch.setenv("PPSSPP_DFX_PROJECT_ROOT", str(home))
