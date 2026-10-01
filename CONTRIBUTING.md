@@ -100,7 +100,23 @@ them like a public API.
 
 - Keep the change surgical: every line should trace back to the purpose of
   the PR.
-- Run the full test suite before pushing.
+- Run the gate locally before pushing. It is six steps, not one, and running
+  them one at a time hides the rest — the first failure is all you see:
+  `python scripts/check_gate.py` runs every step in CI order and reports all
+  of them. Individually that is `ruff check .`, `ruff format --check .`,
+  `python -m pytest tests -q`, `python scripts/check_skips.py` and
+  `python -m pytest evals -q`. Use the `ruff` pinned in the dev dependency
+  group (CI installs the same pin); a drifted `ruff` can produce a different
+  verdict.
+- Resolve conflicts locally, not in the GitHub web editor: the editor's merge
+  runs no syntax, JSON or test check, and keeping both sides of a conflict is
+  a silent edit — a linear `if` left next to a nested one, a function's
+  `yield` left behind next to its `return`. If you do resolve them on GitHub,
+  fetch the branch head and run the gate before pushing again.
+- Generated files are never hand-merged. `tool_surface_baseline.json` is
+  rebuilt with `scripts/dump_tool_surface.py`; hand-merging it yields
+  duplicate tail keys, and the breakage surfaces as a JSON decode error in an
+  unrelated test module.
 - If a change touches tool signatures, descriptions, or output contracts,
   regenerate the tool-surface baseline
   (`scripts/dump_tool_surface.py`) **in the same commit** and say so in the
