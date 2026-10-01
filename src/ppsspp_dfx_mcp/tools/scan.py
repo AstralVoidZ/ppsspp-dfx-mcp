@@ -14,6 +14,7 @@ v0.1.6 批 3（Glama 纵深 P0-2/P0-3）。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import struct
@@ -34,9 +35,13 @@ from ppsspp_dfx_mcp.session.client_helper import (
     validate_session_alive,
 )
 from ppsspp_dfx_mcp.tools._common import (
+    FOREGROUND_SCAN_LIMIT_BYTES,
     MAX_SCAN_PATTERN_BYTES,
     MAX_SCAN_RANGE_BYTES,
     MIN_SCAN_CHUNK_BYTES,
+    SCAN_BG_BUDGET_S,
+    SCAN_MAX_CONSECUTIVE_READ_FAILURES,
+    SCAN_READ_TIMEOUT_S,
     require_int_not_bool,
     translate_tool_errors,
 )
@@ -193,12 +198,29 @@ async def _iter_segments(client: Any, start: int, size: int):
     ppsspp_scan BEHAVIOR contract — and segment pairs (not one flat buffer)
     keep addresses exact when a hole splits the range.
     """
+    # Per-read timeout + consecutive-timeout abort (v0.1.7): only
+    # TIMEOUTS count toward the abort — plain exceptions are legitimately
+    # unmapped regions and stay silent skips.
+    consecutive_timeouts = 0
     for offset in range(0, size, MAX_SINGLE_READ_BYTES):
         chunk = min(MAX_SINGLE_READ_BYTES, size - offset)
         try:
-            raw = await client.read_bytes(address=start + offset, size=chunk)
+            raw = await asyncio.wait_for(
+                client.read_bytes(address=start + offset, size=chunk),
+                timeout=SCAN_READ_TIMEOUT_S,
+            )
+        except TimeoutError as e:
+            consecutive_timeouts += 1
+            if consecutive_timeouts > SCAN_MAX_CONSECUTIVE_READ_FAILURES:
+                raise RuntimeError(
+                    f"scan aborted: {consecutive_timeouts} consecutive chunk "
+                    f"reads timed out ({SCAN_READ_TIMEOUT_S}s each) at "
+                    f"0x{start + offset:08X} — PPSSPP appears wedged"
+                ) from e
+            continue
         except Exception:
             continue
+        consecutive_timeouts = 0
         yield (start + offset, bytes(raw))
 
 
@@ -278,13 +300,14 @@ async def scan(
     chunk_size: Annotated[
         int,
         Field(
-            default=4096,
+            default=65536,
             description=(
-                "Bytes per read request during chunked scans (default 4096; "
-                "clamped to [64, 65536])."
+                "Bytes per read request during chunked scans (default "
+                "65536 — measured ~6x faster end-to-end than the old "
+                "4096 default; clamped to [64, 65536])."
             ),
         ),
-    ] = 4096,
+    ] = 65536,
     # value mode
     phase: Annotated[
         Literal["initial", "narrow", "list", "drop"] | None,
@@ -340,11 +363,13 @@ async def scan(
         bool,
         Field(
             description=(
-                "Run as a detached background job (recommended for "
-                "full-band scans): returns a batch_id immediately; poll "
-                "ppsspp_batch_status(batch_id=...), cancel via "
-                "ppsspp_batch_cancel. Value initial cap lifts 8 MiB → 32 MiB "
-                "in background mode."
+                "Run as a detached background job: returns a batch_id "
+                "immediately; poll ppsspp_batch_status(batch_id=...), "
+                "cancel via ppsspp_batch_cancel. Value initial cap lifts "
+                "8 MiB → 32 MiB in background mode. NOTE: pattern/strings "
+                "ranges over 2 MiB are auto-backgrounded even when this "
+                "is false — a foreground scan that outlives the ~30s "
+                "client timeout is the classic 'frozen session' trap."
             ),
         ),
     ] = False,
@@ -353,16 +378,34 @@ async def scan(
 
     USAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}]. background=true submits a detached job instead (recommended for full-band scans) and returns {action:'submitted', batch_id, ...} — poll ppsspp_batch_status(batch_id=...).
 
-    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background — a full-band 24 MB scan takes ~40 s over localhost WS (measured, 64 KiB chunks), so use background=true beyond ~1 MiB. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's scans can evict your handle under load.
+    BEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each), but CONSECUTIVE read timeouts (10 s each, >5 in a row) abort the scan — a wedged PPSSPP fails the scan cleanly instead of pinning the session lock. pattern/strings ranges over 2 MiB are AUTO-BACKGROUNDED (returns {action:'submitted', batch_id, ...} even with background=false) — measured: 24 MB @ 4 KiB chunks takes 53-96 s depending on PPSSPP build, always past the ~30s client timeout, while @ 64 KiB chunks it is 3.4-40 s (build-dependent). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background. Background scans carry a 600 s wall-clock budget; exceeding it fails the job and releases the session. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's scans can evict your handle under load.
 
     ROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.
 
-    RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background=true submission → {action: 'submitted', batch_id, session_id, estimated_s}."""
+    RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background submission (explicit background=true OR pattern/strings range > 2 MiB) → {action: 'submitted', batch_id, session_id, estimated_s}."""
     session_id_resolved: str | None = None
     if mode in ("pattern", "strings") or (
         mode == "value" and phase in ("initial", "narrow", "list", "drop")
     ):
         session_id_resolved = await resolve_session_id(session_id)
+    # Auto-background guard (v0.1.7, real-PPSSPP evidence): a foreground
+    # scan runs inside the MCP request scope, and ranges beyond
+    # FOREGROUND_SCAN_LIMIT_BYTES measurably outlive the ~30s client
+    # timeout (24 MB @ 4 KiB chunks ≈ 53-96 s) — the client cancels,
+    # the agent retries, and the loop *looks* like a frozen session.
+    # Route those to the detached background job path transparently.
+    if (
+        not background
+        and mode in ("pattern", "strings")
+        and start_addr
+        and end_addr
+        and parse_address(end_addr) - parse_address(start_addr) > FOREGROUND_SCAN_LIMIT_BYTES
+    ):
+        background = True
+        logger.info(
+            "scan auto-backgrounded: range exceeds %d bytes",
+            FOREGROUND_SCAN_LIMIT_BYTES,
+        )
     logger.info(
         "tool_call",
         extra={"tool": "ppsspp_scan", "mode": mode, "session_id": session_id_resolved},
@@ -409,30 +452,35 @@ async def scan(
             estimated_s = round(total_chunks * 0.05 + 0.5, 2)
 
             async def _bg_runner(job: Any) -> dict[str, Any]:
-                if mode == "pattern":
-                    out = await _scan_pattern(
-                        session_id_resolved,
-                        pattern,
-                        pattern_type,
-                        start_addr,
-                        end_addr,
-                        max_results,
-                        chunk_size,
-                    )
-                elif mode == "value":
-                    out = await _scan_value(
-                        session_id_resolved,
-                        "initial",
-                        value,
-                        width,
-                        op,
-                        None,
-                        start_addr,
-                        end_addr,
-                        hard_range=_VALUE_BG_HARD_RANGE,
-                    )
-                else:
-                    out = await _scan_strings(
+                # Wall-clock budget (v0.1.7): the detached task holds the
+                # session lock for its whole duration, so a runaway scan
+                # must reach a terminal state on its own — a timeout
+                # fails the job cleanly and the lock is released (the
+                # field-report wedge where only stop/restart helped).
+                async def _run() -> ScanOutput:
+                    if mode == "pattern":
+                        return await _scan_pattern(
+                            session_id_resolved,
+                            pattern,
+                            pattern_type,
+                            start_addr,
+                            end_addr,
+                            max_results,
+                            chunk_size,
+                        )
+                    if mode == "value":
+                        return await _scan_value(
+                            session_id_resolved,
+                            "initial",
+                            value,
+                            width,
+                            op,
+                            None,
+                            start_addr,
+                            end_addr,
+                            hard_range=_VALUE_BG_HARD_RANGE,
+                        )
+                    return await _scan_strings(
                         session_id_resolved,
                         charset,
                         start_addr,
@@ -440,6 +488,16 @@ async def scan(
                         min_len,
                         quality,
                     )
+
+                try:
+                    out = await asyncio.wait_for(_run(), timeout=SCAN_BG_BUDGET_S)
+                except TimeoutError as e:
+                    raise ToolError(
+                        f"background scan exceeded its {SCAN_BG_BUDGET_S:.0f}s "
+                        f"wall-clock budget and was aborted (session released) "
+                        f"— narrow the range or split the scan",
+                        code="SCAN_BUDGET_EXCEEDED",
+                    ) from e
                 resp = out.model_dump(mode="json")
                 job.result = resp  # 先存再抛（轮询者可见部分结果）
                 return resp

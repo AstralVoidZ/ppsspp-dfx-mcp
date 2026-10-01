@@ -1632,6 +1632,16 @@ class PpssppDebugClient:
 
         matches: list[dict[str, Any]] = []
         overlap = len(pattern) - 1
+        # Per-chunk read timeout + consecutive-timeout abort (v0.1.7): a
+        # wedged PPSSPP must fail the scan cleanly instead of holding the
+        # session lock forever (plain exceptions = legitimately unmapped
+        # regions and are still skipped silently; only TIMEOUTS count).
+        from ppsspp_dfx_mcp.core.primitives import (
+            SCAN_MAX_CONSECUTIVE_READ_FAILURES,
+            SCAN_READ_TIMEOUT_S,
+        )
+
+        consecutive_timeouts = 0
         # Each iteration issues ONE memory.read of
         # chunk + overlap bytes. The tool layer caps the pattern at 4096
         # bytes, but direct client callers can pass any length — clamp the
@@ -1653,13 +1663,28 @@ class PpssppDebugClient:
                 break
 
             try:
-                data = await self.read_bytes(address=cursor, size=read_size)
+                data = await asyncio.wait_for(
+                    self.read_bytes(address=cursor, size=read_size),
+                    timeout=SCAN_READ_TIMEOUT_S,
+                )
+            except TimeoutError as e:
+                consecutive_timeouts += 1
+                if consecutive_timeouts > SCAN_MAX_CONSECUTIVE_READ_FAILURES:
+                    raise RuntimeError(
+                        f"memory scan aborted: {consecutive_timeouts} consecutive "
+                        f"chunk reads timed out ({SCAN_READ_TIMEOUT_S}s each) at "
+                        f"0x{cursor:08X} — PPSSPP appears wedged; the session "
+                        f"lock is released"
+                    ) from e
+                cursor = chunk_end
+                continue
             except Exception:
                 # Skip unreadable regions (e.g., unmapped, permission
                 # denied). The scan continues at the next chunk boundary.
                 cursor = chunk_end
                 continue
 
+            consecutive_timeouts = 0
             # Search for all occurrences in this chunk, but only report
             # matches within [cursor, chunk_end) to avoid duplicates in
             # the overlap region (overlap bytes are re-read next iteration).

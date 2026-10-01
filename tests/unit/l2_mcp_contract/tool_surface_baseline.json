@@ -520,10 +520,10 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.\n\nUSAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}]. background=true submits a detached job instead (recommended for full-band scans) and returns {action:'submitted', batch_id, ...} — poll ppsspp_batch_status(batch_id=...).\n\nBEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background — a full-band 24 MB scan takes ~40 s over localhost WS (measured, 64 KiB chunks), so use background=true beyond ~1 MiB. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's scans can evict your handle under load.\n\nROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.\n\nRETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background=true submission → {action: 'submitted', batch_id, session_id, estimated_s}.",
-   "description_chars": 1761,
-   "description_words": 219,
-   "input_schema_chars": 4042,
+   "description": "PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.\n\nUSAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}]. background=true submits a detached job instead (recommended for full-band scans) and returns {action:'submitted', batch_id, ...} — poll ppsspp_batch_status(batch_id=...).\n\nBEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each), but CONSECUTIVE read timeouts (10 s each, >5 in a row) abort the scan — a wedged PPSSPP fails the scan cleanly instead of pinning the session lock. pattern/strings ranges over 2 MiB are AUTO-BACKGROUNDED (returns {action:'submitted', batch_id, ...} even with background=false) — measured: 24 MB @ 4 KiB chunks takes 53-96 s depending on PPSSPP build, always past the ~30s client timeout, while @ 64 KiB chunks it is 3.4-40 s (build-dependent). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background. Background scans carry a 600 s wall-clock budget; exceeding it fails the job and releases the session. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's scans can evict your handle under load.\n\nROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.\n\nRETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background submission (explicit background=true OR pattern/strings range > 2 MiB) → {action: 'submitted', batch_id, session_id, estimated_s}.",
+   "description_chars": 2244,
+   "description_words": 295,
+   "input_schema_chars": 4251,
    "input_schema_properties": [
     "background",
     "charset",
@@ -543,7 +543,7 @@
     "value",
     "width"
    ],
-   "input_schema_sha1": "1826e38eed8b4f817c76981ee3084180928e0c1b",
+   "input_schema_sha1": "5d7bc1c8d6ad33c25d6236cb5af19a70ecc98707",
    "output_schema_chars": 2362,
    "output_schema_sha1": "64899b993bdccfa2f8ecb4dcfb11f5efb83a76f5"
   },
@@ -785,6 +785,6 @@
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 25587,
- "total_input_schema_chars": 46402
+ "total_description_chars": 26070,
+ "total_input_schema_chars": 46611
 }

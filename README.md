@@ -350,7 +350,8 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 | 操作 | 实测 |
 |---|---|
 | 单次 WS 往返（`game.status` 级别的轻量调用） | p50 ≈ 0.21 ms，p95 ≈ 0.28 ms（n=60） |
-| 全频段 24 MB pattern 扫描（`ppsspp_scan` `background=true`，64 KiB 分块） | ≈ 40 s（384 次分块读） |
+| 全频段 24 MB pattern 扫描（`ppsspp_scan` `background=true`，64 KiB 分块） | ≈ 40 s（384 次分块读；另一 v1.20.4 构建实测 ≈ 3.4 s——读路径随构建差异可达一个数量级） |
+| 全频段 24 MB pattern 扫描（前台，4 KiB 旧默认分块） | ≈ 53–96 s（构建相关；远超 MCP 客户端 ~30 s 超时——**>2 MiB 已自动后台化**，不再有前台撞超时的死循环） |
 | 断点命中→可观测（热地址 `set` + `wait`，resume 后到 wait 确认） | p50 ≈ 11 ms（n=30） |
 
 ## 社区与支持

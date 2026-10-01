@@ -24,8 +24,12 @@ from typing import Any
 from ppsspp_dfx_mcp.config import output_dir
 from ppsspp_dfx_mcp.core.primitives import (
     DEFAULT_FRAME_INTERVAL_S,
+    FOREGROUND_SCAN_LIMIT_BYTES,  # noqa: F401 — tool-layer re-export hub
     MAX_SINGLE_READ_BYTES,  # noqa: F401 — tool-layer re-export hub (R9 contract)
     MAX_WAIT_FRAMES,
+    SCAN_BG_BUDGET_S,  # noqa: F401 — tool-layer re-export hub
+    SCAN_MAX_CONSECUTIVE_READ_FAILURES,  # noqa: F401 — tool-layer re-export hub
+    SCAN_READ_TIMEOUT_S,  # noqa: F401 — tool-layer re-export hub
 )
 from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
 
