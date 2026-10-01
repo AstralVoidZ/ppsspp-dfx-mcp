@@ -7,8 +7,14 @@ unparseable contract baseline while each local run had looked green.
 
 Every step always runs; the exit code is 0 only when all of them pass.
 
+A local ruff whose version differs from the one CI installs is reported as a
+*warning*: that run's `ruff format` opinion is not necessarily CI's opinion, so
+the summary says so, but the step results still speak. `--strict-ruff-pin` turns
+the warning back into a failure for anyone who wants that. A missing or
+unrunnable ruff is always a failure — those two steps cannot run at all.
+
 Usage (from the repository root):
-    python scripts/check_gate.py [--ruff PATH]
+    python scripts/check_gate.py [--ruff PATH] [--strict-ruff-pin]
 """
 
 from __future__ import annotations
@@ -59,34 +65,40 @@ def _ruff_version(ruff: str) -> str | None:
     return completed.stdout.strip().split()[-1] or None
 
 
-def _ruff_check(ruff: str | None, pinned: str | None) -> tuple[bool, str]:
-    """A drifted ruff makes this run's verdict a different verdict than CI's."""
+def _ruff_check(ruff: str | None, pinned: str | None, strict: bool) -> tuple[str, str]:
+    """Whether the ruff in use can stand in for the one CI installs."""
     if ruff is None:
-        return False, (
+        return "fail", (
             "ruff not found next to the interpreter or on PATH — "
             "install the dev extras: python -m pip install -e .[dev]"
         )
     version = _ruff_version(ruff)
     if version is None:
-        return False, f"cannot run `{ruff} --version`"
+        return "fail", f"cannot run `{ruff} --version`"
     if pinned and version != pinned:
-        return False, (
+        note = (
             f"ruff {version} != pinned {pinned}: `ruff format` output is "
-            f"version-sensitive, so a run with a drifted ruff is not the CI "
-            f"verdict — python -m pip install -e .[dev] (or pass --ruff PATH)"
+            f"version-sensitive, so a PASS below is not necessarily CI's PASS — "
+            f"python -m pip install -e .[dev] (or pass --ruff PATH) to align"
         )
-    return True, ""
+        return ("fail" if strict else "warn"), note
+    return "pass", ""
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ruff", help="path to the ruff executable to use")
+    parser.add_argument(
+        "--strict-ruff-pin",
+        action="store_true",
+        help="treat a ruff version differing from the pin as a failure",
+    )
     args = parser.parse_args()
 
     ruff = _ruff_executable(args.ruff)
     pinned = _pinned_ruff()
-    ruff_ok, ruff_note = _ruff_check(ruff, pinned)
-    if not ruff_ok:
+    ruff_status, ruff_note = _ruff_check(ruff, pinned, args.strict_ruff_pin)
+    if ruff_status != "pass":
         print(f"!! {ruff_note}\n")
 
     steps: list[tuple[str, list[str]]] = [
@@ -98,20 +110,30 @@ def main() -> int:
         ("pytest evals", [sys.executable, "-m", "pytest", "evals", "-q"]),
     ]
 
-    results: list[tuple[str, bool, float]] = [(f"ruff version == pinned {pinned}", ruff_ok, 0.0)]
+    results: list[tuple[str, str, float]] = [(f"ruff version == pinned {pinned}", ruff_status, 0.0)]
     for label, command in steps:
         print(f"===== {label} =====", flush=True)
         started = time.monotonic()
         completed = subprocess.run(command, cwd=_REPO)
-        results.append((label, completed.returncode == 0, time.monotonic() - started))
+        results.append(
+            (label, "pass" if completed.returncode == 0 else "fail", time.monotonic() - started)
+        )
 
     print("\n===== gate summary =====")
-    for label, ok, seconds in results:
-        print(f"{'PASS' if ok else 'FAIL'}  {label}" + (f"  ({seconds:.1f}s)" if seconds else ""))
-    failed = [label for label, ok, _ in results if not ok]
+    for label, status, seconds in results:
+        print(f"{status.upper():<4}  {label}" + (f"  ({seconds:.1f}s)" if seconds else ""))
+
+    failed = [label for label, status, _ in results if status == "fail"]
     if failed:
         print(f"\nGATE FAILED — {len(failed)}/{len(results)} steps: {', '.join(failed)}")
         return 1
+    warned = [label for label, status, _ in results if status == "warn"]
+    if warned:
+        print(
+            f"\nGATE PASSED with {len(warned)} warning(s) — not necessarily CI's "
+            f"verdict: {', '.join(warned)}"
+        )
+        return 0
     print(f"\nGATE PASSED — {len(results)} steps")
     return 0
 
