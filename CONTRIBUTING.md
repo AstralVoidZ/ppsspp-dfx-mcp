@@ -106,6 +106,18 @@ them like a public API.
   (`scripts/dump_tool_surface.py`) **in the same commit** and say so in the
   description.
 
+## Merging to main
+
+Default to a **squash merge**. A PR branch routinely carries "merge `main`
+into my branch" and conflict-resolution commits, and those intermediate
+states are not guaranteed to build — a merge commit publishes them into
+`main` history and breaks `git bisect`, plus any gate that runs per commit.
+One squashed commit keeps every commit on `main` buildable.
+
+Use a merge commit only when every commit on the branch is known to build
+(lint-clean and importable at each commit), so the layered commits carry
+review value worth preserving.
+
 ## Tool naming convention (v0.1.6)
 
 Established in the v0.1.6 surface refactor (Glama review: naming consistency).
