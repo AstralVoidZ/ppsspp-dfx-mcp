@@ -22,7 +22,7 @@ Anchor: openspec change `ppsspp-dfx-mcp-protocol-and-schema`
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any
 
 import pytest
 
@@ -31,9 +31,10 @@ from ppsspp_dfx_mcp.tools._common import DYNAMIC_INPUT_PARAMETERS
 
 def _registered_tools() -> list[Any]:
     """触发全量注册并返回工具对象列表。"""
-    from ppsspp_dfx_mcp import server as S
+    from ppsspp_dfx_mcp import registry as S  # T049：mcp 的新家
+    from ppsspp_dfx_mcp import server as server_mod  # T049：register_all_tools 留守 server
 
-    S.register_all_tools()
+    server_mod.register_all_tools()
     return S.mcp._tool_manager.list_tools()
 
 
@@ -222,42 +223,56 @@ class TestDynamicScriptToolContract:
     """
 
     def test_envelope_contract_shape(self):
+        """The shared envelope builder nests the script output under `output`.
 
+        A15 moved the envelope definition to `spec.script_envelope`; the guard
+        now asserts the builder's shape directly (the single source), instead
+        of an inline copy that could drift from it.
+        """
+        from ppsspp_dfx_mcp.spec.script_envelope import envelope_contract
         from ppsspp_dfx_mcp.views._contract import derive_output_contract
         from ppsspp_dfx_mcp.views.screenshot import TextureDumpResponse
 
         inner = derive_output_contract("_InnerProbe", TextureDumpResponse)
-        # 动态 TypedDict：output 字段是运行时求值的 inner（镜像 server.py
-        # 的动态 envelope 模式），类语法无法表达，故 noqa。
-        envelope = TypedDict(  # type: ignore[operator]  # noqa: UP013
-            "_EnvelopeProbe",
-            {"name": str, "output": inner, "output_model": str},
+        contract = envelope_contract("_EnvelopeProbe", inner)
+        assert set(contract.__annotations__) == {"name", "output", "output_model"}
+        assert contract.__annotations__["output"] is inner, (
+            "envelope 的 output 字段必须内嵌脚本 Output 模型（否则脚本的字段级 "
+            "schema 对 Agent 不可见）"
         )
-        assert set(envelope.__annotations__) == {"name", "output", "output_model"}
 
-    def test_wrapper_source_uses_envelope_not_bare_output_model(self):
-        """防止回退：包装器的契约必须把脚本输出嵌在 `output` 字段下。"""
+    def test_wrapper_source_uses_envelope_builder_not_bare_output_model(self):
+        """防止回退：包装器的契约必须经共享的 `envelope_contract` 构造。
+
+        旧版直接把契约派生自脚本 Output 模型；若有人再次写
+        `derive_output_contract(..., output_cls)`，这里会失败。
+        """
         import ast
         import inspect
         import textwrap
 
-        from ppsspp_dfx_mcp import server as S
+        from ppsspp_dfx_mcp import registry as S  # T049：_build_exposed_wrapper 的新家
 
         src = textwrap.dedent(inspect.getsource(S))
         tree = ast.parse(src)
-        # 找 `output_contract = TypedDict(...)` 或 `derive_output_contract(...)`
-        # 的赋值，断言其字面量含 output 键。
+        # 找 `output_contract = <call>(...)`，断言调用的是共享 envelope 构造器。
         found_envelope = False
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign) and any(
                 isinstance(t, ast.Name) and t.id == "output_contract" for t in node.targets
             ):
-                text = ast.dump(node.value)
-                if "'output'" in text and "'output_model'" in text:
-                    found_envelope = True
+                value = node.value
+                if isinstance(value, ast.Call):
+                    func = value.func
+                    callee = (
+                        func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                    )
+                    if callee == "envelope_contract":
+                        found_envelope = True
         assert found_envelope, (
-            "server._exposed_wrapper 的输出契约不再是 {name, output, output_model} "
-            "信封——动态工具调用会因返回值不符契约而全部失败"
+            "server._exposed_wrapper 不再经 spec.script_envelope.envelope_contract "
+            "构造 {name, output, output_model} 信封——动态工具调用会因返回值不符契约"
+            "而全部失败"
         )
 
 
@@ -407,10 +422,10 @@ class TestInputSchemaIsStructured:
 #: 硬编码列表、新增契约既不进登记也不被断言」——两份真相必然漂移。
 def _collect_pairs() -> list[tuple[type, type, frozenset[str]]]:
     """扫描已导入的工具模块，取出全部派生契约及其来源 view。"""
-    from ppsspp_dfx_mcp import server as S
+    from ppsspp_dfx_mcp import server as server_mod  # T049：register_all_tools 留守 server
     from ppsspp_dfx_mcp.tools import _common  # noqa: F401 — 确保包已导入
 
-    S.register_all_tools()
+    server_mod.register_all_tools()
 
     import sys
 

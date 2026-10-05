@@ -169,6 +169,12 @@ def _make_mock_client(
 ) -> AsyncMock:
     """Build an AsyncMock client with preset replay_* responses."""
     mock = AsyncMock()
+    # W8 (review v4): `_ensure_replay_idle` reads the status reply
+    # synchronously (`status.get(...)`), so the awaited value must be a dict.
+    # An unconfigured AsyncMock resolves to another AsyncMock and `.get()`
+    # then yields a coroutine — always truthy — which silently pushed every
+    # test down the "busy → replay_abort" branch.
+    mock.replay_status.return_value = {"executing": False, "saving": False}
     mock.replay_flush.return_value = flush_resp or {
         "version": 1,
         "base64": "AAEC",

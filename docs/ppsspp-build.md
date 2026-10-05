@@ -22,8 +22,13 @@ ppsspp-dfx-mcp 通过 WebSocket 与 PPSSPP 的调试器通信（子协议
 `Settings → Tools → Developer tools → Enable remote debugger`（打开开关）。
 
 打开后 PPSSPP 立即启动调试 web 服务器（对应 `ppsspp.ini` 的
-`RemoteDebuggerOnStartup = True`）；如需仅本机访问，可同时打开
-`RemoteDebuggerLocal = True`。
+`RemoteDebuggerOnStartup = True`）。
+
+> ⚠️ **监听地址无法用 ini 限制**：PPSSPP 把调试端口**无条件绑定到通配地址**
+> （`Common/Net/HTTPServer.cpp` 的 `INADDR_ANY` / `in6addr_any`），
+> `RemoteDebuggerLocal = True` **不能**把它限制为本机——该键只影响"本地托管的
+> 浏览器调试器 URL"。要限制访问，用系统防火墙规则，或由 MCP 侧显式接受风险
+> （`PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1`）。
 
 ### 方式 B：ppsspp.ini（可复用、可版本化）
 
@@ -35,7 +40,7 @@ portable 模式放在 `memstick/PSP/SYSTEM/ppsspp.ini`）：
 [General]
 RemoteISOPort = 12345        # 调试器端口（与 MCP 侧默认端口一致）
 RemoteDebuggerOnStartup = True
-RemoteDebuggerLocal = True   # 仅监听本机
+RemoteDebuggerLocal = True   # 注意：不能限制监听地址（见上），保留仅为对齐模板
 ```
 
 ### 方式 C：Headless 命令行（CI / 自动化）

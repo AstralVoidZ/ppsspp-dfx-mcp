@@ -1,18 +1,19 @@
-# 盲测 runner 配置（v1.1 定版）
+# 盲测 runner 配置（模板：请按本机环境填写，勿把真实值提交入库）
 model:
-  provider: openai-compatible                   # llm_api.json 中的 provider 键（按本机文件改）
-  name: your-model-name                         # 被测模型（单模型，切换改这一行）
-llm_api_path: "llm_api.json"                    # 相对本目录；文件已 gitignore（含密钥）
-variant: B1                                     # B1=含 instructions；B0=Runner 侧剥离（消融）；B2=skill 伪工具
-runs: 5                                         # 每格运行次数
+  provider: <PROVIDER>            # llm_api.json 中的 provider 键
+  name: <MODEL_ID>                # 被测模型
+# 含密钥的本地文件，**不入库**；可用环境变量 PPSSPP_DFX_EVALS_LLM_API_PATH 覆盖。
+llm_api_path: <PATH_TO_LLM_API_JSON>
+variant: B1                       # B1=含 instructions；B0=Runner 侧剥离（消融）；B2=skill 伪工具
+runs: 5                           # 每格运行次数
 
-rate:                                           # API 响应慢 → 全程控频
-  min_interval_s: 1.0                           # 相邻 LLM 调用最小间隔（慢端点，放宽）
-  max_retries: 3                                # 429/5xx/超时 指数退避重试
+rate:                             # API 响应慢 → 全程控频
+  min_interval_s: 1.0             # 相邻 LLM 调用最小间隔（慢端点，放宽）
+  max_retries: 3                  # 429/5xx/超时 指数退避重试
   timeout_s: 180
 
 limits:
-  run_timeout_s: 1200                           # 单 run 硬顶（长上下文 + reasoning 模型需要余量）
-  real_settle_s: 8                              # real 模式预置会话后的窗口就绪等待
+  run_timeout_s: 2400             # 单 run 硬顶（长上下文 + reasoning 模型需要余量）
+  real_settle_s: 8                # real 模式预置会话后的窗口就绪等待
   max_tokens: 4096
-  tool_result_char_cap: 8000                    # 回传给模型的工具结果截断（控 token）
+  tool_result_char_cap: 8000      # 回传给模型的工具结果截断（控 token）

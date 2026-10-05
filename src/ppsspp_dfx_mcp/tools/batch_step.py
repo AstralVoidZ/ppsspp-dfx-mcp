@@ -25,7 +25,7 @@ Recording-mode aware:
 - press / wait / state_probe steps execute normally during recording
   (read_u32 works fine in RUNNING state).
 
-Progress (A2): foreground calls report per-step MCP progress via the
+Progress: foreground calls report per-step MCP progress via the
 injected Context (a no-op when the client sent no progressToken).
 Background jobs have no request context — their progress lives in
 ppsspp_batch_status.
@@ -35,8 +35,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypedDict, cast
 
 from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
@@ -52,23 +53,25 @@ from ppsspp_dfx_mcp.core.batch_jobs import (
     get_registry,
 )
 from ppsspp_dfx_mcp.core.primitives import MAX_PRESS_DURATION_FRAMES, MAX_WAIT_FRAMES
-from ppsspp_dfx_mcp.errors import ArgsInvalid, StepInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import StepInvalid, ToolError
 from ppsspp_dfx_mcp.models.batch_step import (
     STEP_TYPES,
     BatchResult,
     BatchStepInput,
     StepResult,
 )
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.models.input import PPSSPP_ALL_BUTTONS
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client, validate_session_alive
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.tools._common import (
     require_int_not_bool,
+    save_output_bytes,
     translate_tool_errors,
     wait_frames_chunked,
 )
-from ppsspp_dfx_mcp.tools.input import _PPSSPP_ALL_BUTTONS
-from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.batch_step import (
+    BatchJobSummaryView,
     BatchListResponse,
     BatchStatusResponse,
     BatchStepResponse,
@@ -76,7 +79,7 @@ from ppsspp_dfx_mcp.views.batch_step import (
 )
 from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
 
-# 🔴-1: 联合契约必须扁平——func_metadata 不展开多继承 TypedDict，
+# 联合契约必须扁平——func_metadata 不展开多继承 TypedDict，
 # 只有第一个父类的键进入 outputSchema，其余分支的键被 structuredContent
 # 静默剥离。flatten_union 生成单层全可选 TypedDict，跨 SDK 版本一致。
 _BatchStepResponseOut = derive_output_contract(
@@ -92,10 +95,18 @@ _BatchListResponseOut = derive_output_contract(
     "BatchListResponseOut", BatchListResponse, partial=True
 )
 
-BatchStepOutput = flatten_union("BatchStepOutput", _BatchStepResponseOut, _BatchSubmitResponseOut)
-BatchStatusOutput = flatten_union(
-    "BatchStatusOutput", _BatchStatusResponseOut, _BatchListResponseOut
-)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    BatchStepOutput = dict[str, Any]
+    BatchStatusOutput = dict[str, Any]
+else:
+    BatchStepOutput = flatten_union(
+        "BatchStepOutput", _BatchStepResponseOut, _BatchSubmitResponseOut
+    )
+    BatchStatusOutput = flatten_union(
+        "BatchStatusOutput", _BatchStatusResponseOut, _BatchListResponseOut
+    )
 BatchListOutput = derive_output_contract("BatchListOutput", BatchListResponse)
 
 
@@ -117,10 +128,10 @@ __all__ = ["batch_step", "batch_status", "batch_cancel"]
 
 # STEP_TYPES comes from models.batch_step (single source of truth, locked
 # to the 4 step TypedDicts by an import-time assert there).
-# Single source of truth — a stale copy here once diverged from input.py,
-# so keep referencing input.py's button table directly (e.g. 'home' is
-# valid for ppsspp_press_button and must stay valid here).
-_VALID_BUTTONS = _PPSSPP_ALL_BUTTONS
+# Single source of truth — a stale copy here once diverged from the button
+# table, so reference the canonical models.input tuple directly (e.g. 'home'
+# is valid for ppsspp_press_button and must stay valid here).
+_VALID_BUTTONS = PPSSPP_ALL_BUTTONS
 
 # Progress callback: (processed, total, step_type, step_status) -> awaitable.
 ProgressCallback = Callable[[int, int, str, str], Awaitable[None]]
@@ -134,7 +145,10 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
         raise StepInvalid(f"step[{index}] missing required 'type' field")
     stype = step["type"]
     if stype not in STEP_TYPES:
-        raise ArgsInvalid(
+        # A-16 (review v4): a step whose shape is invalid is a
+        # STEP_INVALID, not an ARGS_INVALID — the same classification the
+        # missing-type / bad-button branches already use.
+        raise StepInvalid(
             f"step[{index}] invalid type={stype!r}; expected one of {STEP_TYPES}",
         )
     if stype == "press":
@@ -146,7 +160,7 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
                 f"step[{index}] invalid button={button!r}; expected one of {_VALID_BUTTONS}",
             )
         duration = step.get("duration", 1)
-        # S11 (review v2): isinstance(True, int) is True — bools must be
+        # isinstance(True, int) is True — bools must be
         # rejected explicitly, same rule as wait_frames_chunked.
         if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0:
             raise StepInvalid(
@@ -167,7 +181,8 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
                 f"step[{index}] frames must be int >= 0; got {frames!r}",
             )
         if frames > MAX_WAIT_FRAMES:
-            raise ArgsInvalid(
+            # A-16: same step-shape classification as the duration cap.
+            raise StepInvalid(
                 f"step[{index}] frames {frames} exceeds the cap "
                 f"{MAX_WAIT_FRAMES} (~{MAX_WAIT_FRAMES // 60}s of game time)",
             )
@@ -186,10 +201,30 @@ def _validate_step(step: dict[str, Any], index: int) -> None:
                 f"step[{index}] cpu_step requires mode='into'|'over'|'out'; got {cmode!r}"
             )
         ccount = step.get("count", 1)
-        # S11/A8: `count=True` used to pass as a 1-instruction step.
+        # `count=True` used to pass as a 1-instruction step.
         ccount = require_int_not_bool(ccount, f"step[{index}] cpu_step count", exc=StepInvalid)
         if ccount < 1 or ccount > 1000:
             raise StepInvalid(f"step[{index}] cpu_step count must be int 1..1000; got {ccount!r}")
+
+
+_CPU_STEP_BUDGET_S = 10.0  # flat per-step ceiling; the batch deadline shrinks it
+
+
+def _per_step_timeout(deadline: float | None, cap_s: float) -> float:
+    """Per-step budget for one batch step (state_probe AND cpu_step).
+
+    The foreground gate admits a batch by ESTIMATE, while a per-step
+    ``wait_for``/``timeout_ms`` is the only place one step could run past
+    what was promised: with a flat ceiling, a batch estimated at 24s could
+    still contain steps that each burn the flat cap (the estimator floors
+    a step at 0.05-0.25s). Deriving the ceiling from the batch deadline
+    keeps the number in the same units as the gate; the flat cap remains
+    the absolute ceiling for background batches (whose deadline is an hour
+    out) and for callers that pass no budget at all.
+    """
+    if deadline is None:
+        return cap_s
+    return max(1.0, min(cap_s, deadline - time.monotonic()))
 
 
 async def _execute_batch(
@@ -197,23 +232,31 @@ async def _execute_batch(
     steps: list[dict[str, Any]],
     on_failure: str,
     on_progress: ProgressCallback | None = None,
+    budget_s: float | None = None,
 ) -> BatchResult:
     """Run the step loop under the session lock. Returns the BatchResult.
 
     Extracted verbatim from the former batch_step body so the foreground
-    and background (A1) paths share one implementation. Raises ToolError
+    and background paths share one implementation. Raises ToolError
     for session-level failures (SESSION_NOT_FOUND / SESSION_BUSY / ...);
     per-step failures are recorded in the result, not raised.
 
-    ``on_progress`` (A2), when given, is awaited after every step with
+    ``on_progress``, when given, is awaited after every step with
     (processed, total, step_type, step_status); exceptions it raises are
     logged and swallowed — progress reporting must never fail a batch.
+
+    ``budget_s`` is the wall-clock budget the CALLER
+    promised the client for this whole batch (foreground:
+    ``FOREGROUND_BUDGET_S``; background: ``BACKGROUND_BUDGET_S``). The
+    deadline is computed here, before the session lock is acquired, so
+    lock wait is charged to the same budget the gate used.
     """
     results: list[StepResult] = []
     executed = succeeded = failed = skipped = 0
     recording_mode = False
     aborted = False
     abort_reason = ""
+    deadline = time.monotonic() + budget_s if budget_s is not None else None
 
     async with session_client(session_id) as client:
         # Detect recording mode (screenshot is forbidden during recording).
@@ -267,23 +310,27 @@ async def _execute_batch(
                     # nested session_client (each session_client opens
                     # a fresh WS connection — see client_helper.py:14).
                     # Import locally to break circular dependency.
-                    from ppsspp_dfx_mcp.tools.state_observer import (
+                    from ppsspp_dfx_mcp.service.probe_observer import (
+                        PROBE_OBSERVE_BUDGET_S,
                         _observe_probes,
                         _resolve_target_probes,
                         _seed_from_yaml,
                     )
 
-                    _seed_from_yaml()
+                    _seed_from_yaml(session_id)
                     names_str = step.get("names", "")
                     samples = step.get("samples", 1)
-                    target_probes = _resolve_target_probes(names_str)
-                    # W12 (review v2): same whole-operation budget the
+                    target_probes = _resolve_target_probes(names_str, session_id)
+                    # Same whole-operation budget the
                     # state_observer tool applies — without it the batch
                     # path could wait per-probe forever (probes × samples
                     # × RTT) while holding the session lock.
+                    # The ceiling is shared with the tool,
+                    # and shrinks to whatever is left of the batch deadline
+                    # so one step cannot outlive the budget the gate used.
                     observe_result = await asyncio.wait_for(
                         _observe_probes(client, target_probes, samples),
-                        timeout=30.0,
+                        timeout=_per_step_timeout(deadline, PROBE_OBSERVE_BUDGET_S),
                     )
                     step_data = StateObserverResponse.from_observe(observe_result).model_dump(
                         mode="json"
@@ -300,13 +347,21 @@ async def _execute_batch(
                     stepper = getattr(client, f"step_{cmode}")
                     stepped = 0
                     last_step_info: dict[str, Any] = {}
-                    # 🔴-3: with_stepping restores RUNNING for the rest of
+                    # with_stepping restores RUNNING for the rest of
                     # the batch — later press/wait steps must not act on a
                     # frozen CPU.
                     async with client.with_stepping():
                         try:
                             for _ in range(ccount):
-                                last_step_info = await stepper(timeout_ms=10_000)
+                                # W-4: same deadline-derived budget as the
+                                # probe branch — a flat 10s per step let one
+                                # stalled step hold the session lock far past
+                                # the budget the gate approved the batch by.
+                                last_step_info = await stepper(
+                                    timeout_ms=int(
+                                        _per_step_timeout(deadline, _CPU_STEP_BUDGET_S) * 1000
+                                    )
+                                )
                                 stepped += 1
                         except TimeoutError as e:
                             step_status = "failure"
@@ -327,38 +382,24 @@ async def _execute_batch(
                         "resumed_after": True,
                     }
                 elif stype == "screenshot":
-                    # Call the screenshot tool function directly. Middleware
-                    # (RequestId + RateLimit) now lives at the server's
-                    # protocol-dispatch layer, so a nested tool call does
-                    # not need (and cannot get) the old wrapper stack.
-                    # screenshot internally uses session_capture (needs
-                    # its own CaptureService + transport), so it opens a
-                    # second WS connection — this is acceptable because
-                    # screenshot's GPU buffer access requires a dedicated
-                    # transport, and PPSSPP supports concurrent WS
-                    # connections.
-                    from ppsspp_dfx_mcp.tools.screenshot import screenshot
+                    # Call the capture SERVICE, not the tool function: the
+                    # tool wrapper would stack its error translator on top
+                    # of this step's own handler (W19). The service uses
+                    # session_capture (its own CaptureService + transport),
+                    # so it opens a second WS connection — acceptable
+                    # because the GPU buffer access requires a dedicated
+                    # transport and PPSSPP supports concurrent WS links.
+                    from ppsspp_dfx_mcp.service.screenshot_service import capture_frame
 
-                    source = step.get("source")
-                    mode = step.get("mode")
-                    kwargs: dict[str, Any] = {}
-                    if source is not None:
-                        kwargs["source"] = source
-                    if mode is not None:
-                        kwargs["mode"] = mode
-                    parts = await screenshot(session_id=session_id, **kwargs)
-                    # screenshot() returns a CallToolResult: the image is
-                    # in `content` (ImageContent), the metadata dict
-                    # (mode/source/size_bytes/file_path/empty, ...) is in
-                    # `structured_content`. Record the metadata as the
-                    # step's data; the image itself is already auto-saved
-                    # to disk (meta.file_path).
-                    meta = getattr(parts, "structured_content", None)
-                    if isinstance(meta, dict):
-                        step_data = dict(meta)
-                    else:
-                        n_blocks = len(getattr(parts, "content", None) or [])
-                        step_data = {"content_blocks": n_blocks}
+                    frame = await capture_frame(session_id, step.get("source"), step.get("mode"))
+                    file_path = ""
+                    if frame.data:
+                        # The image is auto-saved to disk, matching what the
+                        # tool does; only the metadata goes into step_data.
+                        file_path = await save_output_bytes(
+                            "screenshots", frame.output_filename(), frame.data
+                        )
+                    step_data = frame.meta(file_path)
             except ToolError as e:
                 step_status = "failure"
                 step_error = str(e)
@@ -410,7 +451,7 @@ async def _report(
     stype: str,
     status: str,
 ) -> None:
-    """Await the progress hook, never letting it fail the batch (A2)."""
+    """Await the progress hook, never letting it fail the batch."""
     if on_progress is None:
         return
     try:
@@ -420,7 +461,7 @@ async def _report(
 
 
 def _batch_failure_error(result: BatchResult) -> str:
-    """The BATCH_STEP_FAILED summary text (F-7/S6 format, kept verbatim).
+    """The BATCH_STEP_FAILED summary text (stable format, kept verbatim).
 
     Empty when the batch is a clean success.
     """
@@ -441,7 +482,7 @@ def _batch_failure_error(result: BatchResult) -> str:
 
 
 def _make_ctx_progress(ctx: Context) -> ProgressCallback:
-    """Per-step MCP progress notifier (A2).
+    """Per-step MCP progress notifier.
 
     No-op on the wire when the client sent no progressToken (SDK
     server/session.py report_progress contract); local exceptions are
@@ -455,7 +496,7 @@ def _make_ctx_progress(ctx: Context) -> ProgressCallback:
 
 
 def _make_job_progress(job: BatchJob) -> ProgressCallback:
-    """Record executed-step count on the job for batch_status pollers (A1)."""
+    """Record executed-step count on the job for batch_status pollers."""
 
     async def on_progress(processed: int, total: int, stype: str, status: str) -> None:
         job.executed = processed
@@ -463,10 +504,12 @@ def _make_job_progress(job: BatchJob) -> ProgressCallback:
     return on_progress
 
 
+# LONG-TOOL: ordered multi-step execution and detached background submission share one validation,
+# budget-estimation and progress-reporting path, so the two branches stay in a single tool body.
 @mcp.tool(
     name="ppsspp_batch_step",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -532,28 +575,42 @@ async def batch_step(
         raise StepInvalid(f"steps must be a list; got {type(steps).__name__}")
     if not steps:
         raise StepInvalid("steps must not be empty")
-    for i, step in enumerate(steps):
+    # 契约面是 TypedDict 联合（wire inputSchema 依赖该注解）；内部校验/
+    # 估算/执行路径按 dict[str, Any] 处理。TypedDict 运行时即 dict，故这里
+    # 只是类型层面的窄化，不改变对象本身（list 不变性不允许直接传参）。
+    step_dicts = cast(list[dict[str, Any]], steps)
+    for i, step in enumerate(step_dicts):
         _validate_step(step, i)
 
-    # W12 (review v3): resolve the per-step ROUND-TRIP count so the estimate
+    # Resolve the per-step ROUND-TRIP count so the estimate
     # reflects samples × merged block reads (adjacent probes fold into one
     # read; names='' expands to every probe).
     probe_round_trips: dict[int, int] = {}
-    for _i, _st in enumerate(steps):
+    for _i, _st in enumerate(step_dicts):
         if _st.get("type") == "state_probe":
             try:
-                from ppsspp_dfx_mcp.tools.scan import _merge_runs
-                from ppsspp_dfx_mcp.tools.state_observer import (
+                from ppsspp_dfx_mcp.service.probe_observer import (
                     _resolve_target_probes as _rtp,
                 )
+                from ppsspp_dfx_mcp.service.probe_observer import (
+                    _seed_from_yaml,
+                )
+                from ppsspp_dfx_mcp.service.scan_engine import _merge_runs
 
-                _probes = _rtp(_st.get("names", ""))
+                # Mirror the executing state_probe path (line ~304): seed the
+                # session's probe library from addresses.yaml FIRST, then
+                # resolve WITH the session id. A one-argument call raised
+                # TypeError, was swallowed by the best-effort `except` below,
+                # and floored probe_round_trips at 1 for every probe batch —
+                # silently collapsing the W31 gate (audit W31).
+                _seed_from_yaml(session_id)
+                _probes = _rtp(_st.get("names", ""), session_id)
                 _addrs = sorted(p.address for p in _probes)
                 _max_size = max((p.size for p in _probes), default=1)
                 probe_round_trips[_i] = max(1, len(_merge_runs(_addrs, _max_size)))
             except Exception:
                 probe_round_trips[_i] = 1
-    estimated_s = estimate_batch_seconds(steps, probe_round_trips)
+    estimated_s = estimate_batch_seconds(step_dicts, probe_round_trips)
 
     logger.info(
         "tool_call",
@@ -591,7 +648,9 @@ async def batch_step(
             )
 
         async def runner(job: BatchJob) -> dict[str, Any]:
-            result = await _execute_batch(session_id, steps, on_failure, _make_job_progress(job))
+            result = await _execute_batch(
+                session_id, step_dicts, on_failure, _make_job_progress(job), BACKGROUND_BUDGET_S
+            )
             response = BatchStepResponse.from_result(result).model_dump(mode="json")
             # Store before raising so a poller sees the partial result.
             job.result = response
@@ -631,21 +690,17 @@ async def batch_step(
             code="BATCH_BUDGET_EXCEEDED",
         )
 
-    try:
-        result = await _execute_batch(
-            session_id,
-            steps,
-            on_failure,
-            _make_ctx_progress(ctx) if ctx is not None else None,
-        )
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    result = await _execute_batch(
+        session_id,
+        step_dicts,
+        on_failure,
+        _make_ctx_progress(ctx) if ctx is not None else None,
+        FOREGROUND_BUDGET_S,
+    )
     response = BatchStepResponse.from_result(result).model_dump(mode="json")
     # A batch whose steps failed must not surface as
     # a plain success — agents rely on isError to notice orchestration
-    # failures. S6 fix: embed a compact per-failure summary instead of the
+    # failures. Embed a compact per-failure summary instead of the
     # full JSON envelope (screenshots/state-probe payloads made the old
     # details= dump arbitrarily large).
     failure = _batch_failure_error(result)
@@ -657,7 +712,7 @@ async def batch_step(
 @mcp.tool(
     name="ppsspp_batch_status",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -684,15 +739,15 @@ async def batch_status(
         jobs = get_registry().list_jobs()
         return BatchListResponse(
             jobs=[
-                {
-                    "batch_id": j.batch_id,
-                    "session_id": j.session_id,
-                    "status": j.status,
-                    "executed": j.executed,
-                    "total": j.total_steps,
-                    "error": j.error,
-                    "result_present": j.result is not None,
-                }
+                BatchJobSummaryView(
+                    batch_id=j.batch_id,
+                    session_id=j.session_id,
+                    status=j.status,
+                    executed=j.executed,
+                    total=j.total_steps,
+                    error=j.error,
+                    result_present=j.result is not None,
+                )
                 for j in jobs
             ],
             retention_jobs=FINISHED_JOB_RETENTION,
@@ -720,7 +775,7 @@ async def batch_status(
 @mcp.tool(
     name="ppsspp_batch_cancel",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors

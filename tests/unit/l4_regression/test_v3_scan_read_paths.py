@@ -148,7 +148,7 @@ async def test_initial_scan_candidates_match_naive(monkeypatch: pytest.MonkeyPat
         return data[off : off + size]
 
     _patch_client(monkeypatch, read_fn)
-    scan_mod._reset_value_sessions_for_tests()
+    scan_mod.reset_value_sessions()
     out = await scan_mod._scan_value(
         "s", "initial", 1, "u8", "eq", None, hex(base), hex(base + len(data))
     )

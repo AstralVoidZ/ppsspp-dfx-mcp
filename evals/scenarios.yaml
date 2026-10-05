@@ -369,12 +369,11 @@ scenarios:
       - type: first_tool
       - type: boot_order
       - type: answer_contains
-        mode: any   # ISS-009: literal 'Game' failed non-English answers of a
-        # Identity tokens are operator-local and must not enter the repo
-        # (publish gate: PRIVACY_PATTERNS). Set the matching env vars to
-        # score the real disc id / title; unset tokens are skipped, so the
-        # committed placeholder below keeps this gate scoring a boot that
-        # reported any game identity.
+        mode: any   # ISS-009: literal 'Game' failed non-English answers of an
+        # Identity tokens are operator-local and must not enter the repo.
+        # Set the matching env vars to score the real disc id / title;
+        # unset tokens are skipped, so the committed placeholder below
+        # keeps this gate scoring a boot that reported any game identity.
         values:     # correctly-executed boot — accept any game-identity token
           - "{{PPSSPP_DFX_EVAL_GAME_PRODUCT_CODE}}"   # e.g. <REGION>-<ID>
           - "{{PPSSPP_DFX_EVAL_GAME_CODE}}"           # product code, no dash

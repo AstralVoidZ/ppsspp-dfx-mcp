@@ -57,9 +57,13 @@ class _WedgeLauncher:
         self.ws_port: int | None = 12345
         self.start_calls = 0
         self.stop_calls = 0
+        # argv extras from the last start() call (e.g. the D16 backend pin)
+        self.extra_args: list[str] = []
 
-    async def start(self, iso_path: Path) -> Any:
+    async def start(self, iso_path: Path, extra_args: list[str] | None = None) -> Any:
+        # extra_args carries the default GPU backend pin (D16).
         self.start_calls += 1
+        self.extra_args = list(extra_args) if extra_args else []
         self._state.launchers.append(self)
         return type("_StubProc", (), {"pid": STUB_PID})()
 

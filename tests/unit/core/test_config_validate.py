@@ -18,6 +18,8 @@ later.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from ppsspp_dfx_mcp import config
@@ -52,3 +54,80 @@ def test_validate_config_rejects_negative_rate_limit(
 
     with pytest.raises(ConfigInvalid):
         config.validate_config()
+
+
+# ── W4/W5: silent config fallbacks now warn and name the raw value ──────
+
+
+def test_bad_rate_limit_warns_and_falls_back(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-integer PPSSPP_DFX_RATE_LIMIT warns (naming the raw value)."""
+    monkeypatch.setenv("PPSSPP_DFX_RATE_LIMIT", "sixty")
+    with caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp"):
+        assert config.rate_limit() == int(config.DEFAULT_RATE_LIMIT)
+    assert any(
+        "PPSSPP_DFX_RATE_LIMIT" in r.getMessage() and "sixty" in r.getMessage()
+        for r in caplog.records
+    ), caplog.text
+
+
+def test_bad_ws_port_warns_and_falls_back(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-integer PPSSPP_DFX_WS_PORT warns (naming the raw value)."""
+    monkeypatch.setenv("PPSSPP_DFX_WS_PORT", "12 45")
+    with caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp"):
+        assert config.ws_port() == int(config.DEFAULT_WS_PORT)
+    assert any(
+        "PPSSPP_DFX_WS_PORT" in r.getMessage() and "12 45" in r.getMessage() for r in caplog.records
+    ), caplog.text
+
+
+def test_non_utf8_yaml_warns_and_uses_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A GBK-saved addresses.yaml must not escape as a raw UnicodeDecodeError."""
+    cfg = tmp_path / "config"
+    cfg.mkdir()
+    # 0xC0 0xC4 is GBK "ÄÄ"; invalid as UTF-8 → UnicodeDecodeError on read.
+    (cfg / "addresses.yaml").write_bytes(b"top_base: \xc0\xc4\n")
+    monkeypatch.setenv("PPSSPP_DFX_CONFIG_DIR", str(cfg))
+    with caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp"):
+        assert config.addresses() == {}
+    assert any(
+        "addresses.yaml" in r.getMessage() and "using default" in r.getMessage()
+        for r in caplog.records
+    ), caplog.text
+
+
+# ── A5/A13: output_dir() is a pure getter; ensure_output_dir() creates ──
+
+
+def test_output_dir_is_pure_and_ensure_creates(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """`output_dir()` must not create; `ensure_output_dir()` must."""
+    (tmp_path / ".ppsspp-dfx").mkdir()
+    monkeypatch.setenv("PPSSPP_DFX_PROJECT_ROOT", str(tmp_path))
+    expected = (tmp_path / ".ppsspp-dfx" / "output").resolve()
+    assert config.output_dir().resolve() == expected
+    assert not config.output_dir().exists(), "getter must have no side effects"
+    created = config.ensure_output_dir()
+    assert created.is_dir()
+
+
+def test_analyze_allowed_roots_raise_config_invalid_on_bad_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A5: root resolution failure surfaces as ConfigInvalid, lazily."""
+    from ppsspp_dfx_mcp.errors import ConfigInvalid
+    from ppsspp_dfx_mcp.tools import analyze as analyze_mod
+
+    monkeypatch.setenv("PPSSPP_DFX_PROJECT_ROOT", str(tmp_path / "does-not-exist"))
+    analyze_mod._log_allowed_roots.cache_clear()
+    try:
+        with pytest.raises(ConfigInvalid):
+            analyze_mod._log_allowed_roots()
+    finally:
+        analyze_mod._log_allowed_roots.cache_clear()

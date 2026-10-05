@@ -18,21 +18,20 @@ Why state_probe exists (spike evidence):
   vs STEPPING memory reads are consistent; state_probe is trustworthy.
 
 Probe registry:
-- Process-local singleton dict, seeded lazily from
-  `.ppsspp-dfx/config/addresses.yaml` `state_probes` section on
-  first access.
-- `register` adds to the runtime registry (does NOT write YAML).
-- `clear` empties the registry; subsequent `list` returns empty. A
-  fresh process re-seeds from YAML.
+- Keyed by session_id, seeded lazily per session from
+  `.ppsspp-dfx/config/addresses.yaml` `state_probes` on first access.
+- `register` adds to that session's registry (does NOT write YAML).
+- `clear` removes USER-registered probes only. The YAML baseline is
+  protected, so a mistaken clear can never leave a session without its
+  configured probes.
 
 Multi-session semantics:
-- The registry is PROCESS-LOCAL, NOT session-isolated. Probes registered
-  in one session are visible in all sessions within the same MCP server
-  process. This is acceptable because probe definitions (name + address
-  + size) are session-agnostic — they describe game memory layout, not
-  per-session state. If two sessions target different game versions with
-  different address maps, register probes per-session AND clear before
-  switching sessions.
+- The registry is PER-SESSION. A probe registered under one session_id is
+  invisible to every other session, and each session seeds its own
+  baseline. Previously the registry was process-global, which meant one
+  session could read another session's memory layout as if it were its
+  own, and a single `clear` permanently emptied the shared registry for
+  the whole server process (measured 2026-09-30).
 
 Sample-failure semantics (samples > 1):
 - If ANY sample fails (e.g. transient WS error), the probe is marked
@@ -46,241 +45,108 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Annotated, Any, Literal
+from dataclasses import replace as _dc_replace
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp import config
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.value_staleness import classify_probe_reading
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.state_observer import (
     ObservationResult,
-    ProbeObservation,
     RegisterResult,
     StateProbe,
 )
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.service.probe_observer import (
+    _REGISTRY_BY_SESSION,  # noqa: F401 — re-exported for probe-registry tests
+    _SEEDED_BY_SESSION,  # noqa: F401 — re-exported for probe-registry tests
+    _VALID_SIZES,
+    PROBE_OBSERVE_BUDGET_S,
+    _observe_probes,
+    _registry,
+    _resolve_target_probes,
+    _seed_from_yaml,
+    drop_session,  # noqa: F401 — re-exported for probe-registry tests
+)
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.tools.scan import _merge_runs
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.state_observer import StateObserverResponse
 
-StateObserverOutput = derive_output_contract("StateObserverOutput", StateObserverResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    StateObserverOutput = dict[str, Any]
+else:
+    StateObserverOutput = derive_output_contract("StateObserverOutput", StateObserverResponse)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["state_observer"]
 
 _ACTIONS: tuple[str, ...] = ("register", "list", "observe", "clear")
-_VALID_SIZES: tuple[int, ...] = (1, 2, 4)
-
-# Process-local probe registry. Seeded lazily from YAML on first access.
-# See module docstring "Multi-session semantics" for the sharing model.
-_REGISTRY: dict[str, StateProbe] = {}
-_SEEDED = False
+# The per-session probe registry, YAML seeding, name resolution and the
+# merged-span observe loop now live in `service/probe_observer.py` (W19);
+# the three names above with `noqa` are re-exported so the probe-registry
+# tests that reach them through this module keep working.
 
 
-def _seed_from_yaml() -> None:
-    """Lazily seed _REGISTRY from addresses.yaml `state_probes` section.
+def _clear_probes(session_id: str, name: str | None = None) -> int:
+    """Remove user-registered probes; return how many were removed.
 
-    YAML schema:
-        state_probes:
-          <name>:
-            address: 0x08A0D000   # required
-            size: 4                 # optional, default 4
-            description: "..."      # optional
+    Probes seeded from addresses.yaml are NOT removable. They are the
+    project's shared diagnostic baseline, and a single mistaken `clear`
+    used to strip them for the whole process lifetime. Built-ins can
+    still be overridden by `register` (which replaces the entry) when a
+    project needs a different address.
+
+    `name=None` clears every USER probe; a specific name removes just that
+    one, and an unknown name is a no-op (the action is idempotent).
     """
-    global _SEEDED
-    if _SEEDED:
-        return
+    registry = _registry(session_id)
+    if name:
+        probe = registry.get(name.strip())
+        if probe is None or _is_builtin(session_id, name.strip()):
+            return 0
+        del registry[name.strip()]
+        return 1
+
+    # Bulk clear: keep everything that came from the YAML baseline. The
+    # built-in set is recomputed from the config rather than tagged on the
+    # probe, so a probe registered by the user under a built-in name is
+    # still protected -- the baseline is what must survive.
+    builtin_names = _builtin_names(session_id)
+    removed = 0
+    for key in [k for k in registry if k not in builtin_names]:
+        del registry[key]
+        removed += 1
+    return removed
+
+
+def _builtin_names(session_id: str) -> set[str]:
+    """Names seeded from addresses.yaml for this session."""
     try:
         addrs = config.addresses()
-    except Exception as e:
-        logger.warning("state_probes seed failed (addresses() error): %s", e)
-        return
+    except Exception:  # noqa: BLE001 — protection must not depend on config
+        return set()
     probes = addrs.get("state_probes")
     if not isinstance(probes, dict):
-        return
-    for name, spec in probes.items():
-        if not isinstance(spec, dict):
-            continue
-        addr = spec.get("address")
-        if addr is None:
-            continue
-        try:
-            addr_int = int(addr, 0) if isinstance(addr, str) else int(addr)
-        except (TypeError, ValueError):
-            continue
-        size = spec.get("size", 4)
-        try:
-            size_int = int(size)
-        except (TypeError, ValueError):
-            size_int = 4
-        if size_int not in _VALID_SIZES:
-            size_int = 4
-        desc = str(spec.get("description", ""))
-        _REGISTRY[str(name)] = StateProbe(
-            name=str(name),
-            address=addr_int,
-            size=size_int,
-            description=desc,
-        )
-    # 🟢8: mark seeded only on success — a transient addresses() failure
-    # used to permanently disable probing for the process.
-    _SEEDED = True
+        return set()
+    return {str(n) for n, spec in probes.items() if isinstance(spec, dict)}
 
 
-def _read_method(client: Any, size: int) -> Any:
-    """Pick the right read_uN method on PpssppDebugClient."""
-    if size == 1:
-        return client.read_u8
-    if size == 2:
-        return client.read_u16
-    if size == 4:
-        return client.read_u32
-    raise ArgsInvalid(f"invalid size={size}; expected one of {_VALID_SIZES}")
+def _is_builtin(session_id: str, name: str) -> bool:
+    return name in _builtin_names(session_id)
 
 
-def _resolve_target_probes(names: str) -> tuple[StateProbe, ...]:
-    """Resolve a comma-separated probe name list to concrete StateProbe tuples.
-
-    Shared by `state_observer` (action=observe) and `batch_step`'s
-    state_probe step so both code paths apply identical name-parsing +
-    validation rules (DRY). Empty `names` selects all registered
-    probes; whitespace-only entries are discarded.
-
-    Order of checks (matters for error messages):
-    1. Resolve names → empty list means either no names given AND
-       registry empty, or all names were whitespace → raise "no probes".
-    2. Validate each name exists in _REGISTRY → raise "unknown probe".
-
-    Must be called after `_seed_from_yaml()` so YAML-seeded probes are
-    visible. Caller is responsible for seeding.
-    """
-    if names:
-        # 🟢8: duplicate names produced duplicate observations and a
-        # double-counted success_count — dedupe, preserving order.
-        target_names = list(dict.fromkeys(n.strip() for n in names.split(",") if n.strip()))
-    else:
-        target_names = list(_REGISTRY.keys())
-    if not target_names:
-        raise ArgsInvalid(
-            "no probes to observe: register probes first or seed "
-            "addresses.yaml `state_probes` section"
-        )
-    missing = [n for n in target_names if n not in _REGISTRY]
-    if missing:
-        raise ArgsInvalid(f"unknown probe name(s): {missing}; registered: {list(_REGISTRY.keys())}")
-    return tuple(_REGISTRY[n] for n in target_names)
-
-
-async def _observe_probes(
-    client: Any,
-    probes: tuple[StateProbe, ...],
-    samples: int,
-) -> ObservationResult:
-    """Read current value(s) of the given probes using an existing client.
-
-    Extracted from `state_observer` so `batch_step` can reuse it without
-    opening a nested `session_client` (each session_client opens a fresh
-    WS connection — see client_helper.py:14 "No client caching").
-
-    W12 (review v3): one sample used to cost one WS round-trip PER PROBE
-    (50 probes × 1400 samples ≈ 70k round-trips). Each sample now folds the
-    probe addresses into merged spans (`_merge_runs`) and reads them with a
-    block `read_bytes`, then extracts each probe's value by offset. Only
-    single-member runs and failed/short block reads use the original
-    per-point `read_u8/u16/u32` path, so error semantics match.
-
-    Sample-failure policy (see module docstring "Sample-failure semantics"):
-    - If ANY sample fails, the probe is marked failed (error set, value
-      retains the last successfully read value for debugging).
-    - A probe stops sampling after its first failure (fail-fast).
-    """
-    n = len(probes)
-    values = [0] * n
-    errors = [""] * n
-    active = [True] * n
-    # Merge window = widest probe; a wider probe may span a few narrow ones.
-    merge_size = max((p.size for p in probes), default=1)
-
-    for sample in range(samples):
-        if sample:
-            # 🟢8: let the loop breathe between samples — back-to-back
-            # awaits gave identical values, defeating the median.
-            await asyncio.sleep(0.05)
-        targets = sorted(
-            ((probes[i].address, probes[i].size, i) for i in range(n) if active[i]),
-            key=lambda t: t[0],
-        )
-        if not targets:
-            break
-        pos = 0
-        for run_start, span, run_addrs in _merge_runs([t[0] for t in targets], merge_size):
-            members = targets[pos : pos + len(run_addrs)]
-            pos += len(run_addrs)
-            if len(members) == 1:
-                # Single address: keep the plain per-point read (same call
-                # shape and error surface as the pre-batching implementation).
-                addr, size, idx = members[0]
-                try:
-                    values[idx] = await _read_method(client, size)(addr)
-                except Exception as e:
-                    errors[idx] = str(e) or e.__class__.__name__
-                    active[idx] = False
-                continue
-            try:
-                blob = bytes(await client.read_bytes(address=run_start, size=span))
-            except Exception:
-                blob = b""
-            if len(blob) < span:
-                # Partial/unmapped span → per-point reads (fail-fast per probe).
-                for addr, size, idx in members:
-                    try:
-                        values[idx] = await _read_method(client, size)(addr)
-                    except Exception as e:
-                        errors[idx] = str(e) or e.__class__.__name__
-                        active[idx] = False
-                continue
-            for addr, size, idx in members:
-                off = addr - run_start
-                values[idx] = int.from_bytes(blob[off : off + size], "little")
-
-    observations = [
-        ProbeObservation(
-            name=probes[i].name,
-            address=probes[i].address,
-            size=probes[i].size,
-            value=values[i],
-            error=errors[i],
-        )
-        for i in range(n)
-    ]
-    success = sum(1 for o in observations if not o.error)
-    failure = len(observations) - success
-    return ObservationResult(
-        action="observe",
-        observations=tuple(observations),
-        count=len(observations),
-        success_count=success,
-        failure_count=failure,
-    )
-
-
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Aggregate state-probe registry + observer.
-#
-# Action → required params:
-# register → session_id + name + address (+ optional size, description)
-# list     → session_id
-# observe  → session_id (+ optional names / samples)
-# clear    → session_id
 @mcp.tool(
     name="ppsspp_state_observer",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -321,10 +187,10 @@ async def state_observer(
         Field(
             default="0x0",
             description=(
-                "Absolute runtime address to read, as a hex string "
-                "(e.g. '0x08804000'). "
-                "Required for action='register'; ignored for all other "
-                "actions."
+                "Required for action='register'. Absolute runtime address to read, as a hex "
+                "string (e.g. '0x08804000'). Not used by the other actions. The schema "
+                "default of '0x0' exists for legacy callers -- do NOT rely on it when "
+                "the action is 'register'."
             ),
         ),
     ] = "0x0",
@@ -376,12 +242,12 @@ async def state_observer(
 
 
     ROUTING: recurring sampled probes across loops -> here; one-shot paused snapshot -> ppsspp_frame_snapshot; single-address access watch -> ppsspp_breakpoint(action="trace").
-    BEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PROCESS-wide (shared across sessions), seeded from addresses.yaml state_probes, and is NOT re-seeded after clear within the same process. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets (F-5 contract, 2026-09-08).
+    BEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PER-SESSION (keyed by session_id), seeded from addresses.yaml state_probes; clear removes user-registered probes only, so the configured baseline survives. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets.
 
     RETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action."""
     if action not in _ACTIONS:
         raise ArgsInvalid(f"invalid action={action!r}; expected one of {_ACTIONS}")
-    _seed_from_yaml()
+    _seed_from_yaml(session_id)
     address_int = parse_address(address)
 
     logger.info(
@@ -393,47 +259,71 @@ async def state_observer(
         },
     )
 
-    try:
-        if action == "register":
-            if not name:
-                raise ArgsInvalid("name is required when action=register")
-            if address_int == 0:
-                raise ArgsInvalid(
-                    "address is required when action=register "
-                    "(address=0 is NULL and not a valid probe target)"
-                )
-            if size not in _VALID_SIZES:
-                raise ArgsInvalid(f"size must be one of {_VALID_SIZES}; got {size}")
-            probe = StateProbe(name=name, address=address_int, size=size, description=description)
-            _REGISTRY[name] = probe
-            result = RegisterResult(
-                action=action,
-                registered=probe,
-                count=len(_REGISTRY),
+    if action == "register":
+        if not name:
+            raise ArgsInvalid("name is required when action=register")
+        if address_int == 0:
+            raise ArgsInvalid(
+                "address is required when action=register "
+                "(address=0 is NULL and not a valid probe target)"
             )
-            return StateObserverResponse.from_register(result).model_dump(mode="json")
+        if size not in _VALID_SIZES:
+            raise ArgsInvalid(f"size must be one of {_VALID_SIZES}; got {size}")
+        # Store under the STRIPPED name (review-v4 A-5): clear/observe
+        # resolve names via strip(), so a raw " foo " key used to become a
+        # zombie probe — registerable but not pointably observable/clearable.
+        name = name.strip()
+        probe = StateProbe(name=name, address=address_int, size=size, description=description)
+        registry = _registry(session_id)
+        registry[name] = probe
+        result = RegisterResult(
+            action=action,
+            registered=probe,
+            count=len(registry),
+        )
+        return StateObserverResponse.from_register(result).model_dump(mode="json")
 
-        if action == "list":
-            probes = tuple(_REGISTRY.values())
-            result = RegisterResult(action=action, probes=probes, count=len(probes))
-            return StateObserverResponse.from_list(result).model_dump(mode="json")
+    if action == "list":
+        probes = tuple(_registry(session_id).values())
+        result = RegisterResult(action=action, probes=probes, count=len(probes))
+        return StateObserverResponse.from_list(result).model_dump(mode="json")
 
-        if action == "clear":
-            _REGISTRY.clear()
-            result = RegisterResult(action=action, count=0)
-            return StateObserverResponse.from_clear(result).model_dump(mode="json")
+    if action == "clear":
+        # Only user probes are removable; the addresses.yaml
+        # baseline is protected so one mistaken clear cannot leave
+        # the session permanently without probes.
+        _clear_probes(session_id, name=name.strip() or None)
+        result = RegisterResult(action=action, count=len(_registry(session_id)))
+        return StateObserverResponse.from_clear(result).model_dump(mode="json")
 
-        # action == "observe"
-        if samples < 1:
-            raise ArgsInvalid(f"samples must be >= 1; got {samples}")
-        target_probes = _resolve_target_probes(names)
-        async with session_client(session_id) as client:
-            result = await asyncio.wait_for(
-                _observe_probes(client, target_probes, samples),
-                timeout=30.0,  # 整体预算：防 PPSSPP 挂起时逐 probe 读取累积无限等待
-            )
-        return StateObserverResponse.from_observe(result).model_dump(mode="json")
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    # action == "observe"
+    if samples < 1:
+        raise ArgsInvalid(f"samples must be >= 1; got {samples}")
+    target_probes = _resolve_target_probes(names, session_id)
+    async with session_client(session_id) as client:
+        observe_result = await asyncio.wait_for(
+            _observe_probes(client, target_probes, samples),
+            timeout=PROBE_OBSERVE_BUDGET_S,  # 整体预算：防 PPSSPP 挂起时逐 probe 读取累积无限等待
+        )
+    # FR-019a (spec 008): label successful zero readings once the streak
+    # reaches the threshold. The streak is per CALL, so an agent polling
+    # `observe` across calls builds the history that makes the third
+    # consecutive zero flag the address as suspected-stale.
+    annotated = []
+    for obs in observe_result.observations:
+        if obs.error:
+            # A failed read never reached memory: the streak must not be
+            # fed, and inventing a value_status for a read that did not
+            # happen would be the silent-failure pattern again.
+            annotated.append(obs)
+            continue
+        status, note = classify_probe_reading(session_id, obs.address, obs.value)
+        annotated.append(_dc_replace(obs, value_status=status, note=note))
+    observe_result = ObservationResult(
+        action=observe_result.action,
+        observations=tuple(annotated),
+        count=observe_result.count,
+        success_count=observe_result.success_count,
+        failure_count=observe_result.failure_count,
+    )
+    return StateObserverResponse.from_observe(observe_result).model_dump(mode="json")

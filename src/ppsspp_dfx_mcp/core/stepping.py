@@ -34,6 +34,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ---------- Measured constants ----------
+
+# Budget (ms) for the cpu.resume broadcast fast path in ``resume()``.
+#
+# Real-machine measurements (2026-10-05, v1.20.4, N=12 pause→resume
+# cycles): a genuine stepping→running transition is confirmed by the
+# cpu.resume broadcast in p50=5ms / p95=6ms / max=7ms. The previous
+# 3000ms budget assumed a broadcast ALWAYS arrives — but PPSSPP only
+# emits it on a real transition (SteppingBroadcaster.cpp:64: pushed when
+# prevState_ == CORE_STEPPING && coreState != CORE_STEPPING). When
+# resume() is called while the CPU already runs, no broadcast is sent
+# and the full budget was burned before the polling fallback (observed
+# as a successful-yet-3.01s resume round trip in the deep-test journal).
+# 300ms keeps a ~50x margin over the measured p95 while bounding the
+# degenerate case at 1/10th of the old stall.
+_RESUME_BROADCAST_WAIT_MS = 300
+
+
 # ---------- TrustLevel annotation ----------
 
 
@@ -206,7 +224,10 @@ class SteppingManager:
         # root cause (e.g. WS disconnect) is not lost behind a
         # bare exception message.
         try:
-            self._last_status = await self._transport.call("cpu.status")
+            # A-13 (review v4): best-effort means SHORT — the default 5s
+            # call timeout burned a real 5s per pause() against a wedged
+            # transport before the actual pause flow even started.
+            self._last_status = await self._transport.call("cpu.status", timeout=0.5)
         except Exception as e:
             logger.debug(
                 "pause: cpu.status probe failed (best-effort): %s",
@@ -255,10 +276,14 @@ class SteppingManager:
         Decision 8 (broadcast confirmation path):
         - If ``self._game_state_observer`` is configured: send
           ``cpu.resume`` fire-and-forget, then call
-          ``observer.wait_for_resume(timeout_ms=3000)``. If the
-          broadcast confirms resume (returns True), return immediately
-          without polling. If the broadcast times out (returns False),
-          fall back to ``wait_for_state(stepping=False)`` polling.
+          ``observer.wait_for_resume(timeout_ms=_RESUME_BROADCAST_WAIT_MS)``.
+          The budget is a measured-short cycle (~50x the p95 confirmation
+          latency, see the constant's comment), so the case where no
+          broadcast ever arrives (CPU was already running) costs a bounded
+          300ms instead of the old 3000ms. If the broadcast confirms
+          resume (returns True), return immediately without polling. If it
+          times out (returns False), fall back to
+          ``wait_for_state(stepping=False)`` polling.
         - If observer is None: existing behavior — send
           ``cpu.resume`` fire-and-forget, then poll
           ``wait_for_state(stepping=False)``.
@@ -276,13 +301,16 @@ class SteppingManager:
             self._game_state_observer.drain_resume()
         await self._transport.fire_and_forget("cpu.resume")
         if self._game_state_observer is not None:
-            ok = await self._game_state_observer.wait_for_resume(timeout_ms=3000)
+            ok = await self._game_state_observer.wait_for_resume(
+                timeout_ms=_RESUME_BROADCAST_WAIT_MS
+            )
             if ok:
                 return {}
             # Broadcast timed out — fall back to polling.
             logger.debug(
-                "resume: wait_for_resume broadcast timed out after "
-                "3000ms — falling back to wait_for_state polling"
+                "resume: wait_for_resume broadcast timed out after %dms "
+                "— falling back to wait_for_state polling",
+                _RESUME_BROADCAST_WAIT_MS,
             )
         return await self._transport.wait_for_state(
             lambda s: s.get("stepping") is False,
@@ -370,7 +398,7 @@ class SteppingManager:
             body_succeeded = True
         finally:
             if should_resume_on_exit:
-                # 🟡4: resume under shield — if the caller's task was
+                # Resume under shield — if the caller's task was
                 # cancelled while the body ran, a bare `await self.resume()`
                 # here would immediately re-raise CancelledError and leave
                 # the CPU frozen in STEPPING forever. The shielded task
@@ -402,7 +430,7 @@ class SteppingManager:
                     # Caller cancelled mid-resume: the shielded task keeps
                     # running to completion in the background (it holds the
                     # only reference via the event loop until done) — but
-                    # the caller's cancellation must still propagate (C2).
+                    # the caller's cancellation must still propagate.
                     # Swallowing it here would make the cancelled task
                     # return success, breaking asyncio cancellation
                     # contracts (tasks refuse to die; anyio cancel scopes

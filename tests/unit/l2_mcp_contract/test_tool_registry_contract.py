@@ -160,8 +160,17 @@ class TestAssertCoreTools:
     to bump, no EXPECTED_TOOLS_PHASE* constants to maintain.
     """
 
-    def test_assert_core_tools_passes(self):
-        """_assert_core_tools() does not raise when registry has all core tools."""
+    def test_assert_core_tools_passes(self, tool_registry):
+        """_assert_core_tools() does not raise when registry has all core tools.
+
+        `tool_registry` is required, not decorative: it calls
+        `register_all_tools()`, which is the only thing that populates the
+        registry this assertion reads. Without it the test passed only when
+        an earlier test had already registered the tools — running it alone
+        failed with "core tools missing from registry: []" (order-dependent
+        false green).
+        """
+        assert {name for name, _, _ in tool_registry} >= server_mod._CORE_TOOLS
         server_mod._assert_core_tools()
 
     def test_assert_core_tools_raises_on_missing(self, monkeypatch):

@@ -110,3 +110,42 @@ async def test_fire_and_forget_reconnects_after_drop():
         dead.state = State.CLOSED
         await asyncio.wait_for(t.fire_and_forget("cpu.stepInto"), timeout=5.0)
         assert any('"cpu.stepInto"' in m for m in fresh.sent)
+
+
+class _NoSubprotocolWebSocket(MockWebSocket):
+    """Server accepted the TCP/WS upgrade but selected no subprotocol."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.subprotocol = None
+
+
+@pytest.mark.asyncio
+async def test_subprotocol_negotiation_failure_closes_socket():
+    """Review-v4 W-1: a subprotocol negotiation failure must not leave the
+    freshly opened socket assigned.
+
+    connect() assigns self.ws BEFORE the subprotocol check and raises after
+    it. If the socket is left assigned, _recv_task never starts, so the
+    socket sits OPEN with nobody draining it: is_connected() reports True,
+    _ensure_connected() short-circuits forever, and every later call burns
+    its full timeout against a socket that never dispatches responses —
+    a permanently poisoned session (the exact state the reconnect path
+    exists to prevent). The failure must close the socket and reset it, so
+    the next call() retries the reconnect and lands on a healthy transport.
+    """
+    bad = _NoSubprotocolWebSocket()
+    good = MockWebSocket()
+    with _patch_connect_seq([bad, good]):
+        t = WsTransport("127.0.0.1", 12345)
+        with pytest.raises(RuntimeError, match="subprotocol"):
+            await t.connect()
+        # The zombie must be gone: no assigned socket, not "connected".
+        assert t.ws is None
+        assert t.is_connected() is False
+        assert bad.state == State.CLOSED
+        # The next call retries the reconnect (second mock in the sequence)
+        # and succeeds instead of send-then-timeout against the zombie.
+        result = await asyncio.wait_for(t.call("cpu.status"), timeout=5.0)
+        assert result["ticket"]
+        assert any('"cpu.status"' in m for m in good.sent)

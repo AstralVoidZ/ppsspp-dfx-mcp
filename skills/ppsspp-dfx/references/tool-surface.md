@@ -14,7 +14,7 @@ category: tools
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
-| `ppsspp_health` | 探测 server 存活；`session_id` 可选追加四点会话电池 | 不带 session_id 不连 PPSSPP；带 `session_id` 返回 `session_checks`（iso_loaded/cpu_running/ws_connected/game_mode_valid，game_mode_valid 依赖 addresses.yaml）+ `overall_session_status`；`tool_count` 可作自检（静态数+暴露脚本数，以 `tools/list` 为准） |
+| `ppsspp_health` | 探测 server 存活；`session_id` 可选追加四点会话电池 | 不带 session_id 不连 PPSSPP；带 `session_id` 返回 `session_checks`（iso_loaded/cpu_running/ws_connected/game_mode_valid，game_mode_valid 依赖 addresses.yaml）+ `overall_session_status`；**每项检查带 `value_status`**：`ok` / `failed`（读取失败，无值）/ `not_configured`（未配置地址）/ `stale_address_suspected`（**连续多次读零** → 地址疑似与当前构建脱节，是怀疑不是游戏事实）；`tool_count` 可作自检（静态数+暴露脚本数，以 `tools/list` 为准） |
 | `ppsspp_session` | start/stop/get/wait_ready | start 需 `iso_path`，`wait_ready=true` 一步等就绪（默认 75s 预算，`[BOOT_TIMEOUT]`=楔死嫌疑，勿继续重试读；等价旧 start→wait_ready 两步）；`start(resilient=true)` 自愈启动：楔死→隔离 GPU 黑名单→同 id 重启 ≤2，`recovered>0` = 现场已重置；错误码 `ISO_NOT_FOUND`/`PPSSPP_NOT_FOUND`/`PORT_CONFLICT` |
 | `ppsspp_session(action="list")` | 列会话 | 空闲 30min 会话被 GC |
 
@@ -24,7 +24,7 @@ category: tools
 |------|------|---------|
 | `ppsspp_read_memory` | bytes/u32/string | read_bytes ≤65536，`output`=value（默认，字节列表+hex text）/hex（只回 hex text，`value=null`）/file（落盘 `output/memory_reads/` 回路径+64B 预览，顶格读取必用）；read_string 内部即 read_bytes+找 NUL（max_len 默认 4096，解码触顶 `truncated=true`） |
 | `ppsspp_write_memory` | u8/u16/u32/bytes | DESTRUCTIVE；受保护区需 `force=True`（`PROTECTED_ADDRESS`）；bytes 接受 hex 或 base64 |
-| `ppsspp_scan` | pattern/value/strings 三模式扫描 | `mode="pattern"`：hex/ascii 模式，区间 ≤256MiB；`mode="value"`：u8/u16/u32 + eq/ne/lt/gt，initial→narrow→list→drop，handle 会话绑定；`mode="strings"`：shift_jis/utf8/ascii + CJK 占比质量过滤；initial 上限 8MiB 前台 / 32MiB 后台；**pattern/strings 区间 >2MiB 自动后台化**（返回 batch_id，实测 24MB 前台 4KiB 分块 53–96s 必撞客户端 ~30s 超时；64KiB 分块 3.4–40s 随构建）；chunk_size 默认 65536；逐块 10s 超时、连续 >5 次中止（普通异常=不可映射区仍静默跳过）；后台作业 600s 墙钟预算；handle 注册表进程级 4 FIFO（并行会话共享容量） |
+| `ppsspp_scan` | pattern/value/strings 三模式扫描 | `mode="pattern"`：hex/ascii 模式，区间 ≤256MiB；`mode="value"`：u8/u16/u32 + eq/ne/lt/gt，initial→narrow→list→drop，handle 会话绑定；`mode="strings"`：shift_jis/utf8/ascii + CJK 占比质量过滤；**pattern/strings 区间 >2MiB 会自动转后台作业**（即使 `background=false`，返回 `batch_id`）——前台大区间会超出客户端等待预算而被取消；`chunk_size` 默认 65536（调小会成倍增加往返）；逐块读 10s 超时，**连续 >5 次中止**并释放会话锁（普通异常=不可映射区，仍静默跳过）；后台作业 600s 墙钟预算，超时以 `SCAN_BUDGET_EXCEEDED` 收尾；handle 注册表进程级 4 FIFO（并行会话共享容量） |
 | `ppsspp_diff_memory` | 快照→差分定位"什么变了" | snapshot（≤8MiB，64KB 分块）→ compare（变更字节清单，内联 256+truncated）→ drop/list；handle 会话绑定，注册表进程级 4 FIFO；不可读区段式跳过 |
 
 ## 断点
@@ -43,7 +43,7 @@ category: tools
 
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
-| `ppsspp_step` | pause/resume/reset/run_until/next_hle | 运行控制语义；指令级 `into/over/out` 已移入 `ppsspp_batch_step` 的 `cpu_step` 步骤类型（count 1..1000）；**stepInto 首次调用只暂停不步进**；over/out/run_until 靠临时断点，永不到达→超时是预期；3 次无推进→`STEP_NO_ADVANCE`；reset 重启游戏丢全部内存态 |
+| `ppsspp_step` | pause/resume/reset/run_until/next_hle | 运行控制语义；指令级 `into/over/out` 已移入 `ppsspp_batch_step` 的 `cpu_step` 步骤类型（count 1..1000）；**stepInto 首次调用只暂停不步进**；over/out/run_until 靠临时断点，永不到达→超时是预期；3 次无推进→`STEP_NO_ADVANCE`；reset 重启游戏丢全部内存态；resume 返回运行态 **LOW-trust** pc/ticks 快照（非暂停的 `cpu.status` 读，失败降级为 0） |
 | `ppsspp_query(action='register', name='pc', safe=true)` | 安全读 PC | STEP（自动暂停-恢复，trust HIGH；已暂停时保持不恢复）；`safe=false` 裸读 trust LOW |
 
 ## 查询
@@ -84,7 +84,7 @@ category: tools
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_screenshot` | 抓帧缓冲 | 默认 `source=render`（空帧自动回退 VRAM，label `render→vram_fallback`，颜色不可靠）；`source=output` CRASH-RISK 勿用；与弃用 `mode` 互斥；空捕获返回 `empty:true` 不报错（`structuredContent` 含 `mode/source/file_path/size_bytes/width/height/format/empty`） |
-| `ppsspp_dump(kind=...)` | 抓当前绑定纹理/CLUT（v0.1.6 合并）| 只能抓"当前绑定"，不支持按 VRAM 地址；空捕获报 `CAPTURE_EMPTY`；`structuredContent` 只含元数据（texture 含 `level`），像素走 ImageContent |
+| `ppsspp_dump(kind=...)` | 抓当前绑定纹理/CLUT | 只能抓"当前绑定"，不支持按 VRAM 地址；空捕获报 `CAPTURE_EMPTY`；`structuredContent` 只含元数据（texture 含 `level`），像素走 ImageContent |
 | `ppsspp_gpu_stats` | fps/vblanks/info | **RUN**（暂停时 `CPU_STATE_ERROR`）——可反向用作"CPU 是否暂停"的探针 |
 | `ppsspp_gpu_record` | 抓下一帧 GE 命令流 | RUN；二进制落盘 `output/gpu_dumps/`，不进 JSON |
 
@@ -93,7 +93,7 @@ category: tools
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_analyze_log` | 过滤 ERROR/WARNING/CRASH | 默认读广播日志镜像 `.ppsspp-dfx/output/ppsspp.log`；log_path 白名单限 `.ppsspp-dfx` 树内；>10MiB 拒绝；匹配上限 500 |
-| （`ppsspp_convert_address` 已非工具化）| IDA↔PPSSPP 换算 = 纯算术 | 偏移 = `top_base.ppsspp - top_base.ida`；IDA 偏移→运行时用 `ida_to_ppsspp` |
+| （地址换算**无专用工具**）| IDA↔PPSSPP 换算 = 纯算术 | 偏移 = `top_base.ppsspp - top_base.ida`；IDA 偏移→运行时用 `ida_to_ppsspp`；离线换算用 `scripts/addr_convert.py` |
 | `ppsspp_list_addresses` | 列 addresses.yaml 常量 | ≥0x1000 的 int 输出 hex 串，可直接回填地址参数；未知 section 报错并列出有效 section |
 
 ## 编排与观察
@@ -101,10 +101,11 @@ category: tools
 | 工具 | 用途 | 关键约束 |
 |------|------|---------|
 | `ppsspp_batch_step` | press/wait/state_probe/screenshot/cpu_step 序列编排 | 有失败步时整体 isError（`BATCH_STEP_FAILED`），按 `results[]` 排查；`cpu_step`：`{type:"cpu_step", mode:"into"/"over"/"out", count:1..1000}` 指令级批量推进；录制中 screenshot 步自动 skipped（非失败） |
-| `ppsspp_batch_status(batch_id 省略)` | 列举全部在册后台批任务（找回丢失的 batch_id / 背景活动盘点；v0.1.6 合并）| 只读无锁；按提交序返回；完结任务仅保留最近 32 个（`retention_jobs`），更早的已被淘汰 |
+| `ppsspp_batch_status(batch_id 省略)` | 列举全部在册后台批任务（找回丢失的 batch_id / 背景活动盘点）| 只读无锁；按提交序返回；完结任务仅保留最近 32 个（`retention_jobs`），更早的已被淘汰 |
 | `ppsspp_batch_status` | 轮询后台批任务状态与进度（completed 携带完整 results[]） | 只读无锁，可与读工具并发；永不触碰会话锁 |
 | `ppsspp_batch_cancel` | 取消排队中/运行中的后台批任务 | 取消发生在当前步边界；取消已完结任务是错误——不确定状态先 batch_status
-| `ppsspp_state_observer` | 命名探针注册/观察 | observe 在 RUNNING 态可靠；注册表**进程级**共享（跨会话），`register` 不写回 YAML，`clear` 后同进程不再播种 |
+| `ppsspp_state_observer` | 命名探针注册/观察 | observe 在 RUNNING 态可靠；注册表**进程级**共享（跨会话），`register` 不写回 YAML，`clear` 后同进程不再播种；每项带 `value_status`（含 `stale_address_suspected`，见「会话与健康」） |
+| `ppsspp_watch_value` | 地址值变化监视——**零暂停**的内存 watchpoint 替代 | 纯读轮询，**不暂停 CPU**，故热点地址安全；`mode` u8/u16/u32（默认 u32，须与值的读法一致）；`interval_frames` 默认 60（=1s），`duration_frames` 默认 600、上限 18000；返回变化序列（old/new/frame/time）；只读，不改状态 |
 | `ppsspp_replay` | 录制/回放 10 动作 | 录制需 RUN（真实输入时序）；`save`/`load` 的 `file_path` 只允许裸文件名（恒落 `output/replays/`）；`execute` 不自动结束，必须 `wait_complete`；录制中禁 screenshot、read_uN 可用 |
 
 ## 内存映射元数据

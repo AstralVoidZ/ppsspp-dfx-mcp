@@ -28,6 +28,42 @@ unauthenticated by upstream design — anyone who can reach the configured
 host:port can drive the debugger. Do not expose `PPSSPP_DFX_WS_HOST`
 beyond loopback without understanding this.
 
+### PPSSPP debugger bind (fail-closed)
+
+PPSSPP binds its debugger WebSocket server to the **wildcard address
+unconditionally** (`Common/Net/HTTPServer.cpp` — `INADDR_ANY` for IPv4,
+`in6addr_any` for IPv6). **No `ppsspp.ini` setting narrows that bind.**
+`RemoteDebuggerLocal` is not a bind control at all: it only selects the
+locally-hosted browser-debugger URL. The launcher's temporary appended
+config does not change the bind either (and Windows desktop ignores
+`--appendconfig` outright).
+
+At startup the launcher probes the *actual* bind of the debugger port it
+owns and treats a non-loopback bind as **fatal**: `session(action='start')`
+fails with `WS_CONNECT_FAILED` naming the cause. The two real remediations
+are:
+
+1. restrict the port to loopback with an OS firewall rule, or
+2. knowingly accept the risk on a trusted/isolated network via
+   `PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1` (default off) — the exposure
+   warning is still logged, but the start proceeds.
+
+Degradation: if no bind probe is available (`netstat` / `ss` / `lsof` all
+missing), exposure **cannot** be detected and startup does not fail — it
+logs a `WSDBG-EXPOSED` "check unavailable" warning instead. Verify the
+bind manually in that environment.
+
+### Port ownership (anti-squatting)
+
+`_pick_free_port` closes its probe socket before PPSSPP binds, leaving a
+TOCTOU window. Before accepting a listening port the launcher attributes
+it to **its own PPSSPP PID** (via the same `netstat` / `ss` / `lsof`
+parsers used for port discovery). A listener owned by a *foreign* process
+is refused (`WSDBG-SQUAT` warning) and startup keeps waiting rather than
+sending memory/input/state commands to an attacker-controlled endpoint.
+When the ownership probe is unavailable the port is accepted
+**unverified** (unchanged behavior) with a one-time warning.
+
 ## Configuration trust boundary
 
 The config tree (`.ppsspp-dfx/config/`) is treated as **trusted input**:
@@ -46,6 +82,12 @@ Two boundaries are enforced in code rather than assumed:
   subprocess. Pointing it at an arbitrary binary runs that binary. Keep the
   config tree writable only by the account running the server, and prefer
   the env var when the config is shared.
+
+Caller-supplied `iso_path` is validated before launch: **UNC / SMB paths**
+(`\\host\share\...`, `//host/share/...`) are refused — resolving one would
+send the server account's SMB credentials to a remote host — and, when
+`PPSSPP_DFX_ISO_ROOT` is set, the resolved ISO must lie inside that tree.
+Ordinary local paths are unaffected.
 
 `evals/bridge.py` is a developer-only eval helper (not part of the MCP
 server surface). It binds to loopback and additionally requires a random

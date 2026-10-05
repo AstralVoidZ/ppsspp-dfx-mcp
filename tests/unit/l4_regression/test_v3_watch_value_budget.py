@@ -77,3 +77,46 @@ async def test_total_sleeps_bounded_by_duration_frames(monkeypatch: pytest.Monke
     )
     # Pre-fix: 8 (sample 1) + 8 (sample 2) = 16 sleeps for a 10-frame window.
     assert calls["n"] <= 10
+
+
+@pytest.mark.asyncio
+async def test_short_read_is_rejected_not_misread(monkeypatch: pytest.MonkeyPatch):
+    """Review-v4 W-3: a short read must fail loudly, not be misread.
+
+    read_bytes can legally return fewer bytes than requested (mapping tail,
+    malformed-but-successful response). `int.from_bytes(raw[:size])` then
+    interprets the shorter payload at the wrong width — a u32 watch
+    silently reports a u16 value and the change timeline is built on bad
+    data. Sibling readers (probe_observer, scan narrow) already guard
+    len(data) == size; the watch loop is the unguarded site.
+    """
+    mock = AsyncMock()
+
+    async def fake_read(address: int, size: int) -> bytes:
+        return (7).to_bytes(max(1, size - 2), "little")  # u32 read → 2 bytes
+
+    mock.read_bytes.side_effect = fake_read
+
+    @asynccontextmanager
+    async def fake_session_client(session_id: str):
+        yield mock
+
+    async def fake_alive(session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(wv_mod, "session_client", fake_session_client)
+    monkeypatch.setattr(wv_mod, "validate_session_alive", fake_alive)
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+
+    with pytest.raises(ArgsInvalid, match="short read"):
+        await wv_mod.watch_value(
+            session_id="sess-1",
+            address="0x08804000",
+            mode="u32",
+            duration_frames=10,
+            interval_frames=1,
+        )
+
+
+async def _noop_sleep(_delay: float) -> None:
+    return None

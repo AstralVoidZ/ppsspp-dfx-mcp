@@ -4,7 +4,7 @@ Task 8.3 (unified output format): MemoryReadResponse and MemoryWriteResponse
 expose a `text` field alongside the structured fields. `text` follows the
 conventions in specs/tdqs-descriptions/spec.md:
 
-- read_u32  → '0x{ADDR:08X}: {VAL} (0x{VAL:X})'
+- read_u32  → '0x{ADDR:08X}: {VAL} (0x{VAL:08X})'
 - read_bytes→ '0x{ADDR:08X}: AA BB CC DD ...'  (single-line hex dump)
 - read_string→ '0x{ADDR:08X}: {repr(string)}'
 - scan      → 'scan: {N} matches at 0x{A1:08X}, 0x{A2:08X}, ...' (first 5)
@@ -45,7 +45,9 @@ def _format_read_text(action: str, address: int, value: Any, size: int) -> str:
     """
     if action == "read_u32":
         if isinstance(value, int):
-            return f"{format_address(address)}: {value} (0x{value:X})"
+            # G-6 (FR-006): fixed-width zero-padded hex — '0x0)' invited
+            # misreading zero-width values in ad-hoc comparisons.
+            return f"{format_address(address)}: {value} (0x{value:08X})"
         return f"{format_address(address)}: {value}"
     if action == "read_bytes":
         if isinstance(value, list):
@@ -115,8 +117,8 @@ class MemoryReadResponse(FrozenModel):
         default="",
         description=(
             "Unified text representation following spec conventions: "
-            "'0xADDR: VAL (0xVAL_HEX)' for read_u32, hex dump for "
-            "read_bytes, repr for read_string, "
+            "'0xADDR: VAL (0xVAL_HEX)' for read_u32 (8-digit zero-padded "
+            "hex), hex dump for read_bytes, repr for read_string, "
             "'scan: N matches at 0xA1, 0xA2, ...' for scan."
         ),
     )

@@ -3,3 +3,15 @@
 # — with eol=lf pinned here, session-local core.autocrlf can no longer flip
 # entire files on checkout/edit.
 * text=auto eol=lf
+# 发布同步的内容边界（specs/010 FR-013 / contracts/release-sync.md C2-3）。
+# 导出归档取自版本库已跟踪文件，故这些类别当前本就不在归档里；此处的显式排除是把
+# 「偶然成立」变成「结构成立」——即便有人误用 `git add -f` 强加，也不会随导出流出。
+# 注意：持续集成消费的评测**定义与脚本**（evals/*.py、evals/scenarios.yaml）不在排除之列。
+evals/runs/** export-ignore
+evals/events-*.json export-ignore
+# 隐私边界（specs/010）：以下为开发侧专属件，含内部资源路径与项目身份信息，
+# MUST NOT 随导出进入公开仓（隐私扫描的结构性兜底）。
+scripts/run_quickstart_checks.py export-ignore
+tests/unit/l1_contract/test_protection_boundary_runtime.py export-ignore
+tests/unit/l4_regression/test_a3_a13_a14_hardening.py export-ignore
+tests/unit/l4_regression/test_s1_s3_write_protection_paths.py export-ignore

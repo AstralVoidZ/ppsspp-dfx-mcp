@@ -1,4 +1,4 @@
-"""H1 acceptance probe A-H1-5: trace_memory_access against real PPSSPP.
+"""H1 acceptance probe A-H1-5: ppsspp_breakpoint(action='trace') against real PPSSPP.
 
 One-off verification (analysis_ppsspp_dfx_mcp_tool_layering_v1 §3 第二档):
 arm a memory-access trace on the game_mode address (0x08A0D000) on a live
@@ -21,11 +21,10 @@ import asyncio
 import json
 import sys
 
-from _wire import ISO_PATH, PACKAGE_ROOT, WORKSPACE_ROOT
+from _wire import ISO_PATH, WORKSPACE_ROOT, build_server_env
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import get_default_environment, stdio_client
+from mcp.client.stdio import stdio_client
 
-SRC_DIR = str(PACKAGE_ROOT / "src")
 # A known game-state variable address for the booted game (override per game).
 GAME_MODE_ADDR = "0x08A0D000"
 # PSP user-memory code range: any hit PC in here is "in module code".
@@ -51,13 +50,13 @@ def _hex(v) -> str:
 
 
 async def run() -> int:
-    env = get_default_environment()
-    env["PYTHONPATH"] = str(SRC_DIR)
-    env["PPSSPP_DFX_LOG_LEVEL"] = "INFO"
+    # build_server_env forwards the PPSSPP_DFX_* namespace (exe path, ISO,
+    # ALLOW_REMOTE_DEBUGGER, sessions path) — get_default_environment() drops
+    # them, which left this probe unable to configure the server it launches.
     params = StdioServerParameters(
         command=PYTHON_EXE,
         args=["-m", "ppsspp_dfx_mcp"],
-        env=env,
+        env=build_server_env(),
         cwd=str(WORKSPACE_ROOT),
     )
     failures: list[str] = []
@@ -79,11 +78,12 @@ async def run() -> int:
 
             # Attempt 1: passive read trace (game polls game_mode).
             r = await session.call_tool(
-                "ppsspp_trace_memory_access",
+                "ppsspp_breakpoint",
                 {
+                    "action": "trace",
                     "session_id": sid,
                     "address": GAME_MODE_ADDR,
-                    "access": "read",
+                    "read": True,
                     "timeout_s": 15.0,
                     "want_backtrace": True,
                 },
@@ -99,11 +99,13 @@ async def run() -> int:
                 # (mode transitions write game_mode).
                 task = asyncio.create_task(
                     session.call_tool(
-                        "ppsspp_trace_memory_access",
+                        "ppsspp_breakpoint",
                         {
+                            "action": "trace",
                             "session_id": sid,
                             "address": GAME_MODE_ADDR,
-                            "access": "read_write",
+                            "read": True,
+                            "write": True,
                             "timeout_s": 15.0,
                             "want_registers": True,
                         },

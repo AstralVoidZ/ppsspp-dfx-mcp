@@ -14,7 +14,6 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from ppsspp_dfx_mcp.views.analyze import AddressConversionResponse
 from ppsspp_dfx_mcp.views.batch_step import BatchStepResponse
 from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 from ppsspp_dfx_mcp.views.memory import (
@@ -45,21 +44,17 @@ GOLDEN_SHAPES: list[tuple[type[BaseModel], set[str]]] = [
         },
     ),
     (GetPcResponse, {"pc", "trust_level"}),
-    # The seven subset-contract models (MemoryRead/MemoryWrite/
-    # AddressConversion/Breakpoint/BatchStep/Query/SessionList responses)
-    # deliberately have NO exact-shape entry here — they are covered by
-    # REQUIRED_FIELDS below. Empty-field placeholder rows used to become
-    # permanently-skipping test cases.
+    # The six subset-contract models (MemoryRead/MemoryWrite/Breakpoint/
+    # BatchStep/Query/SessionList responses) deliberately have NO
+    # exact-shape entry here — they are covered by REQUIRED_FIELDS below.
+    # Empty-field placeholder rows used to become permanently-skipping
+    # test cases.
 ]
 
 # view model → fields that MUST exist (subset contract for aggregate views)
 REQUIRED_FIELDS: list[tuple[type[BaseModel], set[str]]] = [
     (MemoryReadResponse, {"action", "address", "value", "size"}),
     (MemoryWriteResponse, {"address", "format", "bytes_written"}),
-    (
-        AddressConversionResponse,
-        {"original", "converted", "mode", "top_base_ppsspp", "top_base_ida"},
-    ),
     (BreakpointResponse, {"action", "address", "breakpoints"}),
     (
         BatchStepResponse,

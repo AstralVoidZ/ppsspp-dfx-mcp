@@ -17,17 +17,21 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Annotated, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypedDict
 
 from mcp.server.mcpserver import Image
 from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.errors import ArgsInvalid, CaptureEmpty, ToolError, to_tool_error
-from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_capture
+from ppsspp_dfx_mcp.errors import ArgsInvalid, CaptureEmpty
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.service.screenshot_service import (
+    _image_dims,  # noqa: F401 — re-exported for image-header tests
+    capture_frame,
+)
+from ppsspp_dfx_mcp.session.client_helper import session_capture
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import save_output_bytes, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.screenshot import ScreenshotResponse, TextureDumpResponse
 
 logger = logging.getLogger(__name__)
@@ -44,9 +48,14 @@ logger = logging.getLogger(__name__)
 ScreenshotMeta = derive_output_contract(
     "ScreenshotMeta", ScreenshotResponse, exclude=frozenset({"image_base64"})
 )
-TextureDumpMeta = derive_output_contract(
-    "TextureDumpMeta", TextureDumpResponse, exclude=frozenset({"image_base64"})
-)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    TextureDumpMeta = dict[str, Any]
+else:
+    TextureDumpMeta = derive_output_contract(
+        "TextureDumpMeta", TextureDumpResponse, exclude=frozenset({"image_base64"})
+    )
 
 
 class ClutDumpMeta(TypedDict):
@@ -64,124 +73,19 @@ class ClutDumpMeta(TypedDict):
 __all__ = ["screenshot", "dump"]
 
 
-def _detect_format(data: bytes) -> str:
-    """Detect image format from magic bytes. Returns 'png' or 'jpeg'."""
-    if len(data) >= 4 and data[:4] == b"\x89PNG":
-        return "png"
-    if len(data) >= 3 and data[:3] == b"\xff\xd8\xff":
-        return "jpeg"
-    return "png"
-
-
-def _image_dims(data: bytes) -> tuple[int, int]:
-    """Extract (width, height) from a PNG or JPEG image header.
-
-    PNG: parse IHDR chunk (offset 16/20, 4 bytes BE each).
-    JPEG: scan SOF0/SOF2 marker for dimensions (variable offset).
-    Returns (0, 0) on failure or unsupported format.
-    """
-    if not data:
-        return (0, 0)
-    # PNG: 8-byte signature + IHDR at offset 16/20.
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        if len(data) < 24:
-            return (0, 0)
-        return (
-            int.from_bytes(data[16:20], "big"),
-            int.from_bytes(data[20:24], "big"),
-        )
-    # JPEG: scan markers for SOF0 (0xFFC0) or SOF2 (0xFFC2).
-    if data[:3] == b"\xff\xd8\xff":
-        return _jpeg_dims(data)
-    return (0, 0)
-
-
-def _jpeg_dims(data: bytes) -> tuple[int, int]:
-    """Parse JPEG SOF0/SOF2 marker for dimensions.
-
-    JPEG structure: FFD8 [marker FFXX length data]... SOF0/2 marker
-    contains: precision(1) + height(2) + width(2) after the length.
-    """
-    i = 2  # Skip FFD8.
-    while i < len(data) - 9:
-        if data[i] != 0xFF:
-            i += 1
-            continue
-        marker = data[i + 1]
-        # SOF0 (0xC0), SOF2 (0xC2) — contain dimensions.
-        if marker in (0xC0, 0xC2):
-            # offset: marker(2) + length(2) + precision(1) + height(2) + width(2)
-            height = int.from_bytes(data[i + 5 : i + 7], "big")
-            width = int.from_bytes(data[i + 7 : i + 9], "big")
-            return (width, height)
-        # Skip non-SOF markers (length is 2 bytes BE after marker).
-        if marker in (0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9):
-            i += 2  # Standalone marker, no length.
-        elif marker == 0xDA:  # SOS — scan data follows, stop.
-            break
-        else:
-            if i + 3 < len(data):
-                length = int.from_bytes(data[i + 2 : i + 4], "big")
-                i += 2 + length
-            else:
-                break
-    return (0, 0)
-
-
 async def _save_to_output(data: bytes, subdir: str, filename: str) -> str:
     """Save data to .ppsspp-dfx/output/{subdir}/{filename}. Returns file path.
 
     P2 refactor: delegates to the shared containment + to_thread helper
-    (W12) — multi-MB PNG writes no longer stall the event loop.
+    — multi-MB PNG writes no longer stall the event loop.
     """
     return await save_output_bytes(subdir, filename, data)
 
 
-# Sentinel for "mode not explicitly provided by caller".
-_MODE_DEFAULT = "auto"
-
-
-def _resolve_capture_strategy(
-    source: str | None, mode: str | None, mode_explicit: bool
-) -> tuple[str, str]:
-    """Decide which CaptureService path to take and what label to record.
-
-    Returns (strategy, label) where:
-    - strategy is the CaptureService method name
-    - label is the value exposed in the response `mode` field
-
-    Raises ToolError if both source and mode are explicitly set.
-    """
-    source_set = source is not None
-    if source_set and mode_explicit:
-        raise ArgsInvalid(
-            "ambiguous: provide either `source` (new) or `mode` (deprecated), not both"
-        )
-    if source_set:
-        if source not in ("render", "output"):
-            # S11 (review v2): was assert — stripped under python -O.
-            raise ArgsInvalid(f"invalid source={source!r}; expected 'render' or 'output'")
-        return (source, source)
-    if mode_explicit:
-        logger.warning(
-            "ppsspp_screenshot: `mode` parameter is deprecated; use `source` "
-            "(Literal['render', 'output']) instead. Got mode=%r.",
-            mode,
-        )
-    if mode not in ("auto", "wm_command", "printwindow", "vram"):
-        raise ArgsInvalid(f"invalid mode={mode!r}")
-    return (mode, mode)
-
-
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Capture a PPSSPP framebuffer screenshot.
-#
-# Returns [TextContent(metadata_json), ImageContent(image)] for token
-# efficiency. On failure, returns [TextContent(metadata_json)] only.
 @mcp.tool(
     name="ppsspp_screenshot",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -227,77 +131,16 @@ async def screenshot(
     BEHAVIOR: READ-ONLY. An empty capture returns empty=true instead of an error — advance to a rendered scene and retry.
 
     RETURNS: structuredContent metadata (mode/source/size_bytes/width/height/file_path/format/empty); the image itself arrives as an ImageContent block. The auto-saved PNG/JPG path is in file_path."""
-    # Track whether the USER explicitly passed
-    # `mode`. The default fill below must not count as explicit — the
-    # previous flag made every no-arg screenshot call log the deprecation
-    # warning for a parameter the caller never sent.
-    session_id = await resolve_session_id(session_id)
-    user_set_mode = mode is not None
-    if not user_set_mode and source is None:
-        mode = _MODE_DEFAULT
-
-    strategy, label = _resolve_capture_strategy(source, mode, user_set_mode)
-
-    logger.info(
-        "tool_call",
-        extra={
-            "tool": "ppsspp_screenshot",
-            "session_id": session_id,
-            "source": source,
-            "mode": mode,
-            "strategy": strategy,
-        },
-    )
-    try:
-        async with session_capture(session_id) as (_client, capture):
-            if strategy == "render":
-                data = await capture.screenshot(source="render")
-                # render_color returns empty bytes when the
-                # GPU framebuffer hasn't been rendered yet (e.g., title
-                # screen, loading screen). Fallback to safe_screenshot
-                # (vram path) so the caller still gets a visual.
-                if not data:
-                    data = await capture.safe_screenshot()
-                    label = "render→vram_fallback"
-                    source = "render→vram_fallback"
-            elif strategy == "output":
-                data = await capture.screenshot(source="output")
-            elif strategy == "auto":
-                data = await capture.safe_screenshot()
-            elif strategy == "wm_command":
-                data = await capture._wm_command_screenshot()
-            elif strategy == "printwindow":
-                data = await capture._print_window_screenshot()
-            else:  # vram
-                data = await capture._vram_screenshot()
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
-
-    img_format = _detect_format(data)
-    w, h = _image_dims(data) if data else (0, 0)
+    # The capture orchestration (session resolve + source/mode reconciliation
+    # + strategy fallback + format/size probing) lives in
+    # `service/screenshot_service.py`; this tool only assembles the MCP result.
+    frame = await capture_frame(session_id, source, mode)
 
     file_path = ""
-    if data:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        ext = "jpg" if img_format == "jpeg" else "png"
-        file_path = await _save_to_output(data, "screenshots", f"{ts}_{label}.{ext}")
+    if frame.data:
+        file_path = await _save_to_output(frame.data, "screenshots", frame.output_filename())
 
-    meta = {
-        "mode": label,
-        "source": source,
-        "file_path": file_path,
-        "size_bytes": len(data),
-        "width": w,
-        "height": h,
-        "format": img_format,
-        # An empty capture previously surfaced only
-        # implicitly (size_bytes=0, no ImageContent). Make it explicit so
-        # agents can branch on failure without parsing heuristics — same
-        # intent as dump_texture's CAPTURE_EMPTY error.
-        "empty": not data,
-    }
+    meta = frame.meta(file_path)
 
     # ImageContent carries the pixels; structuredContent carries the metadata.
     # An empty capture yields metadata only (empty=true), not an error.
@@ -306,24 +149,15 @@ async def screenshot(
     # (the SDK only does that conversion on the `convert_result` path, which
     # building the result ourselves bypasses).
     content: list[Any] = []
-    if data:
-        content.append(Image(data=data, format=img_format).to_image_content())
+    if frame.data:
+        content.append(Image(data=frame.data, format=frame.img_format).to_image_content())
     return CallToolResult(content=content, structured_content=meta)
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Dump the currently-bound GPU texture as PNG.
-#
-# Returns [TextContent(metadata_json), ImageContent(image)] for token
-# efficiency. On failure, returns [TextContent(metadata_json)] only.
-# Former docstrings (kept as comment; description is now the TDQS docstring):
-# ppsspp_dump_texture / ppsspp_dump_clut: dump the currently-bound GPU
-# texture / CLUT palette as PNG. Merged into ppsspp_dump(kind=...) in
-# v0.1.6 (Glama surface review: tool-count reduction).
 @mcp.tool(
     name="ppsspp_dump",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -367,22 +201,17 @@ async def dump(
     )
     if kind == "clut" and level != 0:
         raise ArgsInvalid("level applies only to kind='texture'; got kind='clut'")
-    try:
-        async with session_capture(session_id) as (_client, capture):
-            if kind == "clut":
-                data = await capture.dump_clut()
-            else:
-                data = await capture.dump_texture(level=level)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_capture(session_id) as (_client, capture):
+        if kind == "clut":
+            data = await capture.dump_clut()
+        else:
+            data = await capture.dump_texture(level=level)
     # An empty capture means PPSSPP could not deliver the payload (nothing
     # bound at this state) — surface it as an error instead of a success
     # with size_bytes=0.
     if not data:
         what = "CLUT" if kind == "clut" else "texture"
-        # W17 (review v2): typed exception carries the CAPTURE_EMPTY code.
+        # typed exception carries the CAPTURE_EMPTY code.
         raise CaptureEmpty(
             f"dump produced no image (kind={kind}, level={level}) — no {what} "
             f"is currently bound, or the GPU capture failed; try again "

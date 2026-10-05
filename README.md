@@ -119,27 +119,51 @@ cd ppsspp-dfx-mcp
 # 在本目录执行——创建 .venv/ppsspp-dfx-mcp 并安装（editable，含 dev 依赖）：
 python scripts/check_env.py --bootstrap
 
-# 校验解释器 / SDK 版本 / 包导入：
+# 校验解释器 / SDK 版本 / 包导入 / 每份 .mcp.json：
 python scripts/check_env.py --check
 ```
 
+`--bootstrap` 只准备**主 venv**（`.venv/ppsspp-dfx-mcp`，跑测试与全量回归用）。
+服务器**启动**不再需要它：提交的 `.mcp.json` 走通用运行器形式，环境由运行器首次运行时自建。
+
+`.mcp.json` 的两种合法形式（`--check` 会逐份校验）：
+
+| 配置所在位置 | 形式 | 说明 |
+|---|---|---|
+| **包根**（独立检出的仓库根） | `["run", "ppsspp-dfx-mcp"]` | 自定位：运行器按工作目录找到项目 |
+| **非包根**（monorepo 的工作区根） | `["run", "--directory", "<包目录>", "ppsspp-dfx-mcp"]` | **必须**钉住包目录，否则会落到工作区自己的项目上 |
+
+**工作目录假设**：MCP 客户端通常以 **`.mcp.json` 所在目录**为工作目录启动子进程；
+相对定位依赖这一点。`config.project_root()` 的解析规则是
+`PPSSPP_DFX_PROJECT_ROOT` 环境变量 > 工作目录，且**不做向上搜索**——工作目录一旦落到别处，
+输出目录与脚本清单都会错位（表现为动态脚本工具静默消失）。
+
+**不要**在提交的配置里写平台绑定的解释器路径（`…/Scripts/python.exe` 或 `…/bin/python`）：
+它在另一个操作系统上必然失效。
+
 把服务器注册到你的 MCP 客户端——让客户端读取仓库里的 `.mcp.json`，或按同样的
-结构内联：
+结构内联（以包根那份为例）：
 
 ```json
 {
   "mcpServers": {
     "ppsspp-dfx": {
-      "command": ".venv/ppsspp-dfx-mcp/Scripts/python.exe",
-      "args": ["-m", "ppsspp_dfx_mcp"],
-      "cwd": "${CLAUDE_PROJECT_DIR}"
+      "command": "uv",
+      "args": ["run", "ppsspp-dfx-mcp"]
     }
   }
 }
 ```
 
-`cwd` 必须是同时存放 `.venv/` 与 `.ppsspp-dfx/` 配置的目录（独立检出时即仓库根）。
-POSIX 上请用 `.venv/ppsspp-dfx-mcp/bin/python` 代替 `Scripts/python.exe`。
+若客户端把 `command` 解析到**别的**工作目录（不遵守上述假设），改用
+`python scripts/check_env.py --print-config` 打印的片段——它给出**同形**的运行器形式
+并用 `--directory` 钉住包目录的绝对路径，可直接粘贴。
+另请确保通用运行器在 `PATH` 上（`--check` 会检查；缺失时 stdio 传输下客户端只看得见
+子进程退出，看不到原因）。
+
+```bash
+python scripts/check_env.py --print-config
+```
 
 手动启动验证：
 
@@ -167,9 +191,18 @@ POSIX 上请用 `.venv/ppsspp-dfx-mcp/bin/python` 代替 `Scripts/python.exe`。
 | `PPSSPP_DFX_BOOT_HEAL_QUARANTINE` | `1` | `1` = 允许 boot 楔死自愈隔离 GPU 后端黑名单文件（仅重命名，从不删除）；`0` = 该步不执行 |
 | `PPSSPP_DFX_MEMSTICK_DIR` | 自动探测 | memstick 目录（日志/截图捕获用） |
 | `PPSSPP_DFX_WORKSPACE_ROOT` | 自动探测 | `scripts/_wire.py` 的工作区根（取最近的含 `.mcp.json` 的祖先目录）。仅引导脚本使用 |
+| `PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER` | 未设 | 设为 `1` 时接受绑定在非回环地址上的无鉴权调试器（默认 fail-closed 拒绝）。详见 [SECURITY.md](SECURITY.md) |
+| `PPSSPP_DFX_ALLOW_ABS_SCRIPT` | 未设 | 设为 `1` 允许脚本 manifest 使用绝对路径（默认拒绝，仅相对路径）。详见 [SECURITY.md](SECURITY.md) |
+| `PPSSPP_DFX_ISO_ROOT` | 未设 | ISO 路径白名单根——设置后 `iso_path` 仅接受该树内路径。详见 [SECURITY.md](SECURITY.md) |
 
 > **`PPSSPP_DFX_WS_PORT` 只在连接「已在运行的 PPSSPP」时生效**：服务器自己启动
 > PPSSPP 时会随机选空闲端口并在启动后发现它（避开 12345 冲突），此时该变量被忽略。
+
+> **限流只覆盖协议分发**：`PPSSPP_DFX_RATE_LIMIT` 由中间件在 JSON-RPC `tools/call`
+> 分发层执行，按 `(session_id, tool_name)` 分桶——不同会话互不占用额度；无法归属的
+> 请求（参数结构异常、工具名未知/未注册）统一落入 `__unknown__` 桶并被限流
+> （fail-closed）。进程内调用（如测试里的 `mcp.call_tool(...)`、工具直接调用另一工具）
+> 不经过分发层，因此**不受限流约束**——它不是进程级全局限流器。
 
 评测专用变量（跑 `evals/` 时才需要，日常使用无需设置）：
 `PPSSPP_DFX_TEST_MODE`、`PPSSPP_DFX_FIXTURE_DIR`、`PPSSPP_DFX_TEST_EXE_PATH`、
@@ -300,6 +333,7 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 | 症状 | 原因 / 修复 |
 |---|---|
 | `-32000: Connection closed`（无任何信息） | MCP 客户端与服务器之间有包装脚本：Windows 上 `os.execv` 实为 `CreateProcess` + 父进程等待（非 POSIX 替换），内层 server 的 stdin 立即 EOF 静默退出。去掉中间层，直接以 venv 解释器为 `command`（见[从源码运行](#从源码运行)） |
+| 客户端启动 server 报 `-32000: Connection closed` / `command` 路径不存在 | 该配置的相对解释器路径未被 provision（其目录旁没有对应 venv），或客户端把相对 `command` 解析到了另一个工作目录。运行 `python scripts/check_env.py --bootstrap` 在各配置目录旁建 venv，或改用 `python scripts/check_env.py --print-config` 输出的绝对路径片段（见[从源码运行](#从源码运行)） |
 | `check_env` 报「独立 venv 缺失」 | `.venv/` 被 gitignore 排除，新 clone 必然没有。运行 `python scripts/check_env.py --bootstrap`（见[从源码运行](#从源码运行)） |
 | `mcp SDK 版本不满足` / 导入期崩溃 | 系统 Python 的 `mcp` 包常被其他 MCP server 钉在 1.x，与 SDK v2 不可调和。不要全局安装——用 `check_env.py --bootstrap` 建独立 venv，或按[从 PyPI 安装运行](#从-pypi-安装运行)安装到独立 venv |
 | `ppsspp_script_*` 工具全部消失（服务器正常启动） | `.ppsspp-dfx/config/scripts.manifest.yaml` 缺失——缺失仅告警不阻断，动态工具静默清空。按[独立部署快速开始](#独立部署快速开始)取三份模板修复（`check_env.py --check` 会提示；PyPI 安装时模板不在 wheel 内，需从 GitHub 取） |
@@ -350,8 +384,7 @@ RPC 超时，保守默认）、`CPU_STATE_ERROR`（当前 CPU 状态不适合该
 | 操作 | 实测 |
 |---|---|
 | 单次 WS 往返（`game.status` 级别的轻量调用） | p50 ≈ 0.21 ms，p95 ≈ 0.28 ms（n=60） |
-| 全频段 24 MB pattern 扫描（`ppsspp_scan` `background=true`，64 KiB 分块） | ≈ 40 s（384 次分块读；另一 v1.20.4 构建实测 ≈ 3.4 s——读路径随构建差异可达一个数量级） |
-| 全频段 24 MB pattern 扫描（前台，4 KiB 旧默认分块） | ≈ 53–96 s（构建相关；远超 MCP 客户端 ~30 s 超时——**>2 MiB 已自动后台化**，不再有前台撞超时的死循环） |
+| 全频段 24 MB pattern 扫描（`ppsspp_scan` `background=true`，64 KiB 分块） | ≈ 40 s（384 次分块读） |
 | 断点命中→可观测（热地址 `set` + `wait`，resume 后到 wait 确认） | p50 ≈ 11 ms（n=30） |
 
 ## 社区与支持
@@ -375,12 +408,20 @@ runner、报告）入手。
 # 前置：pytest 在 dev 依赖组中（默认安装不含）——二选一：
 #   uv sync                                # 装入 dependency-groups（含 pytest）
 #   pip install -e ".[dev]"                # 或装 dev extra
-# 全量测试套件（单元 + 契约 + 集成；1300+ 个测试用例（不含参数化展开））：
+# 全量测试套件（单元 + 契约 + 集成；1700+ 个测试用例（不含参数化展开））：
 .venv/ppsspp-dfx-mcp/Scripts/python -m pytest tests -q
 
 # 工具签名/描述变更后重新生成工具面基线（与变更同笔提交）：
 .venv/ppsspp-dfx-mcp/Scripts/python scripts/dump_tool_surface.py
 ```
+
+> **CI 门禁边界——勿把「CI 全绿」读作「真机已验证」**：CI
+> （[.github/workflows/ci.yml](.github/workflows/ci.yml)）只执行
+> `python -m pytest tests -q`，**不设置** `PPSSPP_DFX_TEST_EXE_PATH` /
+> `PPSSPP_DFX_TEST_ISO_PATH`，因此依赖真实 PPSSPP 与游戏 ISO 的集成用例在 CI 中
+> **一律 skip、不会执行**。这些用例属**本地真机门控**：需在本机显式导出上述两个
+> 环境变量后运行。`python scripts/check_skips.py` 仅审计「跳过理由是否已登记」，
+> 不改变这一事实。
 
 ## 致谢
 

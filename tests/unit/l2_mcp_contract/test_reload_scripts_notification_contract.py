@@ -62,7 +62,7 @@ def patched_manifest(tmp_path: Path):
     with (
         patch("ppsspp_dfx_mcp.tools.script.get_manifest", return_value=manifest),
         patch("ppsspp_dfx_mcp.tools.script._clear_module_cache"),
-        patch("ppsspp_dfx_mcp.server.registered_exposed_names", return_value=set()),
+        patch("ppsspp_dfx_mcp.registry.registered_exposed_names", return_value=set()),
     ):
         yield manifest
 
@@ -98,7 +98,7 @@ class TestToolSetChangeReportedInReturnValue:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools",
             new=AsyncMock(return_value=_report(added=["fresh_script"], registered=1)),
         ):
             out = await reload_scripts()
@@ -110,7 +110,7 @@ class TestToolSetChangeReportedInReturnValue:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools",
             new=AsyncMock(return_value=_report(removed=["stale_script"], registered=0)),
         ):
             out = await reload_scripts()
@@ -123,7 +123,7 @@ class TestToolSetChangeReportedInReturnValue:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools", new=AsyncMock(return_value=_report())
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools", new=AsyncMock(return_value=_report())
         ):
             out = await reload_scripts()
 
@@ -144,7 +144,7 @@ class TestToolListChangedNotification:
 
         ctx = _ctx_with_session()
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools",
             return_value=_report(added=["a"], registered=1),
         ):
             await reload_scripts(ctx=ctx)
@@ -157,7 +157,7 @@ class TestToolListChangedNotification:
 
         ctx = _ctx_with_session()
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools", new=AsyncMock(return_value=_report())
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools", new=AsyncMock(return_value=_report())
         ):
             await reload_scripts(ctx=ctx)
 
@@ -168,7 +168,7 @@ class TestToolListChangedNotification:
 
         ctx = _ctx_with_session()
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools", return_value=_report(removed=["gone"])
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools", return_value=_report(removed=["gone"])
         ):
             await reload_scripts(ctx=ctx)
 
@@ -179,7 +179,7 @@ class TestToolListChangedNotification:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools",
             return_value=_report(added=["a"], registered=1),
         ):
             out = await reload_scripts()  # 不传 ctx
@@ -197,7 +197,7 @@ class TestToolListChangedNotification:
         from ppsspp_dfx_mcp.tools.script import reload_scripts
 
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools",
             return_value=_report(added=["fresh"], registered=1),
         ):
             out = await reload_scripts(ctx=_NoRequestContext())
@@ -211,7 +211,7 @@ class TestToolListChangedNotification:
         ctx = _ctx_with_session()
         ctx.request_context.session.send_tool_list_changed.side_effect = OSError("transport gone")
         with patch(
-            "ppsspp_dfx_mcp.server.sync_exposed_tools",
+            "ppsspp_dfx_mcp.registry.sync_exposed_tools",
             return_value=_report(added=["fresh"], registered=1),
         ):
             out = await reload_scripts(ctx=ctx)

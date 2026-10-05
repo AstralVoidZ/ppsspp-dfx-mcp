@@ -16,7 +16,7 @@ from typing import Annotated
 
 from pydantic import Field
 
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 
 __all__ = ["memory_breakpoint_wizard", "memory_trace_wizard"]
 
@@ -134,7 +134,7 @@ Work through these steps in order:
    CPUCore=2 (IR Interpreter).
 
 2. PREFERRED — ONE CALL: ppsspp_breakpoint(action='trace', session_id=...,
-   address="{address}", access="read_write", timeout_s=30,
+   address="{address}", read=true, write=true, timeout_s=30,
    want_backtrace=true). It arms the breakpoint, waits for the hit,
    captures the scene, removes the breakpoint, and resumes — all with
    cleanup guaranteed. Read the answer from hits[0]: pc (the code that
@@ -143,7 +143,7 @@ Work through these steps in order:
 
 3. FALLBACK — MANUAL PROTOCOL (only if the trace tool is unavailable):
    a) ppsspp_breakpoint(action="mem_set", address="{address}");
-   b) loop: ppsspp_breakpoint(action='wait')(timeout_s=15) — hit=false is NOT an
+   b) loop: ppsspp_breakpoint(action='wait', timeout_s=15) — hit=false is NOT an
       error, keep polling; the wait does NOT hold the session lock;
    c) on hit: ppsspp_query(action="register", name="pc") + ppsspp_query(action="registers");
    d) cleanup: ppsspp_breakpoint(action="mem_remove") then

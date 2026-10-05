@@ -26,7 +26,7 @@ MAX_PRESS_DURATION_FRAMES = 60 * 300
 
 MAX_SINGLE_READ_BYTES = 65536  # hard ceiling for one memory.read
 
-# Symmetric write cap (W10, review v2): memory.write payloads travel the
+# Symmetric write cap: memory.write payloads travel the
 # same WS frame as reads — unbounded base64 writes hit the same
 # transport limits. Callers chunk. Import; do not copy.
 MAX_WRITE_BYTES = 0x10000

@@ -25,12 +25,13 @@ Test groups:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fake_transport import FakeTransport
 
-from ppsspp_dfx_mcp.core.stepping import SteppingManager
+from ppsspp_dfx_mcp.core.game_state_observer import GameStateObserver
+from ppsspp_dfx_mcp.core.stepping import _RESUME_BROADCAST_WAIT_MS, SteppingManager
 from ppsspp_dfx_mcp.errors import (
     CpuFreezeSuspected,
     CpuStateError,
@@ -41,6 +42,23 @@ from ppsspp_dfx_mcp.errors import (
     to_tool_error,
 )
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
+
+
+def _observer_double(*, resume_confirmed: bool) -> MagicMock:
+    """Observer double that mirrors the REAL seam shapes (W8, review v4).
+
+    ``GameStateObserver.drain_resume()`` is a plain ``def`` while
+    ``wait_for_resume()`` is a coroutine function. A bare ``AsyncMock()``
+    gets the sync one wrong: ``SteppingManager.resume()`` calls
+    ``drain_resume()`` without awaiting, so the drop of stale broadcasts
+    became a silent no-op AND leaked an un-awaited coroutine per resume.
+    Spec'ing the double keeps ``drain_resume`` synchronous; only
+    ``wait_for_resume`` is async.
+    """
+    observer = MagicMock(spec=GameStateObserver)
+    observer.wait_for_resume = AsyncMock(return_value=resume_confirmed)
+    return observer
+
 
 # ============================================================================
 # 12.1 — to_tool_error SteppingFailedError translation split (multi-path)
@@ -389,6 +407,11 @@ class TestRequireRunningTicksDetection:
         # Should NOT raise — ticks0=101, ticks1=102 (after 50ms sleep).
         await client._require_running("gpu.stats.get")
 
+        # Falsifiable: both probes must actually run. "Does not raise" alone
+        # would also pass for a _require_running that returned early without
+        # sampling ticks, so pin the probe count.
+        assert call_count["n"] == 2
+
 
 # ============================================================================
 # 12.4 — SteppingManager.pause() PID pre-check
@@ -554,8 +577,7 @@ class TestResumeBroadcastConfirmation:
         transport.set_state({"stepping": True})
 
         # observer mock — wait_for_resume returns True.
-        observer = AsyncMock()
-        observer.wait_for_resume.return_value = True
+        observer = _observer_double(resume_confirmed=True)
 
         mgr = SteppingManager(transport, game_state_observer=observer)
 
@@ -571,8 +593,14 @@ class TestResumeBroadcastConfirmation:
 
         result = await mgr.resume()
 
-        # wait_for_resume was awaited once with the default 3000ms timeout.
-        observer.wait_for_resume.assert_awaited_once_with(timeout_ms=3000)
+        # wait_for_resume was awaited once with the measured short budget
+        # (single source: the module constant — see its 2026-10-05
+        # real-machine measurements).
+        observer.wait_for_resume.assert_awaited_once_with(timeout_ms=_RESUME_BROADCAST_WAIT_MS)
+        # ...and the stale-broadcast drain ran exactly once, BEFORE the new
+        # cpu.resume was issued (W8: with a bare AsyncMock this call was a
+        # no-op, so the ordering it protects was never actually exercised).
+        observer.drain_resume.assert_called_once_with()
         # Result is empty dict (no polling — broadcast confirmed).
         assert result == {}
 
@@ -594,15 +622,17 @@ class TestResumeBroadcastConfirmation:
         transport.set_faf_handler("cpu.resume", _set_stepping_false)
 
         # observer mock — wait_for_resume returns False (broadcast timeout).
-        observer = AsyncMock()
-        observer.wait_for_resume.return_value = False
+        observer = _observer_double(resume_confirmed=False)
 
         mgr = SteppingManager(transport, game_state_observer=observer)
 
         result = await mgr.resume()
 
-        # wait_for_resume was awaited.
-        observer.wait_for_resume.assert_awaited_once_with(timeout_ms=3000)
+        # wait_for_resume was awaited with the same measured short budget.
+        observer.wait_for_resume.assert_awaited_once_with(timeout_ms=_RESUME_BROADCAST_WAIT_MS)
+        # The drain is sync (W8) — it must still have run once before the
+        # new cpu.resume, even though the broadcast never arrived.
+        observer.drain_resume.assert_called_once_with()
         # wait_for_state was called as fallback — result has stepping=False.
         assert result.get("stepping") is False
 

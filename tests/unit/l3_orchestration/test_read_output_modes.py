@@ -149,7 +149,10 @@ class TestReadBytesOutputModes:
         )
         assert result["value"] == 0x1234
         assert result["file"] == ""
-        assert result["text"] == "0x08804000: 4660 (0x1234)"
+        # G-6 (FR-006): the text hex is fixed-width zero-padded, matching the
+        # new contract. This assertion was left on the old '0x1234' form when
+        # G-6 landed and started failing the moment views/memory.py changed.
+        assert result["text"] == "0x08804000: 4660 (0x00001234)"
 
 
 class TestReadBytesFilePreviewBoundaries:

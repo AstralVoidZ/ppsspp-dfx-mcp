@@ -5,6 +5,11 @@ populated when action='registers'. The text uses grouped headers
 '── GPR ──' / '── FPU ──' / '── VFPU ──' followed by
 '  {reg_name:<7} = 0x{value:08X}' lines, per
 specs/tdqs-descriptions/spec.md.
+
+G-3 (FR-003): action='register' (singular) also gets a text line
+'{name} = 0x{value:08X}' — the same name/value/hex shape as the plural
+action — and its `data` echoes the looked-up register name under `name`
+(PPSSPP's cpu.getReg reply carries only the numeric index).
 """
 
 from __future__ import annotations
@@ -60,15 +65,38 @@ def _format_registers_text(data: Any) -> str:
     return "\n".join(lines)
 
 
+def _format_single_register_text(data: Any) -> str:
+    """Format a cpu.getReg response as a single '{name} = 0x{value:08X}' line.
+
+    Expected `data` shape (PPSSPP WebSocket cpu.getReg plus the `name`
+    echo added by the tool layer):
+        {"name": "t0", "register": 8, "uintValue": 3735928559, ...}
+
+    Returns empty string if data is not the expected shape (same
+    degradation policy as _format_registers_text).
+    """
+    if not isinstance(data, dict):
+        return ""
+    name = data.get("name")
+    if not isinstance(name, str) or not name:
+        return ""
+    val = data.get("uintValue")
+    if not isinstance(val, int) or isinstance(val, bool):
+        return ""
+    return f"{name} = {format_address(val)}"
+
+
 def _format_query_text(action: str, data: Any) -> str:
     """Format the unified text representation of a query result.
 
-    Only action='registers' has a defined text format (grouped register
-    output). Other actions return an empty string — callers should rely
-    on the structured `data` field for those.
+    action='registers' → grouped register dump; action='register' →
+    a single 'name = 0xVAL' line. Other actions return an empty string —
+    callers should rely on the structured `data` field for those.
     """
     if action == "registers":
         return _format_registers_text(data)
+    if action == "register":
+        return _format_single_register_text(data)
     return ""
 
 
@@ -94,7 +122,9 @@ class QueryResponse(FrozenModel):
         description=(
             "Unified text representation. Populated for action='registers' "
             "with grouped '── GPR ──' / '── FPU ──' / '── VFPU ──' headers "
-            "and '  name = 0xVAL' lines. Empty for other actions (use the "
+            "and '  name = 0xVAL' lines, and for action='register' with a "
+            "single 'name = 0xVAL' line (the requested register name echoed "
+            "with its hex value). Empty for other actions (use the "
             "structured `data` field)."
         ),
     )

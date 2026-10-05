@@ -7,7 +7,7 @@ artifacts used by L1 contract tests:
 2. Connects a real WsTransport
 3. Wraps it in RecordingTransport (records all WS traffic to cassette.jsonl)
 4. Also wraps it in ContractRecorder (records per-event fixtures/*.json)
-5. Drives the 30-tool execution checklist from
+5. Drives the tool execution checklist from
    (Phase 1-5: health/session, core debug, script mgmt, P0 enhance, GPU)
 6. flush() writes cassette.jsonl + fixtures/*.json
 7. Cleanly shuts down PPSSPP
@@ -57,15 +57,15 @@ DEFAULT_ISO = "game.iso"
 DEFAULT_OUTPUT_DIR = "tests/cassettes"
 
 
-# ─── 30-tool execution checklist ────────────────────────────────────────
+# ─── tool execution checklist ───────────────────────────────────────────
 #
-# Drives the 30-tool list from guide_ppsspp_dfx_mcp_live_test_methodology_v1.md
+# Drives the tool list from guide_ppsspp_dfx_mcp_live_test_methodology_v1.md
 # §3.1-§3.5. Each entry: (description, event, params). Order matters —
 # later tools depend on earlier state (e.g. breakpoint needs CPU paused).
 #
 # This is the SAME order used by the live test methodology guide, so the
-# produced cassette faithfully captures real PPSSPP behavior across all
-# 30 tools.
+# produced cassette faithfully captures real PPSSPP behavior across the
+# full checklist.
 
 TOOL_CHECKLIST: list[tuple[str, str, dict[str, Any]]] = [
     # ─── Phase 2 — Core debug (WS-level events) ──────────────────────
@@ -171,7 +171,7 @@ async def run_recording(iso_path: Path, output_dir: Path) -> int:
             capture_state_changes=True,
         )
 
-        # Step 4: drive the 30-tool checklist.
+        # Step 4: drive the tool checklist.
         logger.info("driving %d-tool checklist", len(TOOL_CHECKLIST))
         for desc, event, params in TOOL_CHECKLIST:
             await record_one(recorder, desc, event, params)

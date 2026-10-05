@@ -37,7 +37,7 @@ class WaitBreakpointResult:
     reason: str | None = None
     related_address: int | None = None
     ticks: float | None = None
-    # 🔴-1/D1 条件过滤器扩展：
+    # 条件过滤器扩展：
     condition: str | None = None  # 命中时已通过的条件表达式
     condition_filtered: int = 0  # 该地址此前被过滤掉的假命中数
     filtered_hits: int = 0  # wait 超时路径的过滤命中总数
@@ -73,7 +73,7 @@ class TraceAccessResult:
 
 @dataclass(frozen=True)
 class FrameSnapshotResult:
-    """Result of ``ppsspp_frame_snapshot`` (P4, H2).
+    """Result of ``ppsspp_frame_snapshot``.
 
     Attributes:
         was_stepping: True when the CPU was already paused at entry.

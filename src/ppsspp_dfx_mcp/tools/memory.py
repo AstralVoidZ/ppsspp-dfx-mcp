@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -25,15 +25,20 @@ from ppsspp_dfx_mcp.core.primitives import (
     MAX_SINGLE_READ_BYTES,
     MAX_WRITE_BYTES,
 )
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError
 from ppsspp_dfx_mcp.models.memory import (
     DisassemblyResult,
     MemoryReadResult,
     MemoryWriteResult,
 )
-from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.service.memory_protection import check_protected_address
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.service.memory_protection import (
+    check_protected_address,
+    check_protected_address_static,
+    resolve_session_modules,
+)
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import (
     DEFAULT_STRING_CAP,
     require_int_not_bool,
@@ -41,7 +46,6 @@ from ppsspp_dfx_mcp.tools._common import (
     save_output_text,
     translate_tool_errors,
 )
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.memory import (
     DisassemblyResponse,
     MemoryReadResponse,
@@ -57,30 +61,37 @@ _READ_ACTIONS = ("read_bytes", "read_u32", "read_string")
 # 输出契约：从对应 view 派生（见 views/_contract.py 的机制说明）。
 # 派生而非手写，使契约与实现**结构性地不可能漂移**——手写版本曾在首跑守卫
 # 测试时即被抓到多写了一个不存在的字段。
-MemoryReadOutput = derive_output_contract(
-    "MemoryReadOutput",
-    MemoryReadResponse,
-    # `value` 在 view 里是 `Any`：取值随 action 变化，用 Pydantic 联合类型会让
-    # `model_dump` 前的校验开始拒绝真实数据。改在派生层声明真实联合。
-    #
-    # **联合不是猜的，是逐分支枚举的**（本文件全部 `value=` 赋值点）：
-    #   L321 `value=list(raw)`      → list[int]      （read_bytes）
-    #   L346/L369 `value=val`       → int / str      （read_u8/16/32 / read_string）
-    #   L426 `value=matches`        → list[dict]     （scan；`scan_memory -> list[dict[str, Any]]`）
-    #   L437/L439 `update={"value": None}` → None    （output="hex" / "file"）
-    # 该联合会被 SDK 用于**运行时校验**（见 views/_contract.py 模块 docstring），
-    # 故新增 action 或改变返回类型时必须同步扩这里，否则表现为工具报错。
-    overrides={
-        "value": int | str | list[int] | list[dict[str, Any]] | None,
-    },
-)
-MemoryWriteOutput = derive_output_contract("MemoryWriteOutput", MemoryWriteResponse)
-DisassemblyOutput = derive_output_contract("DisassemblyOutput", DisassemblyResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    MemoryReadOutput = dict[str, Any]
+    MemoryWriteOutput = dict[str, Any]
+    DisassemblyOutput = dict[str, Any]
+else:
+    MemoryReadOutput = derive_output_contract(
+        "MemoryReadOutput",
+        MemoryReadResponse,
+        # `value` 在 view 里是 `Any`：取值随 action 变化，用 Pydantic 联合类型会让
+        # `model_dump` 前的校验开始拒绝真实数据。改在派生层声明真实联合。
+        #
+        # **联合不是猜的，是逐分支枚举的**（本文件全部 `value=` 赋值点）：
+        #   L321 `value=list(raw)`      → list[int]      （read_bytes）
+        #   L346/L369 `value=val`       → int / str      （read_u8/16/32 / read_string）
+        #   L426 `value=matches`        → list[dict]     （scan；`scan_memory -> list[dict[str, Any]]`）
+        #   L437/L439 `update={"value": None}` → None    （output="hex" / "file"）
+        # 该联合会被 SDK 用于**运行时校验**（见 views/_contract.py 模块 docstring），
+        # 故新增 action 或改变返回类型时必须同步扩这里，否则表现为工具报错。
+        overrides={
+            "value": int | str | list[int] | list[dict[str, Any]] | None,
+        },
+    )
+    MemoryWriteOutput = derive_output_contract("MemoryWriteOutput", MemoryWriteResponse)
+    DisassemblyOutput = derive_output_contract("DisassemblyOutput", DisassemblyResponse)
 
 
 # Single-read cap — bounds response size and latency
 # (1 MB took ~2.5s over the WS and cost unbounded tokens).
-# R9: single source of truth in tools/_common (was a duplicated literal)
+# single source of truth in tools/_common (was a duplicated literal)
 _MAX_READ_BYTES = MAX_SINGLE_READ_BYTES
 
 # Cap disassembly count to prevent 645KB+ outputs. PPSSPP's
@@ -96,20 +107,10 @@ _MAX_DISASM_COUNT = 100
 _DISASM_KEEP_FIELDS = ("address", "text", "name", "params")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Aggregate memory read tool.
-#
-# Action → required params:
-# read_bytes → address + size + session_id
-# read_u32   → address + session_id
-# read_string→ address + session_id
-# scan       → pattern + start_addr + end_addr + session_id
-# (optional: max_results default 100, chunk_size
-# default 4096)
 @mcp.tool(
     name="ppsspp_read_memory",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -122,8 +123,6 @@ async def read_memory(
                 "- 'read_bytes': read raw bytes (requires address + size).\n"
                 "- 'read_u32': read a 32-bit unsigned int (requires address).\n"
                 "- 'read_string': read a string (requires address).\n"
-                "pattern + start_addr + end_addr). Optional max_results "
-                "(default 100)."
             ),
         ),
     ],
@@ -132,8 +131,10 @@ async def read_memory(
         Field(
             default="0x0",
             description=(
-                "Starting address for read_bytes/read_u32/read_string, as a "
-                "hex string (e.g. '0x08804000')."
+                "Required for every action. Starting address for "
+                "read_bytes/read_u32/read_string, as a hex string "
+                "(e.g. '0x08804000'). The schema default of '0x0' exists for "
+                "legacy callers -- do NOT rely on it."
             ),
         ),
     ] = "0x0",
@@ -141,7 +142,9 @@ async def read_memory(
         int,
         Field(
             default=0,
-            description="Number of bytes to read (read_bytes only).",
+            description="Number of bytes to read (read_bytes only). Max "
+            "65536 per call (MAX_SINGLE_READ_BYTES); larger reads are "
+            "rejected with ARGS_INVALID -- chunk them instead.",
         ),
     ] = 0,
     output: Annotated[
@@ -205,83 +208,96 @@ async def read_memory(
     # G1 file-mode locals — only populated for read_bytes + output="file"
     file_bin_path = ""
     file_summary = ""
+    # set for a read that succeeded but whose value needs a caveat (an
+    # unaligned multi-byte read, an ambiguous empty string); surfaced in `text`.
+    caveat_note = ""
 
     logger.info(
         "tool_call",
         extra={"tool": "ppsspp_read_memory", "action": action, "session_id": session_id},
     )
 
-    try:
-        async with session_client(session_id) as client:
-            if action == "read_bytes":
-                # S11/A8: `size=True` used to pass as a 1-byte read.
-                size = require_int_not_bool(size, "size")
-                if size <= 0:
-                    raise ArgsInvalid("size must be > 0 for read_bytes")
-                # Bound single reads — a 1 MB read
-                # succeeds but produces a multi-second response whose token
-                # cost is unbounded. Chunk via multiple calls instead.
-                if size > _MAX_READ_BYTES:
-                    raise ArgsInvalid(
-                        f"size ({size}) exceeds the single-read cap "
-                        f"({_MAX_READ_BYTES} bytes); split the request into "
-                        f"multiple read_bytes calls"
-                    )
-                raw = await client.read_bytes(address=address_int, size=size)
-                result = MemoryReadResult(
-                    action=action, address=address_int, value=list(raw), size=len(raw)
+    async with session_client(session_id) as client:
+        if action == "read_bytes":
+            # `size=True` used to pass as a 1-byte read.
+            size = require_int_not_bool(size, "size")
+            if size <= 0:
+                raise ArgsInvalid("size must be > 0 for read_bytes")
+            # Bound single reads — a 1 MB read
+            # succeeds but produces a multi-second response whose token
+            # cost is unbounded. Chunk via multiple calls instead.
+            if size > _MAX_READ_BYTES:
+                raise ArgsInvalid(
+                    f"size ({size}) exceeds the single-read cap "
+                    f"({_MAX_READ_BYTES} bytes); split the request into "
+                    f"multiple read_bytes calls"
                 )
-                if output == "file":
-                    # G1: keep a large payload off the model context —
-                    # raw bytes + hex dump go to disk; the response
-                    # carries paths and a 64-byte preview only.
-                    stem = f"mem_{address_int:08X}_{len(raw)}"
-                    file_bin_path = await save_output_bytes(
-                        "memory_reads", f"{stem}.bin", bytes(raw)
-                    )
-                    await save_output_text(
-                        "memory_reads",
-                        f"{stem}.bin.hex.txt",
-                        " ".join(f"{b:02X}" for b in raw),
-                    )
-                    preview = " ".join(f"{b:02X}" for b in raw[:64])
-                    ellipsis = " ..." if len(raw) > 64 else ""
-                    file_summary = (
-                        f"0x{address_int:08X}: saved {len(raw)} bytes to "
-                        f"{file_bin_path} (hex dump: {stem}.bin.hex.txt); "
-                        f"preview: {preview}{ellipsis}"
-                    )
-            elif action == "read_u32":
-                val = await client.read_u32(address=address_int)
-                result = MemoryReadResult(action=action, address=address_int, value=val, size=4)
-            elif action == "read_string":
-                # Never call PPSSPP memory.readString —
-                # it strnlens to the end of valid memory with no length
-                # parameter, and a giant response from a non-string region
-                # (e.g. code) kills the WebSocket connection. Always do a
-                # bounded read + local NUL scan.
-                # Default (max_len<=0) stays 4096 as documented;
-                # explicit values are honored up to 65536 (the client's
-                # old hard 4096 re-clamp is gone).
-                cap = DEFAULT_STRING_CAP if max_len <= 0 else min(max_len, MAX_SINGLE_READ_BYTES)
-                val = await client.read_string(address=address_int, max_length=cap)
-                byte_count = len(val.encode("utf-8", errors="replace"))
-                # Client and tool caps are both 65536 (the client
-                # previously re-clamped to 4096, silently truncating). Signal
-                # truncation when the decoded string reached the cap — exact
-                # for ASCII, approximate for binary garbage with replacement
-                # characters.
-                result = MemoryReadResult(
-                    action=action,
-                    address=address_int,
-                    value=val,
-                    size=byte_count,
-                    truncated=(byte_count >= cap),
+            raw = await client.read_bytes(address=address_int, size=size)
+            result = MemoryReadResult(
+                action=action, address=address_int, value=list(raw), size=len(raw)
+            )
+            if output == "file":
+                # G1: keep a large payload off the model context —
+                # raw bytes + hex dump go to disk; the response
+                # carries paths and a 64-byte preview only.
+                stem = f"mem_{address_int:08X}_{len(raw)}"
+                file_bin_path = await save_output_bytes("memory_reads", f"{stem}.bin", bytes(raw))
+                await save_output_text(
+                    "memory_reads",
+                    f"{stem}.bin.hex.txt",
+                    " ".join(f"{b:02X}" for b in raw),
                 )
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+                preview = " ".join(f"{b:02X}" for b in raw[:64])
+                ellipsis = " ..." if len(raw) > 64 else ""
+                file_summary = (
+                    f"0x{address_int:08X}: saved {len(raw)} bytes to "
+                    f"{file_bin_path} (hex dump: {stem}.bin.hex.txt); "
+                    f"preview: {preview}{ellipsis}"
+                )
+        elif action == "read_u32":
+            val = await client.read_u32(address=address_int)
+            result = MemoryReadResult(action=action, address=address_int, value=val, size=4)
+            # An unaligned multi-byte read succeeds on PSP but is a
+            # classic pointer bug, so it must not pass unremarked.
+            if address_int % 4 != 0:
+                caveat_note = (
+                    f"unaligned read: 0x{address_int:08X} is not 4-byte "
+                    f"aligned; a 4-byte value from this address usually "
+                    f"indicates a pointer/offset bug"
+                )
+        elif action == "read_string":
+            # Never call PPSSPP memory.readString —
+            # it strnlens to the end of valid memory with no length
+            # parameter, and a giant response from a non-string region
+            # (e.g. code) kills the WebSocket connection. Always do a
+            # bounded read + local NUL scan.
+            # Default (max_len<=0) stays 4096 as documented;
+            # explicit values are honored up to 65536 (the client's
+            # old hard 4096 re-clamp is gone).
+            cap = DEFAULT_STRING_CAP if max_len <= 0 else min(max_len, MAX_SINGLE_READ_BYTES)
+            text_val = await client.read_string(address=address_int, max_length=cap)
+            byte_count = len(text_val.encode("utf-8", errors="replace"))
+            # Client and tool caps are both 65536 (the client
+            # previously re-clamped to 4096, silently truncating). Signal
+            # truncation when the decoded string reached the cap — exact
+            # for ASCII, approximate for binary garbage with replacement
+            # characters.
+            result = MemoryReadResult(
+                action=action,
+                address=address_int,
+                value=text_val,
+                size=byte_count,
+                truncated=(byte_count >= cap),
+            )
+            if byte_count == 0:
+                # G-16 (FR-016): '' is AMBIGUOUS — a NUL first byte and an
+                # address with no live data look identical, because PPSSPP
+                # answers unreadable addresses with zeros, not an error (deep
+                # test P2-09/P2-10). Name the ambiguity for the caller.
+                caveat_note = (
+                    f"empty string at 0x{address_int:08X}; the address may be unreadable "
+                    "or not yet loaded in this state — verify before reading '' as 'empty'"
+                )
     view = MemoryReadResponse.from_result(result)
     if action == "read_bytes" and output == "hex":
         # G1: the hex dump in `text` carries the same payload as the
@@ -289,26 +305,17 @@ async def read_memory(
         view = view.model_copy(update={"value": None})
     elif action == "read_bytes" and output == "file":
         view = view.model_copy(update={"value": None, "text": file_summary, "file": file_bin_path})
+    if caveat_note:
+        # MemoryReadResponse is a FrozenModel with no `note` field, so the
+        # caveat goes into `text` - the channel the caller already reads.
+        view = view.model_copy(update={"text": f"{view.text} {caveat_note}".strip()})
     return view.model_dump(mode="json")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Write to PPSSPP memory.
-#
-# Writes to protected code-section addresses (kernel memory or
-# top.prx code section) are rejected unless ``force=True``. This
-# prevents accidental crashes from JIT cache invalidation issues.
-#
-# Returns:
-# MemoryWriteResponse dict: address + format + bytes_written.
-#
-# Raises:
-# ToolError: on session lookup failure, WS failure, invalid data,
-# or write to protected address without force=True.
 @mcp.tool(
     name="ppsspp_write_memory",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -324,16 +331,29 @@ async def write_memory(
         ),
     ],
     data: Annotated[
-        str,
+        str | None,
         Field(
+            default=None,
             description=(
                 "Value to write, as a string. For format='u8'/'u16'/'u32', "
                 "a hex string (e.g. '0x00000001') or decimal string (e.g. "
                 "'1'). For format='bytes', a hex string (e.g. 'AABBCCDD') "
-                "or base64 string."
+                "or base64 string. Optional when 'value' is supplied ("
+                "alias); omitting both is an error."
             ),
         ),
-    ],
+    ] = None,
+    value: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Alias for 'data'. Accepted because sibling tools take "
+                "a 'value'; 'data' remains the canonical name and wins "
+                "when both are supplied."
+            ),
+        ),
+    ] = None,
     format: Annotated[  # noqa: A002 — name kept for API stability (MCP field)
         Literal["u8", "u16", "u32", "bytes"],
         Field(
@@ -350,9 +370,11 @@ async def write_memory(
         Field(
             default=False,
             description=(
-                "Set to True to write to protected code-section "
-                "addresses (kernel memory < 0x08800000 or top.prx code "
-                "section 0x08804000-0x08D34000). Writing to these ranges "
+                "Set to True to write to protected code/data regions of "
+                "the modules loaded in THIS session (kernel memory below "
+                "0x08800000, plus the top.prx code section as reported by "
+                "the live module list); declared data addresses from "
+                "addresses.yaml are exempt. Writing to those ranges "
                 "without force=True raises ToolError to prevent "
                 "accidental crashes."
             ),
@@ -366,24 +388,36 @@ async def write_memory(
     BEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true (PROTECTED_ADDRESS).
 
     RETURNS: {address, format, bytes_written, value, text}."""
+    # accept the family-conventional `value` as an alias for `data`.
+    # `data` is canonical and wins when both are present. Validated
+    # before the session lookup so a missing payload names the missing
+    # argument instead of surfacing as SESSION_NOT_FOUND.
+    if value is not None and data is None:
+        data = value
+    if data is None or data == "":
+        raise ArgsInvalid(
+            "no payload: pass data (canonical) or value (alias), e.g. data='0x00000001'"
+        )
+
     # Check protected code-section ranges.
     # For bytes format, decode data first so we can check the full range
     # [address, address + len(decoded_bytes)) for overlap with protected
     # ranges (not just the start address).
     address_int = parse_address(address)
-    if format == "bytes":
-        decoded = _decode_bytes_input(data)
-        check_protected_address(address_int, byte_count=len(decoded), force=force)
-    else:
+    write_bytes = (
+        len(_decode_bytes_input(data))
+        if format == "bytes"
         # Check with the REAL write granularity — byte_count=0 made
         # the guard treat a u32 write as 1 byte, so a u32 at (protected -
         # 3) slipped past the boundary check and corrupted the last bytes
         # into the protected range.
-        check_protected_address(
-            address_int,
-            byte_count={"u8": 1, "u16": 2, "u32": 4}[format],
-            force=force,
-        )
+        else {"u8": 1, "u16": 2, "u32": 4}[format]
+    )
+    # This pre-flight guard must be side-effect free, so it cannot ask
+    # the debugger for its module list. It uses the conservative
+    # config-derived extent; the runtime-refined pass runs below once the
+    # session is open (see service/memory_protection).
+    check_protected_address_static(address_int, byte_count=write_bytes, force=force)
 
     logger.info(
         "tool_call",
@@ -407,45 +441,57 @@ async def write_memory(
             # An empty payload would pass every check and return
             # "success" having written nothing — fail loudly instead.
             raise ArgsInvalid("data decodes to zero bytes for format='bytes'; nothing to write")
-    try:
-        async with session_client(session_id) as client:
-            if format in ("u8", "u16", "u32"):
-                value_int = parse_value(data)
-                limit = {"u8": 0xFF, "u16": 0xFFFF, "u32": 0xFFFFFFFF}[format]
-                if not 0 <= value_int <= limit:
-                    raise ToolError(
-                        f"value {data!r} out of range for format={format!r} "
-                        f"(expected 0..{limit:#x})",
-                        code="ADDR_INVALID",
-                    )
-                if format == "u8":
-                    await client.write_u8(address=address_int, value=value_int)
-                    bytes_written = 1
-                elif format == "u16":
-                    await client.write_u16(address=address_int, value=value_int)
-                    bytes_written = 2
-                else:
-                    await client.write_u32(address=address_int, value=value_int)
-                    bytes_written = 4
-                written_value = value_int
-            else:  # bytes
-                # decoded_bytes is guaranteed non-empty here (the
-                # pre-check above raises on empty), so no fallback re-decode.
-                raw = decoded_bytes
-                if len(raw) > MAX_WRITE_BYTES:
-                    # W10 (review v2): symmetric with the 64KiB read cap —
-                    # fail fast with the chunking instruction instead of
-                    # shipping a multi-MB WS frame.
-                    raise ArgsInvalid(
-                        f"data is {len(raw)} bytes; format='bytes' is capped "
-                        f"at {MAX_WRITE_BYTES} — write in chunks"
-                    )
-                await client.write_bytes(address=address_int, data=raw)
-                bytes_written = len(raw)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        # The authoritative check. The module list is
+        # per session, so this answers "is this address code in the
+        # layout THIS session loaded?" — and it is what lets ordinary
+        # data variables inside the module image be written without a
+        # blanket exemption. When the list is unavailable the helper
+        # logs why and returns None, and the check then falls back to
+        # the CONSERVATIVE extent; it is never skipped, because the
+        # pre-flight above only covers base + safety margin.
+        session_modules = await resolve_session_modules(client, session_id)
+        check_protected_address(
+            address_int,
+            byte_count=write_bytes,
+            force=force,
+            modules=session_modules,
+        )
+        if format in ("u8", "u16", "u32"):
+            value_int = parse_value(data)
+            limit = {"u8": 0xFF, "u16": 0xFFFF, "u32": 0xFFFFFFFF}[format]
+            if not 0 <= value_int <= limit:
+                raise ToolError(
+                    f"value {data!r} out of range for format={format!r} (expected 0..{limit:#x})",
+                    code="ADDR_INVALID",
+                )
+            if format == "u8":
+                await client.write_u8(address=address_int, value=value_int)
+                bytes_written = 1
+            elif format == "u16":
+                await client.write_u16(address=address_int, value=value_int)
+                bytes_written = 2
+            else:
+                await client.write_u32(address=address_int, value=value_int)
+                bytes_written = 4
+            written_value = value_int
+        else:  # bytes
+            # decoded_bytes is guaranteed non-empty here (the
+            # pre-check above raises on empty), so no fallback re-decode.
+            raw = decoded_bytes
+            # 不变式：format='bytes' 时上面已预解码且空值已早拒；此断言仅
+            # 向类型检查器传达，不是运行时校验。
+            assert raw is not None
+            if len(raw) > MAX_WRITE_BYTES:
+                # Symmetric with the 64KiB read cap —
+                # fail fast with the chunking instruction instead of
+                # shipping a multi-MB WS frame.
+                raise ArgsInvalid(
+                    f"data is {len(raw)} bytes; format='bytes' is capped "
+                    f"at {MAX_WRITE_BYTES} — write in chunks"
+                )
+            await client.write_bytes(address=address_int, data=raw)
+            bytes_written = len(raw)
 
     result = MemoryWriteResult(
         address=address_int,
@@ -456,26 +502,10 @@ async def write_memory(
     return MemoryWriteResponse.from_result(result).model_dump(mode="json")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Disassemble N MIPS instructions at a given address.
-#
-# `count` is capped at ``_MAX_DISASM_COUNT`` (100) to prevent
-# 645KB+ responses. Instruction fields are simplified to keep only
-# address/text/name/params (strips encoding, branchDelay, etc.).
-#
-# `count <= 0` returns an empty result without calling PPSSPP.
-# PPSSPP's memory.disasm with count=0 returns "Missing end parameter"
-# error; the tool short-circuits this case.
-#
-# Returns:
-# DisassemblyResponse dict: address + count + instructions.
-#
-# Raises:
-# ToolError: on session lookup failure or WS failure.
 @mcp.tool(
     name="ppsspp_disassemble",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -491,8 +521,11 @@ async def disassemble(
         Field(
             default=10,
             description=(
-                "Number of instructions to disassemble. Capped at "
-                f"{_MAX_DISASM_COUNT} to prevent oversized responses."
+                "Number of instructions to disassemble. Default 10. "
+                f"count=0 is treated as 'use the default' and returns 10 "
+                f"instructions (the response carries a note saying so). "
+                f"Capped at {_MAX_DISASM_COUNT} to prevent oversized responses; "
+                "a larger value is clamped and the note reports the clamp."
             ),
         ),
     ] = 10,
@@ -513,28 +546,30 @@ async def disassemble(
 
     RETURNS: {address, count, instructions: [{address, text}...]}.
     """
+    # a negative count is a caller mistake, not a request for zero
+    # instructions. It used to return an empty list echoing `count: 0`,
+    # indistinguishable from "you asked for 0". Reject BEFORE the session
+    # lookup so the caller sees the real cause, not SESSION_NOT_FOUND.
+    if count < 0:
+        raise ArgsInvalid(
+            f"count must be >= 0 (got {count}); pass 0 or omit the argument "
+            f"to get the default of 10"
+        )
     session_id = await resolve_session_id(session_id)
-    # M2: count=0 falls back to the documented default (10) — the previous
-    # empty-result behavior read as "unmapped memory". Negative counts
-    # still short-circuit to an empty result without calling PPSSPP.
     address_int = parse_address(address)
+    substitution_note: str | None = None
     if count == 0:
         count = 10
-    if count < 0:
-        logger.info(
-            "tool_call",
-            extra={
-                "tool": "ppsspp_disassemble",
-                "session_id": session_id,
-                "address": address_int,
-                "count": count,
-            },
-        )
-        result = DisassemblyResult(address=address_int, count=0, instructions=[])
-        return DisassemblyResponse.from_result(result).model_dump(mode="json")
+        substitution_note = "count=0 is treated as 'use the default'; returned 10 instructions"
 
     # Cap count to prevent oversized responses.
     effective_count = min(count, _MAX_DISASM_COUNT)
+    if effective_count != count:
+        substitution_note = (
+            f"count {count} exceeded the cap of {_MAX_DISASM_COUNT}; "
+            f"returned {_MAX_DISASM_COUNT} instructions"
+        )
+        count = effective_count
 
     logger.info(
         "tool_call",
@@ -545,30 +580,24 @@ async def disassemble(
             "count": count,
         },
     )
-    try:
-        async with session_client(session_id) as client:
-            lines = await client.disasm(address=address_int, count=effective_count)
-    except ToolError:
-        # Business ToolErrors pass through untranslated; the explicit
-        # branch keeps that guarantee independent of to_tool_error's
-        # implementation.
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        lines = await client.disasm(address=address_int, count=effective_count)
     # Simplify instruction fields to keep only essential ones.
     instructions = [_simplify_disasm_line(line) for line in lines]
     result = DisassemblyResult(
         address=address_int, count=len(instructions), instructions=instructions
     )
     response = DisassemblyResponse.from_result(result).model_dump(mode="json")
-    # M2: PPSSPP fills placeholder "-" text for unmapped/invalid addresses
+    # PPSSPP fills placeholder "-" text for unmapped/invalid addresses
     # instead of erroring. Surface that explicitly — a wall of "-" silently
-    # read as "valid empty code" misled a live session (blind-test C1).
+    # read as "valid empty code" misled a live session.
     if instructions and all(str(ins.get("text", "")).strip() in ("-", "") for ins in instructions):
         response["note"] = (
             "all instructions are placeholders ('-') — the address range "
             "is likely unmapped or unreadable, not empty code"
         )
+    elif substitution_note:
+        response["note"] = substitution_note
     return response
 
 

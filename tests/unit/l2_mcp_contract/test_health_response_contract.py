@@ -93,7 +93,12 @@ class TestHealthToolCountConsistency:
         (single point of registry access) into the health response.
         """
         sentinel = 999
-        with patch.object(server_mod, "registered_tool_count", lambda: sentinel):
+        # T049 后 registered_tool_count 定义于 registry。
+        # introspect.health() 在**函数体内延迟导入**它（每次调用重新执行
+        # `from ppsspp_dfx_mcp.registry import registered_tool_count`），
+        # 因此补丁必须打在**源头模块属性**上，patch introspect 的模块级
+        # 绑定既不存在也不生效。
+        with patch("ppsspp_dfx_mcp.registry.registered_tool_count", lambda: sentinel):
             result = await health()
         assert result["tool_count"] == sentinel
 

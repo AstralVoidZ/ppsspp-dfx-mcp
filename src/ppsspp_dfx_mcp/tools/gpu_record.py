@@ -19,24 +19,28 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.gpu_record import GpuRecordResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import (
     require_session_id,
     save_output_bytes,
     translate_tool_errors,
 )
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.gpu_record import GpuRecordResponse
 
-GpuRecordOutput = derive_output_contract("GpuRecordOutput", GpuRecordResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    GpuRecordOutput = dict[str, Any]
+else:
+    GpuRecordOutput = derive_output_contract("GpuRecordOutput", GpuRecordResponse)
 
 logger = logging.getLogger(__name__)
 
@@ -53,20 +57,10 @@ async def _save_dump(data: bytes) -> str:
     return await save_output_bytes("gpu_dumps", f"{ts}.dump", data)
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Capture a GPU record dump (GE command stream for one frame).
-#
-# Returns:
-# GpuRecordResponse dict: size_bytes / file_path / raw / text.
-#
-# Raises:
-# ToolError: on session lookup failure, empty session_id, or WS
-# failure (including timeout when CPU is paused — no frames
-# rendered, no dump returned).
 @mcp.tool(
     name="ppsspp_gpu_record",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -93,13 +87,8 @@ async def gpu_record(
         },
     )
 
-    try:
-        async with session_client(session_id) as client:
-            raw = await client.gpu_record_dump()
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        raw = await client.gpu_record_dump()
 
     if not isinstance(raw, dict):
         raw = {}

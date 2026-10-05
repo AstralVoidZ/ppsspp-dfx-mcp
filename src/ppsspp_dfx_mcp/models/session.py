@@ -92,7 +92,7 @@ class Session:
 
 @dataclass(frozen=True)
 class WaitReadyResult:
-    """Result of ``ppsspp_session(action='wait_ready')`` (H0, 2026-09-07).
+    """Result of ``ppsspp_session(action='wait_ready')`` (2026-09-07).
 
     Attributes:
         ready: True when the CPU-start probe succeeded.

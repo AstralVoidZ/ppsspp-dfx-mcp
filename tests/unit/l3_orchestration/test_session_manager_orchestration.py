@@ -87,9 +87,14 @@ class _StubLauncher:
         self._proc_pid = proc_pid
         self.start_calls = 0
         self.stop_calls = 0
+        # argv extras from the last start() call (e.g. the D16 backend pin)
+        self.extra_args: list[str] = []
 
-    async def start(self, iso_path: Path) -> Any:
+    async def start(self, iso_path: Path, extra_args: list[str] | None = None) -> Any:
+        # extra_args carries the default GPU backend pin (D16), so the stub
+        # accepts and records it rather than rejecting an unexpected kwarg.
         self.start_calls += 1
+        self.extra_args = list(extra_args) if extra_args else []
         if self._start_exception is not None:
             raise self._start_exception
         # Return a stub proc with a .pid attribute.
@@ -538,10 +543,13 @@ class TestIsPidAlive:
 
 
 class TestStartSession:
-    """L3: start_session orchestration — launcher cleanup, save-before-register.
+    """L3: start_session orchestration — launcher cleanup, failed-persist abort.
 
     B.1 O7 §7.4 invariants I19-I21: launcher.start exception triggers
-    launcher.stop cleanup; _launchers registered only after _save_sessions;
+    launcher.stop cleanup; a failed persist aborts the launch without leaking
+    the process (W26, review v4 — the launcher is registered right after the
+    spawn so that a cancellation at any later await can still find it, which
+    makes every failure path responsible for stopping it explicitly);
     ws_port fallback to config when launcher.ws_port is None.
     """
 
@@ -566,13 +574,16 @@ class TestStartSession:
         # Launcher was NOT registered in _launchers.
         assert manager._launchers == {}
 
-    async def test_I20_save_before_register_launcher(
+    async def test_I20_save_failure_abandons_launcher(
         self, isolated_sessions_path: Path, tmp_path: Path
     ):
-        """O7-I20: _save_sessions runs BEFORE _launchers[session_id] = launcher.
+        """O7-I20 + W26: a persist failure must not leave a live process.
 
-        Verified by making _save_sessions raise: the launcher must NOT be
-        in _launchers afterwards (no leak).
+        The launcher is registered immediately after the spawn (W26, review v4),
+        so the failure path is responsible for abandoning it: the process is
+        stopped and the in-memory entry is dropped. Before the fix the launcher
+        was registered only after the persist, which is why a cancellation
+        landing on the persist await orphaned the process.
         """
         iso = tmp_path / "game.iso"
         iso.write_bytes(b"\x00" * 16)
@@ -591,10 +602,13 @@ class TestStartSession:
         ):
             await manager.start_session(str(iso))
 
-        # Launcher NOT in _launchers (save failed → no registration).
+        # Abandoned: no in-memory owner left and the process was stopped.
         assert manager._launchers == {}
+        assert stub.stop_calls == 1
         # Launcher's start() was called (and succeeded, before save).
         assert stub.start_calls == 1
+        # Nothing was persisted (the write was the thing that failed).
+        assert not isolated_sessions_path.exists()
 
     async def test_I21_ws_port_fallback_when_launcher_ws_port_none(
         self, isolated_sessions_path: Path, tmp_path: Path
@@ -1158,16 +1172,26 @@ class TestGcIdleSessions:
     """L3: gc_idle_sessions stops idle/dead sessions with three-phase locking.
 
     B.1 O7 §7.6 invariants (revised after F-06 fix): three-phase lock
-    protocol mirrors stop_session — Phase 1 brief lock to scan + pop
+    protocol mirrors stop_session — Phase 1 brief lock to scan + snapshot
     launchers, Phase 2 stop OUTSIDE the lock (launcher.stop can take
     5+ seconds), Phase 3 brief lock to persist. Expired sessions are
     stopped OUTSIDE the lock so concurrent session operations are not
     blocked; prefers in-memory launcher, else _force_kill_pid; returns
-    list of stopped session_ids.
+    list of stopped session_ids. A18 (review v4) pops each session's
+    launcher/transport/observer as that session is reclaimed, not in a
+    wholesale phase-1 sweep, so a cancelled Phase 2 can retry the rest.
     """
 
     async def test_I31_acquires_lock_in_two_phases(self, isolated_sessions_path: Path):
-        """O7-I31: gc_idle_sessions acquires _lock twice (Phase 1 + Phase 3)."""
+        """O7-I31: gc_idle_sessions acquires _lock per phase (+ per reclaim).
+
+        Phase 1 scans and snapshots, Phase 2 stops outside the lock, Phase 3
+        persists. A18 (review v4) added one brief re-acquire per reclaimed
+        session, where that session's launcher/transport/observer entries are
+        dropped; a wholesale phase-1 pop left a cancelled phase 2 unable to
+        retry them. One expired session therefore acquires the lock three
+        times.
+        """
         old_time = datetime.now(UTC) - timedelta(seconds=3600)
         sess = _make_session(
             session_id="s1", pid=None, last_active_at=old_time, created_at=old_time
@@ -1188,8 +1212,8 @@ class TestGcIdleSessions:
         finally:
             manager._lock.acquire = original_acquire
 
-        # Two phases: scan (Phase 1) + persist (Phase 3).
-        assert acquire_calls["n"] == 2
+        # Phase 1 scan + Phase 2 per-session reclaim (A18) + Phase 3 persist.
+        assert acquire_calls["n"] == 3
 
     async def test_I32_stops_outside_lock(self, isolated_sessions_path: Path):
         """O7-I32 (revised): launcher.stop / _force_kill_pid happen OUTSIDE the lock.
@@ -1304,15 +1328,27 @@ class TestIdleGcLoop:
     """
 
     async def test_I35_cancelled_error_breaks_loop(self):
-        """O7-I35: asyncio.CancelledError breaks the idle_gc_loop."""
+        """O7-I35: asyncio.CancelledError breaks the idle_gc_loop.
+
+        Falsifiable: sleep is entered exactly once -- consuming the cancel any
+        other way (e.g. letting it escape, since CancelledError is a
+        BaseException) fails rather than passing silently.
+        """
         manager = sm.SessionManager()
-        # Make sleep raise CancelledError on first call → loop breaks.
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleep_calls.append(seconds)
+            raise asyncio.CancelledError
+
         with patch(
             "ppsspp_dfx_mcp.session.session_manager.asyncio.sleep",
-            side_effect=asyncio.CancelledError,
+            fake_sleep,
         ):
             # Should exit cleanly without raising.
             await manager.idle_gc_loop()
+
+        assert len(sleep_calls) == 1
 
     async def test_I36_other_exception_continues_loop(self):
         """O7-I36: non-CancelledError exceptions are logged + loop continues."""

@@ -63,7 +63,7 @@ PPSSPP 运行时 log 广播 → MCP GameStateObserver → ppsspp_dfx_mcp.ppsspp_
 - `scripts.manifest.yaml` 登记诊断脚本（分类：eboot/state/p0ab/ndx/memory/misc/recipe）；`exposed=true` 且 `status=migrated` 的脚本在 server 启动时注册为 `ppsspp_script_<name>` 动态工具（skeleton 被 preflight 拒绝）
 - `ppsspp_run_script(name, input)` 按 manifest 执行；Input 经 Pydantic 校验；`requires_ppsspp=true` 的脚本无会话时报 `SESSION_NOT_FOUND`（工具层强制）
 - `ppsspp_reload_scripts` 重读清单、清模块缓存并**同步动态工具注册**（新增/注销使注册表与 manifest 一致，无需重启），返回 added/removed/registered 对账
-- **可用性判别**：`status` 字段机器可读（`migrated`=可运行 / `skeleton`=调用返回 `not_implemented`）；当前 exposed 且可用的有 `hello_diagnostic`（离线自检）、`find_0e_source`（追踪 $ra=0x0E0E0E0E 来源）、`check_cpu_state`（CPU 状态一键体检：running/paused/freeze_suspected）
+- **可用性判别**：`status` 字段机器可读（`migrated`=可运行 / `skeleton`=调用返回 `not_implemented`）；`exposed=true` 且已迁移的脚本注册为动态工具。**具体清单以 `ppsspp_list_scripts` 的实时返回为准**——manifest 可增删，本文不列名以免漂移
 - 脚本需要的地址常量应取自 `ctx.addresses`（addresses.yaml），而非硬编码
 
 ## PSP 内存映射
@@ -74,7 +74,7 @@ PPSSPP 运行时 log 广播 → MCP GameStateObserver → ppsspp_dfx_mcp.ppsspp_
 | kseg0 | 0x80000000-0x9FFFFFFF | 内核非缓存段 |
 | 用户 RAM | 0x08800000-0x0A000000 | PSP 主内存（游戏代码+数据） |
 
-受保护写区间（kernel <0x08800000、top.prx 代码段 0x08804000-0x08D34000）见 [ppsspp-constraints.md](ppsspp-constraints.md) C9。
+受保护写区间（内核区、游戏模块代码段）的判定规则见 [ppsspp-constraints.md](ppsspp-constraints.md) C9——**代码段上界由运行时模块表决定**，本文不列具体区间。
 
 ## 关联资源
 

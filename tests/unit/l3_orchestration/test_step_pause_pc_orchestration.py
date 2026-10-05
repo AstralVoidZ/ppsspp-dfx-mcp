@@ -10,7 +10,10 @@ L3 focus (NOT covered by L1 / L4):
   client.get_pc(), populating StepResult.pc.
 - Order invariant: pause precedes get_pc (get_pc on a running CPU
   returns LOW-trust PC — see cpu.getAllRegs WS contract).
-- resume / reset do NOT populate pc (no trustworthy PC available).
+- resume populates a best-effort LOW-trust pc/ticks snapshot via a
+  NON-pausing cpu.status read (never safe_get_pc — that would re-pause
+  the CPU that was just resumed, defeating the resume).
+- reset does NOT populate pc (game reboots, PC irrelevant).
 
 The test mocks `session_client` (following the test_v016 pattern)
 to inject a mock DebugClient, verifying the tool-layer glue without
@@ -143,19 +146,33 @@ class TestStepPausePopulatesPc:
             await step(session_id="sess-1", action="pause")
 
 
-class TestStepResumeResetDoNotPopulatePc:
-    """L3: step(resume) and step(reset) do NOT populate pc.
+class TestStepResumeSnapshotAndResetNoPc:
+    """L3: step(resume) populates a LOW-trust snapshot; step(reset) does not.
 
-    resume: CPU transitions to running, PC no longer trustworthy.
-    reset: game reboots, PC irrelevant.
-    Both return StepResult(pc=0).
+    resume: CPU transitions to running; the PC is no longer trustworthy
+    in the stepping sense, but a single non-pausing cpu.status read is
+    still useful (G-12) — populated as a LOW-trust snapshot.
+    reset: game reboots, PC irrelevant. Returns StepResult(pc=0).
     """
 
     @pytest.mark.asyncio
-    async def test_resume_does_not_call_get_pc(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """step(resume) must NOT call get_pc (CPU transitioning to running)."""
+    async def test_resume_populates_pc_from_cpu_status_without_pausing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """step(resume) populates pc/ticks from cpu.status — and never pauses.
+
+        The location source must be the raw ``cpu_status()`` read: calling
+        ``safe_get_pc()`` here would pause the CPU that was just resumed
+        (it enters stepping to guarantee a HIGH-trust PC), silently
+        undoing the resume.
+        """
         mock_client = AsyncMock()
         mock_client.resume.return_value = {"stepping": False}
+        mock_client.cpu_status.return_value = {
+            "stepping": False,
+            "pc": 0x08808500,
+            "ticks": 98765432,
+        }
 
         @asynccontextmanager
         async def fake_session_client(
@@ -171,17 +188,23 @@ class TestStepResumeResetDoNotPopulatePc:
         result = await step(session_id="sess-1", action="resume")
 
         assert result["action"] == "resume"
-        assert result["pc"] == "0x00000000", (
-            "step(resume) must NOT populate pc — CPU is transitioning "
-            "to running, PC is not trustworthy."
+        assert result["pc"] == "0x08808500", (
+            "step(resume) must populate pc from the cpu.status snapshot (G-12). "
+            "If pc is 0, the resume → cpu_status orchestration was removed."
         )
-        mock_client.get_pc.assert_not_awaited()
+        assert result["ticks"] == 98765432.0
+        # Must NOT use safe_get_pc — it pauses the CPU (entering stepping),
+        # undoing the resume just performed.
+        mock_client.safe_get_pc.assert_not_awaited()
+        mock_client.cpu_status.assert_awaited_once_with()
 
     @pytest.mark.asyncio
     async def test_reset_does_not_call_get_pc(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """step(reset) must NOT call get_pc (game reboots, PC irrelevant)."""
+        """step(reset) must NOT query PC (game reboots, PC irrelevant)."""
         mock_client = AsyncMock()
         mock_client.reset.return_value = {"ok": True}
+        # Configured non-zero to prove reset never reads it.
+        mock_client.cpu_status.return_value = {"pc": 0x08808500, "ticks": 1}
 
         @asynccontextmanager
         async def fake_session_client(
@@ -198,6 +221,7 @@ class TestStepResumeResetDoNotPopulatePc:
 
         assert result["action"] == "reset"
         assert result["pc"] == "0x00000000", (
-            "step(resume) must NOT populate pc — game reboots, PC is irrelevant."
+            "step(reset) must NOT populate pc — game reboots, PC is irrelevant."
         )
         mock_client.get_pc.assert_not_awaited()
+        mock_client.cpu_status.assert_not_awaited()

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 # Button names accepted by PPSSPP's WebSocket debugger. Source of truth:
 # InputSubscriber.cpp buttonLookup table (25 entries) — the PSP
 # face/shoulder/system buttons plus the console-only keys (home, screen,
 # note, hold, wlan, remote, volume, disc, memstick, playback).
-PPSSPP_ALL_BUTTONS: tuple[str, ...] = (
+PSPButton = Literal[
     "cross",
     "circle",
     "triangle",
@@ -35,9 +35,10 @@ PPSSPP_ALL_BUTTONS: tuple[str, ...] = (
     "forward",
     "back",
     "playpause",
-)
+]
 
-PSPButton = Literal[*PPSSPP_ALL_BUTTONS]
+# Derived from the Literal above so the two can never drift apart.
+PPSSPP_ALL_BUTTONS: tuple[str, ...] = get_args(PSPButton)
 
 
 @dataclass(frozen=True)

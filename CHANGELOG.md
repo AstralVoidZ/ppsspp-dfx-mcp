@@ -5,11 +5,314 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.1.6] - 2026-09-30
+## [0.1.7] - 2026-10-03
 
-### Added（v3 审查修复批：条件断点求值器「接线」落地）
+> 本节按批次累积，最新批次在前。条目源自 v4 系统性代码审查报告的 §3.3 路线图，
+> 全项已在本节覆盖闭环（各批次的「守卫制度」随每项修复同批落地）。
+> 其后追加两批：**工具面缺陷根治**（2026-10-05）与
+> **遗留问题收口与发布就绪**（2026-10-04），分别见下。
 
-- **条件断点 MCP 侧求值（S1 接线完成）**：v3 全仓审查实证——本能力此前只有
+### Fixed（工具面缺陷根治）
+
+工具面深度测试列出的 16 项，已逐项复现并修复（15 项复现 + 1 项环境），每项独立提交、附可证伪测试：
+
+- **会话与入参契约统一**：8 个会话型工具与 `run_script` 的 0 会话错误码由两种收敛为
+  单一 `SESSION_NOT_FOUND`；schema 校验失败不再裸透传 pydantic dump（含内部类名与
+  `errors.pydantic.dev` 链接），改由 `tool_error_middleware` 前置拦截并返回
+  `[ARGS_INVALID] <field>: <msg>`；`ppsspp_breakpoint` / `ppsspp_replay` 的
+  `session_id` 由必填改为可省略，与其余工具一致。
+- **输出契约**：`ppsspp_query(action=register)` 补文本与寄存器名回显；
+  `read_u32` 文本定宽补零；`read_string` 区分「空串」与「地址当前无效」；
+  `ppsspp_memory_map` 的 `mapping.ticket` 移出业务字段以恢复整包幂等。
+- **错误领域化与时延**：`func_remove` 失败不再裸透传 `PPSSPP_PROTOCOL_ERROR`；
+  `ppsspp_step` 的 resume 由固定 3s 预算改为广播快路径并返回位置快照；
+  `ppsspp_dump` 空捕获由 22–32s 降至毫秒级（预算叠加收口）。
+- **判据纠偏**：`ppsspp_context` 的 identity 偏移加距离上限；
+  `wait_frames` / `press_button` 显式声明并拒绝 0 值语义；
+  `ppsspp_gpu_stats` 非渲染态不再误报 `CPU_FREEZE_SUSPECTED`。
+- **版本一致守门**：新增 `test_version_consistency_gate.py`，钉住
+  `__version__ == pyproject.version == serverInfo.version`（该项为陈旧 editable
+  dist-info 的**环境**产物，非代码缺陷，处置方式为安装重同步 + 守门）。
+
+同批修复**真机验收门自身不可运营**的结构性缺陷（`scripts/_wire.build_server_env()` 丢弃全部
+`PPSSPP_DFX_*` 导致门无法配置其启动的子进程）、边界探针矩阵的 11 项存量漂移（旧工具名 /
+旧契约 / 两处假信号），以及两处「消息教 Agent 使用已退役工具」的产品缺陷
+（`memory_trace_wizard` 的 `access=` 参数、`observer_lookup` 的无观察者提示）。
+真机验收结果：真机门 `156/7 → 167/2`（余 2 项为 TRAE 沙箱拦截 GPU 缓存的**环境**性抖动，
+非代码）；边界探针矩阵 `47/11 → 58/0`。
+
+### Fixed / Added（遗留问题收口与发布就绪）
+
+处置遗留清单登记的全部 15 项（含研究阶段新发现），
+并建立发布同步与内容边界契约：
+
+- **测试结论可自证**：全量运行判定器拆分语义——`verdict` → `regression_verdict` +
+  `suite_green`，判定消费摘要失败计数并新增 `parse_mismatch`（「摘要报失败但明细缺失」
+  必判不通过），记录 schema 升至 `regression-run/2`；新增只读复核脚本
+  `inspect_derived_records.py`；补跑落档，使报告头号数字可溯源。
+- **发布可安全落地**：修正 `uv.lock` 与 `pyproject.toml` 不一致（`uv lock --check`
+  退出码 1 → 0）；`scripts/ppsspp_dfx_mcp_release.py` 新增**只读裁决**子命令（存在未裁决项时
+  拒绝同步）；`.gitattributes` 以 `export-ignore` 声明跑批 / 评测产物边界并补忽略规则；
+  `.mcp.json` 改为通用运行器 + 包入口名（移除绝对路径与调试默认）；`check_env.py` 增补
+  接入目标与锁一致性自检；`README` / `README.en` 补工作目录假设与绝对路径变体。
+  完成导出同步与**发布仓本地提交**。
+- **架构债收口**：新增叶子模块 `registry.py`（工具层不再反向依赖组合根，并有门禁断言防复发）；
+  共享状态重置收敛到唯一入口（生产侧只保留语义化回收 API）；错误翻译单轨化，并以 37 工具
+  异常注入的等价判据锁定。
+- **真机与量化**：新增 `test_ws_upgrade_no_subprotocol.py` / `test_cancel_storm.py`
+  （真机门控，已入跳过白名单）与 `scripts/measure_event_loop_lag.py`（对照法测主循环延迟）。
+- **文档口径**：技能目录纳入既有规范守门（含项目侧技能）；时效数字补截止日期。
+
+> **授权边界（沿用 2026-10-03 用户裁决）**：本批仅完成「导出同步 + 发布仓本地提交」，
+> **未**打标签、**未**推送远端、**未**对外发布（含制品库）；三项待授权动作见
+> 待授权动作清单（打标签 / 推送远端 / 对外发布）。
+> 跨平台握手实证当前**仅覆盖 Windows**（POSIX 侧因 `wsl.exe` 被本机安全策略禁用而未验证）。
+
+### Added（v0.1.7 回填批）
+
+- **scan 预算守卫（回填开源仓 v0.1.6 之后内容）**：开源仓实测 24 MiB@4 KiB
+  分块前台扫描耗时 53–96s，恒超 MCP 客户端 ~30s 取消线，客户端取消→重试→
+  超时循环正是「会话冻结只能 stop 重启」的真实来源。`core/primitives.py`
+  新增四常量（`FOREGROUND_SCAN_LIMIT_BYTES=2 MiB`、`SCAN_READ_TIMEOUT_S=10s`、
+  `SCAN_MAX_CONSECUTIVE_READ_FAILURES=5`、`SCAN_BG_BUDGET_S=600s`）；
+  `tools/scan.py` 的 pattern/strings 模式超限自动转后台作业，逐块读加超时与
+  连续失败中止；`service/debug_client.py` 的 `scan_memory` 逐块超时。新增
+  `test_scan_budget_guard`（8 例）。
+- **src 实现补交**：上一批因 `git add` pathspec 笔误原子回滚，
+  只提交了 tests/scripts/SCOPE/views，src 侧 11 个文件滞留工作树，本批补交：
+  `core/call_attribution.py` 的 `CAUSE_NO_PRODUCER` 提示纠错、
+  探针失效第四态 `stale_address_suspected`（连续零读 streak）、
+  `tools/breakpoint.py`/`memory.py` 的修复、`gpu_stats.py` 三维归因接入
+  `CPU_FREEZE_SUSPECTED` 路径与 WsTimeout 双前缀修复、三处条件必填声明。
+
+### Fixed（v3 审查修复批）
+
+- **写保护闭环**：`ppsspp_assemble` 原先只在会话外做一次不带模块表的
+  检查，窄 extent（`0x08804000..0x08814000`）之外约 97% 的真实 top.prx 代码段
+  可无 force 写入；`write_memory` 在 `module_list` 失败时以
+  `if session_modules:` 直接跳过权威检查（fail-open）。现
+  `memory_protection` 抽出 `resolve_session_modules()`（模块表缺失/类型错/为空
+  返回 `None` 并告警），会话内统一接入权威模块表，模块表缺失时退化为保守
+  extent 而非跳过；删除从未接线的死代码。l1_contract 增 Step4 十条 + 新增
+  `test_s1_s3_write_protection_paths.py`（8 条工具层锁）。
+- **截图稳定等待加 deadline**：`_wm_command_screenshot` 的内层
+  `while stable_samples < 2` 无上界、无 deadline，判据 `0 < size == last_size`
+  在文件恒为 0 字节时（写一半被杀/磁盘满/上次残留空文件）永不成立，而该循环
+  持会话锁且 CPU 停在 STEPPING → 整个会话不可用。抽出模块级
+  `_await_stable_image(path, deadline)`：以 `time.monotonic()` 为上界，到点返回
+  `b''`，`read_bytes` 移入 `asyncio.to_thread`；新增 `_WM_SCREENSHOT_WAIT_S=5.0`
+  / `_WM_SCREENSHOT_POLL_S=0.05`。实测 0 字节 stuck 文件：修复前 2.00s 仍在
+  循环 → 修复后 0.28s 返回。回归锁 `test_s4_wm_screenshot_wait.py`（8 条）。
+- **日志镜像 cap 重启越界 + 启动期轮转**：`_cap_marked` 为 handler 实例属性
+  且写 marker 后不再复查上限，文件停在 `(cap-128, cap]` 区间时每次重启再追加
+  约 104 字节 marker 即越界（10,485,840 > 10,485,760）；读取端 `analyze_log`
+  对 `size > MAX_LOG_BYTES` 直接抛 `ArgsInvalid` → 默认路径永久失效且无自愈
+  （从 ≤0.1.6 升级即中招）。新增 `_write_cap_marker(size, line_bytes)` 先做
+  fit-check（不足则退化 33 字节 compact marker，绝不越界）与
+  `_rotate_oversized_mirror()` 启动轮转自愈。回归锁
+  `test_s2_log_mirror_restart_cap.py`（7 条）。
+- **lint 门禁回绿并钉齐 ruff**：本 HEAD 上 `ruff check .` 报 8 处违规、
+  `ruff format --check .` 报 9 个文件待排（与文档「0 错 0 待排」相反，CI lint
+  job 必红），现全部修净（6 处自动 + 2 处手工）。本地/CI 版本漂移：`.venv` 与
+  `uv.lock` 为 0.16.8，而 pyproject 两处与 ci.yml 钉 0.16.6 → 三处统一 0.16.8。
+  顺带修复 `scripts/run_quickstart_checks.py` 的本地绝对路径硬编码（改为从
+  `__file__` 推导，兼解除根仓提交隐私扫描的阻断，行为在本仓不变）。
+- **启动期取消不再遗留孤儿进程或复活已停会话**：
+  `_start_once` 原先只在 sessions.json 持久化成功后才登记
+  `_launchers[session_id]`，其间每个 await 都是取消点（客户端 ~30s 取消 vs
+  实测未 pin 后端启动 31.9s），取消落在该窗口时进程已 spawn 却无任何内存归属
+  → 永久孤儿；现 spawn 成功后立即登记，各失败/中止路径显式回收（新增
+  `_abandon_launcher`）。`stop_session` 与「WS 探测成功→写两张表」之间
+  存在窗口，无条件写入会让刚被 stop 的会话条目复活并泄漏 transport/observer；
+  现建立块在同一把锁内重查 sessions.json 存活性（会话已消失抛
+  `SessionNotFound` 中止），新增 `_close_transport_and_observer` 统一关闭。
+- **version 握手改用专用队列**：`send_version()` 的 ticketless 回退与
+  observer dispatcher 抢同一个 `events` 队列；首次连接无竞争，但自动重连时
+  dispatcher 已在排空 `events`，`"version"` 不在 `_SUBSCRIBED_EVENTS` 被静默
+  丢弃 → 回退耗尽预算抛 `RuntimeError` 并被包成「reconnect failed」，该会话此后
+  每次工具调用都失败且无自愈路径。新增有界专用队列 `_version_queue`
+  （max=8，drop-oldest），`_recv_loop` 将 ticketless 的 `version` 路由至此，
+  竞争在结构上消失。回归锁 `test_w30_version_handshake_routing.py`（3 条）。
+- **events 队列有界 drop-oldest + 自身回送不再充当超时归因证据**：
+  `WsTransport._events_queue` 原为无界 `asyncio.Queue()`，唯一普通消费者
+  `wait_for_broadcast()` 对不匹配消息只 `_requeue()` 永不丢弃，
+  `fire_and_forget()` 的回送无 future 归属 → 长会话队列单调增长；改为有界
+  `maxsize=256`，统一入队入口 `_put_event()` 满时丢最旧并计入 `_events_dropped`。
+  `_recv_loop` 对每条 unmatched 帧记账 producer 存活，自身 fire-and-forget
+  的回送会误盖这枚戳，把「模拟器卡死」误诊成「配对错误」；现将
+  `fire_and_forget` 的 ticket 登入有界 `_ff_tickets`（maxlen=64），命中集合的
+  回送不记账（纵深防御，当前无可达调用）。回归锁
+  `test_w1_w2_event_queue_bound.py`（6 条）。
+- **预算算术与 `call()` 默认超时同源**：三处轮询循环
+  （`transport.wait_for_state`、`debug_client.replay_wait_complete`、
+  `safe_boot.probe_cpu_ready`）声明的 wall-clock 预算对每次轮询无效（轮询沿用
+  `call()` 默认 5s，且 deadline 只在成功往返后检查），声明 3000ms 实测 5.52s、
+  250ms 实测 5.01s、boot 探针 5.00s；现新增 `DEFAULT_CALL_TIMEOUT_S`，每次轮询
+  按剩余预算钳制（只裁剪、绝不跳过）。`replay.timeout_ms` 上界 60000 → 25000
+  （对齐客户端 ~25s 取消线）。前台 25s 准入门用估算计费，单步 state_probe
+  却可等到工具 30s 硬上限，估算过关的批量仍可长期持锁；`_execute_batch` 新增
+  `budget_s` 并在取会话锁前算出 deadline，单步 probe 上限改由准入门同源预算
+  推导。新增 `test_w29_w31_budget_clamps.py`（12 条）。
+- **会话级模块表统一回收落点，GC 按会话回收**：
+  `_REGISTRY_BY_SESSION`/`_SEEDED_BY_SESSION`/`_ZERO_STREAKS` 与
+  `_FAKE_TRANSPORTS` 均按会话 id 建键却无删除点，长寿命 server 为每个
+  见过的会话永久保留探针/计数表。`gc_idle_sessions` phase 1 把三张表整体
+  pop 进局部 dict、phase 2 才逐个关闭，lifespan 取消 GC 任务时未处理的
+  transport/observer 随局部 dict 销毁，永久无法重试。现新增
+  `_drop_session_side_tables()` 作为唯一回收落点（一次清 cond_filter +
+  state_observer + reset_probe_streaks + client_helper），GC phase 1 改快照
+  （get 而非 pop）、phase 2 逐会话 kill 成功后加锁 pop。回归锁
+  `test_w3_a9_a18_session_state_reclaim.py`（7 条）。
+
+### Security
+
+- **未 await 协程硬门禁**：审查报告实测 10 条
+  `RuntimeWarning: coroutine ... was never awaited` 指向
+  `tools/batch_step.py`/`core/stepping.py`/`tools/replay.py` 三处生产行；判定
+  三处生产代码均正确，缺陷全在测试替身类型（`AsyncMock()` 的子属性与
+  `return_value` 仍是 AsyncMock，`bool(<coroutine>)` 恒真导致分支走错、断言
+  空转）。刻意不改生产代码（不做「非 dict 状态一律当 False」的防御性强转，
+  那会掩掉本类错误）。修正三处测试替身，并在 pyproject 新增两条
+  filterwarnings（`error::RuntimeWarning` +
+  `error::pytest.PytestUnraisableExceptionWarning`）使警告升级为测试失败。
+  新增 `test_w8_unawaited_coroutine_gate.py`（7 条）。
+
+### Fixed（审查收口批）
+
+- **lifespan 清单加载改宽口径 best-effort**：此前只捕 `ManifestError`，非该类型
+  的清单损坏（如非 UTF-8 `scripts.yaml`）会穿透 lifespan 并终止启动，连带 37 个
+  静态工具全部不可用；现外层兜底 `except Exception` 并给出可操作告警（动态脚本
+  工具禁用、静态工具不受影响）。对应 xfail 转正为常规断言 + 告警断言。
+- **动态注册对账返回真实 `restart_required`**：`_unregister_exposed_tool` 仅在
+  真实删除时返回 True；`restart_required` 由运行期 SDK 注册表与账面集合的对账结果
+  推导（此前是常量 False，docstring 承诺的分支在代码里不存在）。
+- **错误提示不再指引已退役工具**：`invalid address` 提示改为纯算术换算
+  （`ppsspp_addr = ida_addr + (top_base.ppsspp - top_base.ida)`）并指向
+  `ppsspp_list_addresses`；测试断言从 `or` 盲区收紧为「必须含新文案 + 不得含
+  `convert_address`」；`verify_real_mcp.py`/`record_fixtures.py` 的 36/30 计数删除
+  并纳入 `test_readme_claims.py` 守卫。
+- **工具面与注释去内部代号**：清除工具 JSON Schema 中的 `🔴-1:` 前缀与
+  `force` 描述的硬编码代码段常量（改为「按本会话实际模块表计算」）；src 内 36 处
+  emoji 标记与评审批号类注释清理为「行为 + 原因」表述（保留合法技术形如 MIPS
+  寄存器名）。新增结构守卫：遍历已注册工具 schema，禁止 `🔴/🟡/🟢`、`review vN`、
+  `F-5`/`R2`/`C2.2`/`U7`/`I15`/`P0-2`/`V023` 等内部代号进入工具面。
+- **版本三源对齐 + 发布守卫**：`server.json` 两处版本 0.1.6→0.1.7 与
+  `pyproject` 对齐；`pypi-publish` 两个 job 新增「`server.json` 顶层与
+  `packages[0].version` 必须等于 pyproject 版本」守卫（实测漂移 exit 1）。
+- **MCP 配置部署重构**：`check_env.py` 改为逐份校验检出内每一份 `.mcp.json`
+  （相对 command 按配置所在目录解析 + 目标必须真实存在 + args 契约），
+  `--bootstrap` 为每份配置旁 provision venv（实测一条命令后两份配置全绿），新增
+  `--print-config` 输出绝对路径片段供不按配置目录解析的客户端；新增 9 条守卫测试。
+
+### Refactored（安全边界与架构债批）
+
+- **端口就绪校验监听者归属**：以 `_port_owned_by_pid`（netstat/lsof/ss 三态）
+  确认监听端口属于本次 PPSSPP PID；外来 owner 拒绝并告警，探针不可用时降级留痕。
+- **未认证 debugger 暴露默认 fail-closed**：检出非回环绑定即抛
+  `WsConnectFailed`（显式 `PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1`）；探针不可用时不抛，SECURITY.md 如实说明。
+  （修正：本条原指引另含 `RemoteDebuggerLocal=True`；实测与上游源码证明该键**不控制绑定地址**，
+  无法修复暴露——详见 SECURITY.md「PPSSPP debugger bind」。）
+- `iso_path` 拒 UNC/SMB 并支持 `PPSSPP_DFX_ISO_ROOT` 包含校验。
+- `PortConflict` 判定在锁内、`launcher.stop()` 移出全局锁并透传原异常；
+  `sessions.json` 的 `ws_url` 白名单=回环 ∪ 当前配置主机（加载丢弃 +
+  fallback 二次拒绝，`PPSSPP_DFX_WS_HOST` 远程主机功能保留）。
+- `RATE_LIMIT`/`WS_PORT` 非法值改告警回退；`_load_yaml` 补捕
+  `UnicodeDecodeError`（GBK 配置不再逃逸成裸异常）。
+- `output_dir` 去副作用（显式 `ensure_output_dir()`，启动创建 + POSIX 0700）；
+  `tools/analyze.py` 允许根惰性求值，坏 `PROJECT_ROOT` 在导入期给 `ConfigInvalid`。
+- `request_id` 改 token 复位（嵌套派发不再抹掉外层 id），新增
+  `RequestIdFilter` 使每条日志自动携带；FORCE OVERRIDE 告警带 request_id 归属。
+- 限流桶键改 `(session_id, tool_name)`（跨会话不再互相误伤）、
+  未注册/形状异常 fail-closed、剪枝不再每次重建字典；README 明确限流只覆盖协议分发。
+- 删除死 `verbose` 帧转储路径与全局 `setLevel` 副作用；输出文件
+  0600（POSIX）；通用错误兜底不回显绝对路径（完整详情留日志）。
+- **架构债**：契约编译器下沉
+  `spec/output_contract.py`、治理注册表下沉 `spec/tool_surface_policy.py`、陈旧值
+  状态机下沉 `core/value_staleness.py`（工具层保留 re-export shim）；错误码注册表
+  下沉 `spec/error_codes.py` 并删除 5 个零实例化死码，新增「每个注册码须有 producer
+  站点（AST 扫 raise/return）或在 `RESERVED_CODES` 注明理由」规则；`resources`
+  复用 `resolve_session_id` 且保留钉住文案；`PpssppDebugClient` 抽出
+  `scan_service`/`gpu_service`/`stepping_service`（1848→1499 行）；工具层删除 23 处
+  重复 try/except，算法下沉 `service/scan_engine.py`、`service/probe_observer.py`、
+  `service/observer_lookup.py`、`service/screenshot_service.py`、`core/value_expr.py`；
+  `session→tools` 反向依赖消除并由 tripwire 固化（顺带修复 tripwire 因 `_SRC`
+  路径错误而**空断言**的问题）；脚本信封单源 `spec/script_envelope.py`、
+  `ScriptEntry` 字段校验单源、manifest 显式 status、脚本缓存改内容哈希版本戳、
+  静态工具注册改目录扫描（37 个工具不变）、新增工具函数长度门禁（>120 行须有
+  `# LONG-TOOL:` 理由注释，冻结 6 个豁免）；`[tool.mypy]` 起步 + CI 非阻断 mypy
+  job（已转硬门禁，见下）；**提交 `uv.lock`** 使 `uv lock --check` 成为可证伪的漂移守门（残余收口）。
+- **顺带修复**：`batch_step` 前台预算估算器调用 `_resolve_target_probes` 漏传
+  `session_id`（TypeError 被吞 → 恒取 floor），现先 seed 再解析、估算恢复真实；
+  `ppsspp_replay` 描述中一个游离 `}` 恢复。
+
+### Fixed（mypy 硬门禁收口）
+
+- **CI mypy 转硬门禁**：`src` 存量类型错误 269 → 0（134 个源文件，
+  `Success: no issues found`）；`.github/workflows/ci.yml` 移除
+  `continue-on-error: true`、job 名改 `mypy (src)`、`ci-ok.needs` 纳入 mypy 并
+  增加结果校验——类型回归自此与 ruff/pytest 同级阻断合并。修复覆盖
+  ToolAnnotations 字段（152 处）、动态契约当类型注解（39 处）及 arg-type /
+  assignment / union-attr / attr-defined 等簇（72 处）；`script.py` 的 `input`
+  默认值以 `cast` 保持 inputSchema 不变（`# noqa: B008`），`scan.py` 顺带修复
+  `mode='value'` 缺 phase 时误报 `SessionNotFound` 的缺口（附回归测试）。
+  对外 wire 全表面（37 个工具的 name/description/inputSchema/outputSchema/
+  annotations）与 HEAD 基线逐字节一致。
+
+### Fixed（v4 系统性审查修复批，2026-10-03）
+
+事实源：会话审查报告（v4 编外轮，十警告 / 十九建议），
+全部经"可失败测试先行"复现（修复前红）后修复，配套回归锁 152 项新增断言。
+全量回归 2407 passed / 42 skipped / 0 failed；ruff/format/mypy(136 文件) 全绿。
+
+- **transport**：子协议协商失败不再残留"已连接但无收包循环"的僵尸 socket
+  （`connect()` 先 close 并置 None 再抛，自动重连恢复可达）。
+- **context**：`_match_region` 兼容十进制 int wire 形状——region 字段在
+  真实会话恒空并附误导 note 的缺陷修复（hex 串形状保留兼容）。
+- **watch_value**：短读显式拒绝，不再按声明宽度误解码（u32 观测静默
+  退化 u16）。
+- **batch cpu_step**：单步超时纳入批次 deadline（对齐 probe 分支），
+  消除"预算门放行、单步烧 10s 持锁"的冻结路径。
+- **capture**：VRAM 兜底的 557KB 扫描 + 13 万次像素循环 + PNG 编码
+  经 `asyncio.to_thread` 卸载，事件循环不再被阻塞约 1s。
+- **errors**：路径脱敏提升到 `to_tool_error` 全分支出口（SteppingFailed
+  五个 f-string 改用脱敏 msg）；analyze/_common 源头去服务端派生路径
+  （allowed roots / output dir 不再出网）；ToolError 直通保留。
+- **task_cleanup**：新增 `core/task_cleanup.await_cancelled`——清理循环
+  只吞子任务取消、外层取消照常传播（实证排除 `task.cancelled()` 与
+  `cancelling()` 两个不可靠判别，最终以 gather 语义落地）。
+- **launcher**：强杀后补有界 reap（wait 5s），POSIX 僵尸 / Windows
+  ResourceWarning 与端口残留消除。
+- **文档**：README.en 补译「性能参考」整节 + 双语章节对称守卫；
+  evals README 移除易漂移 per-file 计数；SCOPE.md 工具数钉到基线守卫。
+- scan pattern 前台 `start<=0` 校验补齐（四路径
+  同一裁决）；func_add size>=1 与 bool 拒绝；replay time_set uint32 边界 +
+  version bool 拒绝；scan value 负数/超宽显式报错（initial/narrow 两相）；
+  query top_n>=0。
+- trace 双 false 显式拒绝；batch step 形状错误统一 STEP_INVALID。
+- probe 注册名 strip（僵尸 probe 消除）；diff 混传
+  范围拒绝 + span 改名；analyze 开启句柄 fstat 复核上限（TOCTOU）；断点列表
+  地址解析鲁棒化（int/0x 串/十进制串）；replay wait 缺 executing 视为未知。
+- read_string docstring 对齐实现；
+  pause 探针 0.5s；sessions.json 创建即 0600 + tmp 失败清理；GC 杀前复核
+  （skip 不入 stopped_ids）；mem_bp 查找器三副本收口 `tools/_memcheck.py`
+  + 29 处 Former-docstring 注释清理 + query/replay 豁免；addresses
+  mtime 缓存；watch_value 锁语义披露（基线已再生）。
+- **工程卫生**：py.typed 入 wheel（PEP 561）；移除声明未用的 pytest-cov；
+  .gitignore 补 .venv-test/；pypi-publish build 后记录 sha256 清单留痕；
+  CHANGELOG 修复重复 [0.1.6] 标题（09-30 v3 批次并入本节）；README 中英
+  环境变量表补录 3 个安全变量。
+
+遗留（架构批次）：组合根反向依赖（tools→server 30 处，registry 下沉
+需同步迁移测试 patch 点与 tripwire）、单例 reset_for_tests 缝、
+双轨错误翻译残余 5 处内联（行为等同，纯减法待独立批次）、.mcp.json
+Windows 专属路径（本地工作配置，不随发布）。
+
+### v3 全仓审查修复批（2026-09-30 批次，随 0.1.7 交付）
+
+
+#### Added（条件断点求值器「接线」落地）
+
+- **条件断点 MCP 侧求值（接线完成）**：v3 全仓审查实证——本能力此前只有
   模块（`core/cond_filter.py`）、响应字段与本文档的承诺，**生产代码零调用点**：
   `condition` 仍被下发给 IR 模式会静默忽略寄存器条件的 PPSSPP，导致条件断点
   变无条件假命中。本批完成接线：
@@ -26,68 +329,68 @@
     集成 `tests/integration/test_cond_filter_real.py`（env 门控；断言
     `s1==0x711` 断点在 `s1≠0x711` 期间**不返回命中**）。
 
-### Fixed（v3 审查修复批：W1-W17 + A8/A9/A10）
+#### Fixed
 
-- **W1 错误上下文在真实调用边界失效**：`session_client*` 的 async generator
+- **错误上下文在真实调用边界失效**：`session_client*` 的 async generator
   此前在 `finally` 中即复位 PID/游戏态 resolver，异常冒泡到工具层
   `to_tool_error` 时已复位 → `CPU_FREEZE_SUSPECTED` 超时判别矩阵恒走保守分支
   （README 承诺的冻结判别在生产路径失效）。改为**仅在正常退出时复位**，失败时
   保留 resolver 至该 task 结束。新增 `test_error_context_scope.py`：with 之外
   可观测断言 + 正常退出防泄漏 + 双会话并发隔离。
-- **W2 `ppsspp_watch_value` 预算失控**：`interval_frames` 无上界、内层 sleep 不受
+- **`ppsspp_watch_value` 预算失控**：`interval_frames` 无上界、内层 sleep 不受
   `duration_frames` 约束（`interval_frames=10**6` 可持会话锁约 4.6 小时）。改为
   拒绝 `interval_frames > duration_frames`，内层按剩余帧收敛。
-- **W3 `ppsspp_analyze_log` 截断语义失真**：内部 500 条上限触发时
+- **`ppsspp_analyze_log` 截断语义失真**：内部 500 条上限触发时
   `truncated=false`、`total_matches` 失真。`_filter_log_lines` 回传触顶标志 →
   `truncated=true`；描述明确 `total_matches` 的"下限"语义。
-- **W4 `ppsspp_query(func_add)` verified 误判**：name-only 调用（协议允许）按
+- **`ppsspp_query(func_add)` verified 误判**：name-only 调用（协议允许）按
   `address==0` 校验。改为 addr 缺省时按 name 匹配；反例断言防"假通过"。
-- **W6 `ppsspp_scan` narrow 短读崩溃**：短 payload 触发未捕获 `struct.error` →
+- **`ppsspp_scan` narrow 短读崩溃**：短 payload 触发未捕获 `struct.error` →
   整批 narrow 退化为 `[INTERNAL]`。合并读与逐点读两分支补长度守卫。
-- **W9 调试器暴露告警快路径遗漏**：`_wait_for_port` phase-1 命中即返回，跳过
+- **调试器暴露告警快路径遗漏**：`_wait_for_port` phase-1 命中即返回，跳过
   `warn_if_debugger_exposed_externally`；现两分支公共出口均告警。
-- **W10 `ppsspp_scan` value 初扫热循环**：逐元素 `struct.unpack` 阻塞事件循环
+- **`ppsspp_scan` value 初扫热循环**：逐元素 `struct.unpack` 阻塞事件循环
   （实测 1 MiB u16 ≈ 0.168 s）。eq 改走 `bytes.find`、其余用预编译
   `unpack_from`；实测 1 MiB eq **213 ms → 0.51 ms**，全 op 逐元素等价（属性测试）。
-- **W11 `ppsspp_scan` 整段读内存**：`_read_segments` 聚合全区间（strings 前台
+- **`ppsspp_scan` 整段读内存**：`_read_segments` 聚合全区间（strings 前台
   峰值可达 256 MiB）→ 改流式 `_iter_segments`，峰值降到单块级。
-- **W12 `ppsspp_state_observer` N+1 往返**：每 probe 每 sample 一次单点读
+- **`ppsspp_state_observer` N+1 往返**：每 probe 每 sample 一次单点读
   （50×1400 ≈ 7 万次）→ 同 sample 多探针合并块读 + 失败回退逐点读
   （3 探针×2 sample：6 次 → 2 次）。
-- **W13 lint 门禁红（HEAD 实测 5 错 + 8 文件待格式化）**：修 F401/I001/SIM108；
+- **lint 门禁红（HEAD 实测 5 错 + 8 文件待格式化）**：修 F401/I001/SIM108；
   全仓 `ruff format`（钉版 0.16.6）后 0 错 0 待排；dev 依赖与 CI 同步钉
   `ruff==0.16.6`（消除本地/CI 版本漂移）。
-- **W14 `core/error_codes.py` 孤儿模块**：业务异常注册表全仓无人消费 → 改为从
+- **`core/error_codes.py` 孤儿模块**：业务异常注册表全仓无人消费 → 改为从
   `errors.py` 的 `ToolError` 子类自动派生（33 类）+ 双向一致性守卫测试。
-- **W15/W16 计数与退役名守卫盲区**：`test_readme_claims.py` 清单纳入
+- **计数与退役名守卫盲区**：`test_readme_claims.py` 清单纳入
   `CONTRIBUTING.md` 与 `evals/README.md`（36→37 工具、21→49 场景卡）；清
   `README.en.md` 的退役工具名并新增 8 个退役名的显式不得出现断言。
-- **W17 evals B2 默认路径指向仓外**：`evals/runner.py` 的 monorepo 残留
+- **evals B2 默认路径指向仓外**：`evals/runner.py` 的 monorepo 残留
   `_REPO_ROOT.parents[1]`（fresh clone 必 `RuntimeError`，本机因工作区巧合通过）→
   路径仓内化（`skills/ppsspp-dfx`）+ 存在性与"无父目录引用"守卫测试。
-- **A8 bool 当 int（S11 遗留）**：新增 `require_int_not_bool`，覆盖
+- **bool 当 int**：新增 `require_int_not_bool`，覆盖
   `batch_step.count` / `input.duration+x` / `memory.size` /
   `scan.max_results+chunk_size` 五处。
-- **A9/A10**：`views/_contract.py` 修正指向失效符号的引用（防漂移文档自身漂移）；
+- `views/_contract.py` 修正指向失效符号的引用（防漂移文档自身漂移）；
   `sessions.json` 写入后 `chmod 0o600`（含 iso 路径/pid/ws_url）。
 - **CI 红修复（跨平台，发布前发现）**：`tests/unit/core/test_launcher.py` 的暴露
   告警测试隐含 Windows 专属假设（patch 的是 Windows 绑址探针），在 ubuntu/macos
-  上必失败——CI 自 v0.1.6-dev 提交起即为红（本项与 W13 的 ruff 红是同一次 CI
+  上必失败——CI 自 v0.1.6-dev 提交起即为红（本项与前述 lint 门禁红是同一次 CI
   失败的两个原因）。已按平台拆分：3 条 Windows-only 标记 + 3 条 POSIX 对应断言
   （探针不可用→保守告警 / 通配绑定→告警 / 回环→静默），并以 `sys.platform`
   强制探针在本地复核 POSIX 分支 4/4 断言为真。
 
-### Security（v3 审查修复批：W7/W8 + 文档面）
+### Security（v3 审查修复批）
 
-- **W7 evals HTTP bridge 加固**（评估基建，不随 wheel 分发）：此前无鉴权、无
+- **evals HTTP bridge 加固**（评估基建，不随 wheel 分发）：此前无鉴权、无
   请求体上限、不校验 Content-Type/Origin（本机任意进程等价获得 MCP 全权；恶意
   网页可用 `text/plain` 简单请求盲触发副作用）。补：body ≤1 MiB（413）、
   `Content-Type: application/json`（415）、loopback `Origin`（403）、
   Bearer token（401，启动打印，`compare_digest` 比较）。
-- **W8 manifest 绝对路径逃生口收敛**：绝对 `path` 现在必须显式
+- **manifest 绝对路径逃生口收敛**：绝对 `path` 现在必须显式
   `PPSSPP_DFX_ALLOW_ABS_SCRIPT=1` 才放行（相对路径 containment 不变）；
   `SECURITY.md` 新增「配置可信边界」段；示例清单注释同步。
-- **W5 撤除 `IR_ENCODING_DETECTED` / `VERIFY_MISMATCH` 宣称**：两码全仓零 raise
+- **撤除 `IR_ENCODING_DETECTED` / `VERIFY_MISMATCH` 宣称**：两码全仓零 raise
   点，但 README×2 / `skills/**`×3 / 工具描述共六处宣称"读代码段会返回该码"。
   裁决为**撤宣称**（无实机取证的判别式不启用启发式实现）；`errors.py` 保留类并
   注明"待实机取证后再启用"。
@@ -100,7 +403,7 @@
   `ppsspp_analyze_log` 明确 truncated/total_matches 语义。
 - **文档**：README 中英「独立部署快速开始」区分**源码检出**（`cp examples/…`）与
   **PyPI 安装**（wheel 不含 `examples/`，给 raw.githubusercontent 链接）；
-  配置模板链接同步（W18）。
+  配置模板链接同步。
 
 ### 回归（v3 审查修复批）
 
@@ -110,27 +413,6 @@
   （排除他人工作流未跟踪文件 `evals/opencode_collect.py`）。
 - 真机（PPSSPP v1.20.4 dev 构建 + `cn.iso`）：条件断点过滤验收 —— 见
   `tests/integration/test_cond_filter_real.py`。
-
-### Changed（扫描预算守卫：前台撞超时"假冻结"根因消除）
-
-- **超限自动后台化**：`ppsspp_scan` 的 pattern/strings 区间超过 2 MiB 时，
-  即使未传 `background=true` 也自动提交为 detached 后台作业（返回
-  `{action:'submitted', batch_id, ...}`）。实机证据：24 MB 全频段前台
-  4 KiB 分块扫描实测 53–96 s（构建相关），恒定超出 MCP 客户端 ~30 s
-  超时——客户端取消→重试→再超时的循环正是字段报告中"会话冻结、只能
-  stop 重启"的真实来源。value 模式保留原有 8 MiB 前台硬顶契约。
-- **逐块读超时 + 连续中止**：`DebugClient.scan_memory` 与 `_iter_segments`
-  的每次分块读加 10 s 超时；连续 >5 次超时中止扫描并干净释放会话锁
-  （普通异常=合法不可映射区，仍静默跳过，不计入中止）。悬挂的 PPSSPP
-  从此必然把扫描推到终态，不再存在"只能 stop/restart"的楔死路径。
-- **后台扫描墙钟预算**：后台扫描作业带 600 s 总预算，超时以
-  `SCAN_BUDGET_EXCEEDED` 干净失败。
-- **`chunk_size` 默认值 4096 → 65536**：同区间分块往返数降 16 倍
-  （实测 24 MB 前台 53 s ↔ 96 s 的每块开销差主要来自构建读路径）。
-- 契约与文档：`tool_surface_baseline.json` 再生；新增守卫测试
-  `tests/unit/l3_orchestration/test_scan_budget_guard.py`（8 例：
-  自动后台路由、前台预算内不变、value 契约不回归、后台预算失败、
-  逐块超时中止/跳过语义分层）；README 性能参考补双构建实测口径。
 
 ### Fixed（文档计数漂移 + 计数守卫）
 
@@ -150,52 +432,51 @@
 ### Security（发布脱敏：真实游戏标识出库 + 两处空匹配缺陷修复）
 
 - **真实游戏标识移出仓库**：R1-REAL-BOOT 的身份门禁值原为真实光盘序号
-  与游戏名（命中发布闸门 `PRIVACY_PATTERNS`，阻塞 `sync_dfx_mcp_release.py`），
-  改为 `{{PPSSPP_DFX_EVAL_GAME_*}}` 环境变量令牌，由 `gates.resolve_value`
-  在评分时解析；未设/空白的令牌**跳过**而非空串匹配。
+  与游戏名，改为 `{{PPSSPP_DFX_EVAL_GAME_*}}` 环境变量令牌，由
+  `gates.resolve_value` 在评分时解析；未设/空白的令牌**跳过**而非空串匹配。
 - **修复空匹配虚假通过（既有缺陷）**：`_match_in_answer` 对归一化后为空
   的期望值（纯标点或日文假名，如纯日文假名组成的期望值）判定为
   `'' in <任意答案>` 恒真——该门禁此前对**任何**回答都通过。现归一化后
   为空直接判否。
 - **修复 answer_contains 空集虚假通过**：`mode=any` 且所有值均不可解析时，
   `any([])` 返回 False 但仍可能被上层误读；现显式返回失败并标注
-  `no resolvable values`，与 W25「无门禁不得算通过」的语义对齐。
+  `no resolvable values`，与「无门禁不得算通过」的语义对齐。
 
-### Added（D1 方案 B / D2 方案 B——代码审查后追加）
+### Added（方案 B——代码审查后追加）
 
 - **`evals/bridge.py`（子代理采集 HTTP bridge）**: stdlib `http.server` 长驻
   mcp stdio `ClientSession`，暴露 `GET /tools` / `POST /call` / `POST /seed`
   为本地 REST（127.0.0.1 only），供外部 agent 子代理用 curl 驱动采集，
   绕开 LLM API 依赖。配套 `test_bridge.py` 5 用例。
 - **`ppsspp_watch_value`（新工具，36→37）**: 值变化轮询观察——纯读、
-  零暂停；热读地址"谁/何时改了值"需求的观察点替代（D2 命中风暴的
+  零暂停；热读地址"谁/何时改了值"需求的观察点替代（命中风暴的
   结构性消除）；变化记录含 frame/相对时间/old/new，上限 64 条。
-- **条件求值器（🔴-1/D1 方案 B）**: `breakpoint set/update` 带
+- **条件求值器（方案 B）**: `breakpoint set/update` 带
   condition 时不再下发给 PPSSPP（IR 模式寄存器条件被静默忽略——实测
   s1==0x711 恒假仍触发），改由 MCP 侧命中时用 `cpu.evaluate` 求值：
   假 → 自动 resume 并计入 `filtered_hits`；真 → 保持暂停并在响应携带
   `condition`/`condition_filtered`。
 - **wait 风暴熔断**: ≥10 次命中间隔 <1s 自动撤除断点并返回
-  `storm_break=true` + note（D2 命中风暴的保护性响应）。
+  `storm_break=true` + note（命中风暴的保护性响应）。
 
-### Fixed（实机盲测回归修复：D3 / D8-MCP / D11 + 接口契约面 S1）
+### Fixed（实机盲测回归修复 + 接口契约面）
 
 - **`first_tool` 门禁扩大前导豁免**：`_PREAMBLE_TOOLS` 增补
   `ppsspp_query`/`ppsspp_memory_map`/`ppsspp_context`/`ppsspp_gpu_stats`
   （场景相关前导探查），修复 R9/R10/R24 因模型先查寄存器/内存布局/GPU
   状态再调 expected 工具被误判 fail（runs-20260929 pass 78.3%→83.7%）。
-- **D3 会话锁同任务可重入**：`batch_step` 全程持锁期间内嵌 `screenshot`
+- **会话锁同任务可重入**：`batch_step` 全程持锁期间内嵌 `screenshot`
   步骤的嵌套获取不再自死锁（此前 100% SESSION_BUSY）。跨任务互斥语义
   不变（仍一条工具调用独占会话，等锁超 5s 报 SESSION_BUSY）。
-- **D3 伴生**：修复 `batch_step` screenshot 分支对 `screenshot()`
+- **伴生项**：修复 `batch_step` screenshot 分支对 `screenshot()`
   返回值的过期解包——按 `structured_content` 元数据记账（图像已由
   工具自动落盘 `file_path`）。
-- **D11**：`restored` 字段误标修复——本进程新建会话在版本指纹回写时
+- **`restored` 字段误标修复**：本进程新建会话在版本指纹回写时
   不再被 `_load_sessions` 误标为 `restored=1`（冷启动语义恢复）。
-- **D8 MCP 防御**：`query(func_add)` 暴露 `size` 参数（默认显式 4，
+- **MCP 防御**：`query(func_add)` 暴露 `size` 参数（默认显式 4，
   规避 PPSSPP ≤ v1.20.4-1845 省略 size 下溢为 0 的上游缺陷），ack 后
   回读符号表校验并返回 `verified` 字段。
-- **接口契约面（S1）**：9 项描述-实现漂移按实测修正（`breakpoint`
+- **接口契约面**：9 项描述-实现漂移按实测修正（`breakpoint`
   mem_remove 按地址匹配、`write_register` r5→a1 归一与超界拒绝、
   `step` 单步不可用声明、`query` threads/modules 免暂停、`session`
   restored 字段入契约、`replay` flush/save 消费缓冲、`input` duration
@@ -207,11 +488,11 @@
 真机活体验证（批内嵌 screenshot 3/3 成功、新会话 restored=0、
 func_add verified=true）。
 
-<!-- merged S2 batch (below) into the single Unreleased section -->
+<!-- merged the earlier batch (below) into the single Unreleased section -->
 
 ### Added
 
-- **cpu_step 执行体（ISS-001）**：`batch_step` 的 `cpu_step` 步骤类型从
+- **cpu_step 执行体**：`batch_step` 的 `cpu_step` 步骤类型从
   「校验通过但无执行分支的假成功」变为真实单步——`with_stepping` 自动
   暂停/恢复，mode 映射 `step_into/over/out`，count 循环逐步并带陈旧广播
   过滤；停滞时步骤失败并上报 `confirmed N/M` 部分进度。真机活体：暂停态
@@ -227,41 +508,41 @@ func_add verified=true）。
   - `ppsspp_search_disasm` 响应 `results[].address`
   - `ppsspp_scan`（pattern 模式）响应 `value[].address`
   - `ppsspp_search_memory_info` 响应 `regions[].address`
-- **analyze_log（ISS-007/M11/M15）**：新增 `filter_mode`（`any`=旧 OR 语义
+- **analyze_log**：新增 `filter_mode`（`any`=旧 OR 语义
   默认；`all`=严重级别 AND filter 收窄）与 `limit`（响应新增
   `total_matches`/`truncated`，长日志不再整包返回）；log_path 白名单
   描述修正为实际口径（整个 .ppsspp-dfx 树）。
-- **query(func_scan)（ISS-008）**：客户端按请求窗口 [address,
+- **query(func_scan)**：客户端按请求窗口 [address,
   address+64KB) 过滤 PPSSPP 返回的全表，响应附 `filtered_to` /
   `total_before_filter`。
-- **health（M9）**：带 session_id 时 structuredContent 现包含
+- **health**：带 session_id 时 structuredContent 现包含
   `session_checks` / `overall_session_status`（此前仅 text 通道携带）。
-- **list_scripts（M12）**：非法 category 由静默空列表改为
+- **list_scripts**：非法 category 由静默空列表改为
   ARGS_INVALID 并列出合法值（对齐 list_addresses 策略）。
-- **scan（M13）**：pattern 模式响应同步填充 `count`（此前恒 0，误读为
+- **scan**：pattern 模式响应同步填充 `count`（此前恒 0，误读为
   无命中）。
-- **disassemble（M2）**：count=0 回退文档默认 10（原样返回空被读作
+- **disassemble**：count=0 回退文档默认 10（原样返回空被读作
   「未映射内存」）；全占位 `-` 结果附 note 说明地址疑似未映射。
-- **run_script（M7）**：input 未知字段由静默忽略改为
+- **run_script**：input 未知字段由静默忽略改为
   SCRIPT_CONTRACT_ERROR（列出未知键与合法键）。
-- **evals 场景卡（ISS-009）**：CTL-01/L1-02 弃用已退役 `ppsspp_get_pc`
+- **evals 场景卡**：CTL-01/L1-02 弃用已退役 `ppsspp_get_pc`
   的 prompt/白名单（等价工具 + health/session 纳入白名单）；
   R1-REAL-BOOT 的 'Game' 字面量 oracle 改宽口径 any-of 游戏身份 token；
   L3-03 first_tool 白名单放宽。实跑验证：CTL-01 / L3-03 / R1 全部转 PASS。
 
 回归：unit 1302 passed / evals gates 19 passed。
 
-### Fixed（2026-09-20 遗留清理批：ISS-009 B-1/B-4 + B-3 扩卡）
+### Fixed（2026-09-20 遗留清理批：扩卡）
 
-- **ISS-009 B-1**：补 `cpu.getReg.json` fixture（v0.1.6 后 `query(register pc)` 走 `cpu.getReg` 事件，原 `cpu.status.json` fixture 未跟上事件路由变更），恢复 CTL-01/L1-02 两处 `answer_contains` 门禁（`from_fixture` + `transform: hex` 动态解析 PC 值，不硬编码漂移）。
-- **ISS-010 M8/M14**：确认已修（docstring 诚实化路线——`session.wait_ready` elapsed_s 语义、`breakpoint.stats` fixed ~30s window 声明），CHANGELOG 前批未单列。
-- **B-4 is_error 双通道归属**：定论为非缺陷——SDK 错误时单通道（text only，by design，见 `errors.py:43-48`），成功时双通道由 `_contract.py` 派生机制保证结构一致。
-- **B-3 real 卡扩充第一批**：新增 R3-R12 共 10 张 real 卡（GETPC/REGS/MEMAP/MEMREAD/DISASM/BPSET/STEP/SCAN/SCRIPT/HEALTH），real 卡 2→12，目标 ≥30 待续。
+- 补 `cpu.getReg.json` fixture（v0.1.6 后 `query(register pc)` 走 `cpu.getReg` 事件，原 `cpu.status.json` fixture 未跟上事件路由变更），恢复 CTL-01/L1-02 两处 `answer_contains` 门禁（`from_fixture` + `transform: hex` 动态解析 PC 值，不硬编码漂移）。
+- 确认已修（docstring 诚实化路线——`session.wait_ready` elapsed_s 语义、`breakpoint.stats` fixed ~30s window 声明），CHANGELOG 前批未单列。
+- **is_error 双通道归属**：定论为非缺陷——SDK 错误时单通道（text only，by design，见 `errors.py:43-48`），成功时双通道由 `_contract.py` 派生机制保证结构一致。
+- **real 卡扩充第一批**：新增 R3-R12 共 10 张 real 卡（GETPC/REGS/MEMAP/MEMREAD/DISASM/BPSET/STEP/SCAN/SCRIPT/HEALTH），real 卡 2→12，目标 ≥30 待续。
 
 ### Fixed（2026-09-22 采集修复：evals first_tool 门禁）
 
-- **B-3 real 卡扩充第二批**：新增 R13-R30 共 18 张 real 卡（BPWAIT/BPSTATS/BPTRACE/WATCH/STATEOBS/FRAME/DUMP/GPUSTATS/PRESS/HOLD/ANALOG/WAITFRAMES/LISTSCRIPTS/ANALYZE/LISTADDR/MEMDIFF/MEMINFO/EVALUATE），real 卡 12→30，达成 ≥30 目标。
-- **R3-R30 补 `expected_first_tools`**：B-3 批 real 卡声明了 `first_tool` 门禁却未定义 `expected_first_tools`，门禁比对空列表恒判 FAIL——28 张 real 卡从设计上不可能通过。按各卡 prompt 意图补齐期望工具。
+- **real 卡扩充第二批**：新增 R13-R30 共 18 张 real 卡（BPWAIT/BPSTATS/BPTRACE/WATCH/STATEOBS/FRAME/DUMP/GPUSTATS/PRESS/HOLD/ANALOG/WAITFRAMES/LISTSCRIPTS/ANALYZE/LISTADDR/MEMDIFF/MEMINFO/EVALUATE），real 卡 12→30，达成 ≥30 目标。
+- **补 `expected_first_tools`**：该批 real 卡声明了 `first_tool` 门禁却未定义 `expected_first_tools`，门禁比对空列表恒判 FAIL——28 张 real 卡从设计上不可能通过。按各卡 prompt 意图补齐期望工具。
 - **`_gate_first_tool` 前置调用豁免**：模型先探活（`ppsspp_health`）或先取 session id（`ppsspp_session`）再执行任务属合理行为，不再计为"首个任务工具"；仅当该工具本身是声明的首工具时（L1-06 health / R1 session）保留首工具语义。
 - **R7/R8 允许 `ppsspp_query` 前置**：`ppsspp_disassemble` / `breakpoint set` 的 address 为必填，"反汇编当前 PC"/"在当前 PC 设断点"是隐含两阶段任务，模型须先 `query(register pc)` 取当前 PC。
 - 回归：evals gates 24 passed；对既有 runs-20260922.jsonl（187 格）按新门禁重新评分，通过 112→163（59.9%→87.2%），剩余 fail 均为能力/真机/参数类。
@@ -324,7 +605,6 @@ func_add verified=true）。
   描述与 schema 逐字节锁定，`scripts/dump_tool_surface.py` 再生成。
 - README「性能参考（本机实测）」与 `docs/ppsspp-build.md`「行为契约的
   验证基线」（PPSSPP v1.20.4-605 实测口径）。
-- sync 脚本 `--check` 只读比对模式（真源 HEAD ↔ 发布仓漂移检测）。
 - pytest 进入 `[dependency-groups]` dev（uv 默认安装），杜绝
   `uv run pytest` 静默回落系统 PATH 旧版 pytest 的假失败。
 
@@ -355,7 +635,7 @@ func_add verified=true）。
 
 - 英文 README（`README.md` 转为英文主门面，中文迁至 `README.zh-CN.md`，
   双语切换器）——面向 MCP 全球受众。
-  （勘误，review v2：v0.1.5 起实际布局为 `README.md`（中文主门面）+
+  （勘误：v0.1.5 起实际布局为 `README.md`（中文主门面）+
   `README.en.md`（英文辅文档）；本条所述文件名与现状不符。）
 - MCP Registry 元数据：`server.json`（官方 Registry 发布格式）与 README
   的 `mcp-name` 所有权标记。

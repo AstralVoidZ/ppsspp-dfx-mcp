@@ -121,8 +121,21 @@ def check_editable_install_health() -> str | None:
 
 def build_server_env() -> dict[str, str]:
     """Server child env — mirrors the project-level MCP client config plus the PYTHONPATH
-    override (see check_editable_install_health)."""
+    override (see check_editable_install_health).
+
+    The SDK's ``get_default_environment`` is an allowlist and drops every
+    ``PPSSPP_DFX_*`` variable the operator exported — exe path, ISO,
+    ``ALLOW_REMOTE_DEBUGGER``, sessions path. That made this runner unable
+    to configure the server it launches: the device gate booted PPSSPP and
+    then failed closed on the wildcard debugger bind with no way to opt
+    out (``PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER`` never reached the child), so
+    the whole real-machine gate was un-operable. Forward our own namespace;
+    the explicit values below still win.
+    """
     env = get_default_environment()
+    for key, value in os.environ.items():
+        if key.startswith("PPSSPP_DFX_"):
+            env[key] = value
     env["PYTHONPATH"] = SRC_DIR
     env["PPSSPP_DFX_LOG_LEVEL"] = "INFO"
     hint = check_editable_install_health()
@@ -266,8 +279,13 @@ def liveness_three_checks(
     deliberately EXCLUDED — a smoke `overall_status=fail` alone is not
     a liveness signal. Returns (alive, per-check dict)."""
     s = smoke_structured or {}
+    # v0.1.6: the smoke battery merged into ppsspp_health — the structured
+    # key is `session_checks` (server-level health omits it). Accept both
+    # so the helper works whichever runner's contract fed it.
     checks = {
-        c.get("name"): bool(c.get("passed")) for c in s.get("checks", []) if isinstance(c, dict)
+        c.get("name"): bool(c.get("passed"))
+        for c in (s.get("checks") or s.get("session_checks") or [])
+        if isinstance(c, dict)
     }
     alive = all(checks.get(k) for k in ("iso_loaded", "cpu_running", "ws_connected"))
     return alive, checks

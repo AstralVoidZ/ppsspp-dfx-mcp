@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 runs/
 llm_api.json
+# 跑批事件数据文件（specs/010 实测：此前未被任何忽略规则覆盖）
+events-*.json

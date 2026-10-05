@@ -19,52 +19,44 @@ the number of bytes written each time.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.assemble import AssembleResult
-from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.service.memory_protection import check_protected_address
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.service.memory_protection import (
+    check_protected_address,
+    check_protected_address_static,
+    resolve_session_modules,
+)
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.assemble import AssembleResponse
 
-AssembleOutput = derive_output_contract("AssembleOutput", AssembleResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    AssembleOutput = dict[str, Any]
+else:
+    AssembleOutput = derive_output_contract("AssembleOutput", AssembleResponse)
 
 logger = logging.getLogger(__name__)
 
-# S4 (review v2): per-call instruction cap (disassemble caps at 100).
+# Per-call instruction cap (disassemble caps at 100).
 _MAX_INSTRUCTIONS = 256
 
 __all__ = ["assemble"]
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Assemble MIPS instruction(s) and write to memory.
-#
-# Writes to protected code-section addresses (kernel memory
-# or top.prx code section) are rejected unless ``force=True``. This
-# aligns assemble's protection policy with write_memory — previously
-# assemble bypassed the check, allowing accidental writes to kernel
-# memory or top.prx code section.
-#
-# Returns:
-# AssembleResponse dict: address + code + bytes_written +
-# response + text.
-#
-# Raises:
-# ToolError: on session lookup failure, address <= 0, empty code,
-# write to protected address without force=True, or WS failure
-# (including assembly errors).
 @mcp.tool(
     name="ppsspp_assemble",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -99,11 +91,13 @@ async def assemble(
         Field(
             default=False,
             description=(
-                "Set to True to write assembled bytes to "
-                "protected code-section addresses (kernel memory < "
-                "0x08800000 or top.prx code section 0x08804000-0x08D34000). "
-                "Writing to these ranges without force=True raises "
-                "ToolError to prevent accidental crashes."
+                "Set to True to write assembled bytes to protected "
+                "code/data regions of the modules loaded in THIS session "
+                "(kernel memory below 0x08800000, plus the top.prx code "
+                "section as reported by the live module list); declared "
+                "data addresses from addresses.yaml are exempt. Writing to "
+                "those ranges without force=True raises ToolError to "
+                "prevent accidental crashes."
             ),
         ),
     ] = False,
@@ -137,7 +131,7 @@ async def assemble(
     # Split on '\n' and ';', strip whitespace, drop empty fragments.
     instructions = _split_instructions(code)
     if len(instructions) > _MAX_INSTRUCTIONS:
-        # S4 (review v2): each instruction is a blocking WS round-trip and
+        # Each instruction is a blocking WS round-trip and
         # the write is NOT transactional — an unbounded list used to hold
         # the session lock for minutes and guarantee a half-applied patch
         # when the ~30s client timeout cancelled the call.
@@ -150,60 +144,66 @@ async def assemble(
             "code contains no valid instructions after splitting on newline/semicolon"
         )
 
-    # N-04: Apply the same protected-address check as write_memory.
-    # MIPS I instructions are 4 bytes each, so the full write range is
-    # [address, address + len(instructions) * 4). This prevents assemble
-    # from bypassing the protection that write_memory enforces.
-    check_protected_address(
-        address_int,
-        byte_count=len(instructions) * 4,
-        force=force,
-    )
+    # The SAME two-pass protected-address policy as write_memory
+    # (see service/memory_protection for why the passes use different
+    # extents). MIPS I instructions are 4 bytes each, so the write range is
+    # [address, address + len(instructions) * 4).
+    #
+    # The pre-flight has no session yet, so it can only cover the module
+    # base + safety margin. The authoritative check runs inside the session
+    # against THIS session's module list; skipping that pass (as this tool
+    # used to) left everything past the margin — roughly 97% of the real
+    # code section on the measured TOPX image — writable without force.
+    write_bytes = len(instructions) * 4
+    check_protected_address_static(address_int, byte_count=write_bytes, force=force)
 
-    try:
-        async with session_client(session_id) as client:
-            # Assemble each instruction sequentially. MIPS I has fixed
-            # 4-byte instruction width, so the address increments by 4
-            # after each successful assembly. PPSSPP returns
-            # {"encoding": <u32>} per call.
-            current_addr = address_int
-            responses: list[dict[str, Any]] = []
-            partial_writes: list[int] = []
-            for i, instr in enumerate(instructions):
-                try:
-                    resp = await client.assemble(address=current_addr, code=instr)
-                except Exception as e:
-                    # Instruction N failed after instructions 0..N-1
-                    # were already written to memory. Report partial
-                    # writes so the caller can assess/clean up.
-                    # Keep the assembler's own
-                    # error text (`from e`, not `from None`) — callers
-                    # need the reason to fix the instruction and retry.
-                    if partial_writes:
-                        raise ArgsInvalid(
-                            f"assembly failed at instruction {i + 1}/{len(instructions)} "
-                            f"({instr!r}) after {len(partial_writes)} instruction(s) "
-                            f"were already written to memory (addresses "
-                            f"0x{address_int:08X}–0x{address_int + len(partial_writes) * 4:08X}). "
-                            f"Reason: {e}. "
-                            f"Use disassemble to inspect partial writes."
-                        ) from e
-                    raise
-                if isinstance(resp, dict):
-                    responses.append(resp)
-                partial_writes.append(current_addr)
-                current_addr += 4
-            # Keep the last response for backward compat (view layer
-            # reads encoding from it). Aggregate byte count via the
-            # number of instructions assembled.
-            last_response = responses[-1] if responses else {}
-            if responses and "encoding" in last_response:
-                last_response = dict(last_response)
-                last_response["instruction_count"] = len(instructions)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        # The authoritative protected-range check for this session.
+        session_modules = await resolve_session_modules(client, session_id)
+        check_protected_address(
+            address_int,
+            byte_count=write_bytes,
+            force=force,
+            modules=session_modules,
+        )
+        # Assemble each instruction sequentially. MIPS I has fixed
+        # 4-byte instruction width, so the address increments by 4
+        # after each successful assembly. PPSSPP returns
+        # {"encoding": <u32>} per call.
+        current_addr = address_int
+        responses: list[dict[str, Any]] = []
+        partial_writes: list[int] = []
+        for i, instr in enumerate(instructions):
+            try:
+                resp = await client.assemble(address=current_addr, code=instr)
+            except Exception as e:
+                # Instruction N failed after instructions 0..N-1
+                # were already written to memory. Report partial
+                # writes so the caller can assess/clean up.
+                # Keep the assembler's own
+                # error text (`from e`, not `from None`) — callers
+                # need the reason to fix the instruction and retry.
+                if partial_writes:
+                    raise ArgsInvalid(
+                        f"assembly failed at instruction {i + 1}/{len(instructions)} "
+                        f"({instr!r}) after {len(partial_writes)} instruction(s) "
+                        f"were already written to memory (addresses "
+                        f"0x{address_int:08X}–0x{address_int + len(partial_writes) * 4:08X}). "
+                        f"Reason: {e}. "
+                        f"Use disassemble to inspect partial writes."
+                    ) from e
+                raise
+            if isinstance(resp, dict):
+                responses.append(resp)
+            partial_writes.append(current_addr)
+            current_addr += 4
+        # Keep the last response for backward compat (view layer
+        # reads encoding from it). Aggregate byte count via the
+        # number of instructions assembled.
+        last_response = responses[-1] if responses else {}
+        if responses and "encoding" in last_response:
+            last_response = dict(last_response)
+            last_response["instruction_count"] = len(instructions)
 
     result = AssembleResult(
         address=address_int,

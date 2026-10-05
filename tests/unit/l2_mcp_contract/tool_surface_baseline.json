@@ -12,7 +12,7 @@
    "description": "PURPOSE: Filter a PPSSPP log file for ERROR / WARNING / CRASH lines.\n\nUSAGE: log_path optional (defaults to the server-mirrored PPSSPP broadcast log at .ppsspp-dfx/output/ppsspp.log, written while a session runs); filter optional (keyword); session_id optional.\n\nBEHAVIOR: READ-ONLY. Reads and filters a log file. Does not contact PPSSPP.\n\nRETURNS: {log_path, matches: [{line_no, text}...], count, filter, filter_mode, total_matches, truncated}. truncated=true covers both an explicit `limit` cut and the internal 500-match cap; total_matches is a lower bound (>= the value) whenever truncated=true.",
    "description_chars": 599,
    "description_words": 79,
-   "input_schema_chars": 1815,
+   "input_schema_chars": 1812,
    "input_schema_properties": [
     "filter",
     "filter_mode",
@@ -20,7 +20,40 @@
     "log_path",
     "session_id"
    ],
-   "input_schema_sha1": "3417c451fd4ced59a3c8632b2ec38b8111746902",
+   "input_schema_property_facts": {
+    "filter": {
+     "default": null,
+     "description": "Additional keyword to filter for. Case-sensitive substring match; combined with the severity keywords per filter_mode.",
+     "has_default": true,
+     "type": null
+    },
+    "filter_mode": {
+     "default": "any",
+     "description": "'any' (default, legacy): a line matches if it contains a severity keyword OR the filter. 'all': a line must contain a severity keyword AND the filter — use this to narrow (e.g. filter='GPU', filter_mode='all' → only GPU-related ERROR/WARNING/CRASH lines).",
+     "has_default": true,
+     "type": "string"
+    },
+    "limit": {
+     "default": 0,
+     "description": "Cap the returned match list (0 = no cap beyond the hard internal cap of 500). When truncation happens the response carries total_matches and truncated=true; total_matches is a LOWER BOUND whenever truncated=true (the scan stops at 500 matches, so the real count can be higher). Use this on long logs instead of receiving 200KB+ of matches.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "log_path": {
+     "default": null,
+     "description": "Path to the log file to analyze. Whitelist: must be a file anywhere inside the server-managed .ppsspp-dfx tree (the whole tree is allowed, wider than output/ or config/ — verified against the runtime whitelist); arbitrary filesystem paths are rejected. If None, reads the server-mirrored PPSSPP broadcast log (.ppsspp-dfx/output/ppsspp.log — the running game's own ERROR/WARNING lines, captured while a session runs).",
+     "has_default": true,
+     "type": null
+    },
+    "session_id": {
+     "default": null,
+     "description": "Optional session ID (reserved for future use; ignored).",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [],
+   "input_schema_sha1": "09ffb0a9577f34601d9cf3213a3d23f6e8e4419c",
    "output_schema_chars": 1386,
    "output_schema_sha1": "1af59cf7b2cba8801b8e14be9073d9907d1b7d6b"
   },
@@ -34,14 +67,45 @@
    "description": "PURPOSE: Assemble MIPS instruction(s) and write the resulting bytes to memory.\n\n    USAGE: session_id + address + code ('\n' or ';' separated — PPSSPP assembles one line per call so the tool loops; armips-style ';' comments are NOT supported here).\n\n    BEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true. A partial write is reported with an error directing you to disassemble and inspect.\n\n    RETURNS: {address, code, bytes_written, response, text}.",
    "description_chars": 478,
    "description_words": 69,
-   "input_schema_chars": 983,
+   "input_schema_chars": 1097,
    "input_schema_properties": [
     "address",
     "code",
     "force",
     "session_id"
    ],
-   "input_schema_sha1": "e4da0cb6a22bb9fad803d73a2eca6e5362e494de",
+   "input_schema_property_facts": {
+    "address": {
+     "default": null,
+     "description": "Target address where assembled bytes will be written, as a hex string (e.g. '0x08804000'). Must be a valid MIPS-aligned address for the ISA.",
+     "has_default": false,
+     "type": "string"
+    },
+    "code": {
+     "default": null,
+     "description": "MIPS assembly source. May be a single instruction ('nop', 'addiu r5, r0, 0x10') or multiple instructions separated by '\\n' or ';'. The assembler is PPSSPP's built-in MIPS encoder.",
+     "has_default": false,
+     "type": "string"
+    },
+    "force": {
+     "default": false,
+     "description": "Set to True to write assembled bytes to protected code/data regions of the modules loaded in THIS session (kernel memory below 0x08800000, plus the top.prx code section as reported by the live module list); declared data addresses from addresses.yaml are exempt. Writing to those ranges without force=True raises ToolError to prevent accidental crashes.",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "address",
+    "code",
+    "session_id"
+   ],
+   "input_schema_sha1": "645746ac82a77b2d8c53bd2c3963594452bfe497",
    "output_schema_chars": 787,
    "output_schema_sha1": "c1ab4fedc304d009c0eaea6ee0a6556cf99e8ecb"
   },
@@ -57,6 +121,17 @@
    "description_words": 100,
    "input_schema_chars": 220,
    "input_schema_properties": [
+    "batch_id"
+   ],
+   "input_schema_property_facts": {
+    "batch_id": {
+     "default": null,
+     "description": "Job id returned by ppsspp_batch_step(background=true).",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
     "batch_id"
    ],
    "input_schema_sha1": "41e8599f574267c6bb836332aedc033fb723ad4d",
@@ -77,6 +152,15 @@
    "input_schema_properties": [
     "batch_id"
    ],
+   "input_schema_property_facts": {
+    "batch_id": {
+     "default": null,
+     "description": "Job id returned by ppsspp_batch_step(background=true). Omit to survey ALL retained jobs instead (list mode; recovers a batch_id after the submit response was lost).",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [],
    "input_schema_sha1": "96b49c3de90a74e7839c7097741d9afe1dddb88c",
    "output_schema_chars": 2505,
    "output_schema_sha1": "c2ebb81f6cc0aa5a8589497693a54f5e8ab5d443"
@@ -98,6 +182,36 @@
     "session_id",
     "steps"
    ],
+   "input_schema_property_facts": {
+    "background": {
+     "default": false,
+     "description": "Run on a detached server task that survives the MCP client's ~30s tool-call timeout (default false). Foreground calls exceeding the 25s budget are rejected with BATCH_BUDGET_EXCEEDED; background calls return a batch_id immediately — poll ppsspp_batch_status for progress and the final result, cancel via ppsspp_batch_cancel. Background jobs have no per-step MCP progress notifications; use the status poll.",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "on_failure": {
+     "default": "continue",
+     "description": "What to do when a step fails (default 'continue'). 'continue' keeps running subsequent steps; 'abort' stops the batch immediately. Screenshot steps that are skipped due to recording mode are NOT failures.",
+     "has_default": true,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "steps": {
+     "default": null,
+     "description": "Ordered list of step dicts to execute. Each step must have a 'type' field. Supported types:\n- press: {type:'press', button:'cross', duration:30}\n- wait: {type:'wait', frames:60}\n- state_probe: {type:'state_probe', names:'game_mode', samples:1}\n- screenshot: {type:'screenshot', source:'render'}",
+     "has_default": false,
+     "type": "array"
+    }
+   },
+   "input_schema_required": [
+    "session_id",
+    "steps"
+   ],
    "input_schema_sha1": "820b036f3f9ad87ddb16a741b1dee0c90110a77f",
    "output_schema_chars": 2377,
    "output_schema_sha1": "74c16b03a05825eb852d5f33c5487d223276ecc7"
@@ -109,10 +223,10 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary MEMORY breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (defaults to read access; narrow with read/write/size). For EXECUTION breakpoints use action='set' + 'wait'.\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait. CONDITION SEMANTICS: PPSSPP's IR mode ignores register conditions, so any condition is enforced MCP-side — the breakpoint is armed unconditionally and each hit's expression is evaluated with cpu.evaluate; a falsy hit is auto-resumed (not surfaced) and counted in filtered_hits.\n\nRETURNS: stats → {mode:\"stats\", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks, condition, condition_filtered, filtered_hits, storm_break}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
-   "description_chars": 2063,
-   "description_words": 253,
-   "input_schema_chars": 4968,
+   "description": "PURPOSE: Manage breakpoints AND consume their hits — set/remove/update/list CPU execution breakpoints and memory watchpoints, strict-wait for a hit, or one-call arm-hit-capture-resume tracing.\n\nUSAGE: session_id optional when exactly one session is active; management actions as below; action='wait' blocks until any breakpoint is hit (set/mem_set first; lock-free; breakpoint stays armed); action='trace' arms a temporary MEMORY breakpoint at `address`, waits, captures pc/registers/backtrace, always removes it and resumes (defaults to read access; narrow with read/write/size). For EXECUTION breakpoints use action='set' + 'wait'.\n\n\nROUTING: persistent breakpoint management -> here; one-shot strict-wait -> action='wait'; armed hit-capture -> action='trace'.\nBEHAVIOR: MUTATING. trace arms/removes and set/mem_* manage state; Reliable hits need CPUCore=2 (IR Interpreter). mem_remove resolves the watchpoint's real size via mem_list first (address+size matching); mem_update merges existing read/write/change unconditionally (PPSSPP zero-omits omitted bools). CPU set/remove return no data — the tool follows with a list for verification. wait/trace are lock-free during the wait itself (concurrent reads keep working); do NOT submit step/pause/resume during a wait. CONDITION SEMANTICS: PPSSPP's IR mode ignores register conditions, so any condition is enforced MCP-side — the breakpoint is armed unconditionally and each hit's expression is evaluated with cpu.evaluate; a falsy hit is auto-resumed (not surfaced) and counted in filtered_hits.\n\nRETURNS: stats → {mode:\"stats\", window_s, total_hits, by_pc: [{pc, count, first_seen, last_seen}]} (fixed ~30s sampling window — no shorter-window option, probe_changes?: [{probe, old, new, ts}], note}; management actions → {action, address, enabled, breakpoints[]}; wait → {hit, already_paused, timeout_s, pc, reason, related_address, ticks, condition, condition_filtered, filtered_hits, storm_break}; trace → {hit, already_paused, address, access, timeout_s, hits: [{pc, related_address, reason, ticks, mem_hits?, registers?, backtrace?}], bp_removed, resumed, note}.",
+   "description_chars": 2119,
+   "description_words": 261,
+   "input_schema_chars": 5311,
    "input_schema_properties": [
     "action",
     "address",
@@ -128,7 +242,90 @@
     "want_registers",
     "write"
    ],
-   "input_schema_sha1": "7edb90f3a6a67c1e0abf58d529ba2628cb7e6418",
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "Breakpoint operation. Valid values:\nConsumption actions (lifecycle orchestration):\n- 'wait': STRICT-WAIT — block until any breakpoint is hit \n(arm nothing; set/mem_set first). Lock-free: concurrent \nreads keep working. The breakpoint stays armed.\n- 'stats': HIT-FREQUENCY — count breakpoint hits by pc \nover a time window; optionally samples probe value \nchanges via state_observer. Read-only.\n- 'trace': HIT-SNAPSHOT-RESUME — arm a temporary \nMEMORY breakpoint at `address`, wait for the hit, \ncapture pc/registers/backtrace, ALWAYS remove it, then \nresume (defaults to read access; narrow with \nread/write/size). For EXECUTION breakpoints use \naction='set' + 'wait' instead.\nCPU breakpoint actions:\n- 'set': add a CPU execution breakpoint (requires address; enabled? defaults to True; condition? optional — enforced MCP-side (falsy hits auto-resumed, counted in filtered_hits), NOT sent to PPSSPP).\n- 'remove': delete a CPU breakpoint by address.\n- 'list': list all current CPU breakpoints.\n- 'update': update a CPU breakpoint's enabled/log/condition/log_format (requires address; all other params optional; condition='' clears it).\nMemory breakpoint actions:\n- 'mem_set': add a memory access breakpoint (requires address; size?/read?/write?/enabled?/log?/condition?/log_format?).\n- 'mem_remove': delete a memory breakpoint by address. Delete semantics are STRICT: removing a non-existent memcheck is an ERROR (unlike ppsspp_state_observer action=clear, which is idempotent-ok).\n- 'mem_list': list all current memory breakpoints.\n- 'mem_update': update a memory breakpoint's enabled/log/condition/log_format (requires address).",
+     "has_default": false,
+     "type": "string"
+    },
+    "address": {
+     "default": "0x0",
+     "description": "Required for set / remove / update / mem_set / mem_remove / mem_update. Breakpoint address, as a hex string (e.g. '0x08804000'). Not used by list / mem_list. The schema default of '0x0' exists for legacy callers -- do NOT rely on it when the action is one of the above.",
+     "has_default": true,
+     "type": "string"
+    },
+    "condition": {
+     "default": null,
+     "description": "Break condition expression (set / update / mem_set / mem_update; None = don't send). Enforced MCP-side: PPSSPP's IR mode silently ignores register conditions, so the breakpoint is armed UNCONDITIONALLY and falsy hits are auto-resumed and counted in filtered_hits.",
+     "has_default": true,
+     "type": null
+    },
+    "enabled": {
+     "default": null,
+     "description": "Breakpoint enable flag. For action='set' / 'mem_set', defaults to True when None. For action='update' / 'mem_update', None means 'don't change'. Ignored for remove / list actions.",
+     "has_default": true,
+     "type": null
+    },
+    "log": {
+     "default": null,
+     "description": "Log flag (update / mem_set / mem_update only; None = don't change). For mem_set, defaults to False when None.",
+     "has_default": true,
+     "type": null
+    },
+    "log_format": {
+     "default": null,
+     "description": "Log format string (update / mem_set / mem_update only; None = don't change).",
+     "has_default": true,
+     "type": null
+    },
+    "read": {
+     "default": null,
+     "description": "Trigger on read access (mem_set only; None defaults to True). For mem_update, passing read triggers a merge query — omit to leave read unchanged.",
+     "has_default": true,
+     "type": null
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; omit to auto-resolve when exactly one session is active.",
+     "has_default": true,
+     "type": null
+    },
+    "size": {
+     "default": 4,
+     "description": "Memory breakpoint watch size in bytes (mem_set / mem_remove / mem_update; default 4). Fixed-width watches use 1/2/4; larger sizes are passed through to PPSSPP as a range watch. NOTE: PPSSPP matches a memory watchpoint by the exact address+size pair (BreakpointSubscriber.cpp) -- the size is part of the match key, not just bookkeeping. mem_remove therefore resolves the real size via mem_list first, because removing with the caller's size alone silently fails when it differs (e.g. a 16-byte watch removed with the default 4).",
+     "has_default": true,
+     "type": "integer"
+    },
+    "timeout_s": {
+     "default": 30.0,
+     "description": "Wait budget in seconds (wait / trace only; default 30, clamped to [0.5, 300]). On timeout: hit=false — NOT an error — so callers can poll.",
+     "has_default": true,
+     "type": "number"
+    },
+    "want_backtrace": {
+     "default": false,
+     "description": "Include the HLE backtrace in the hit (trace only; CPU is paused at the hit, so the trace is valid).",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "want_registers": {
+     "default": false,
+     "description": "Include the full CPU register dump in the hit (trace only).",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "write": {
+     "default": null,
+     "description": "Trigger on write access (mem_set only; None defaults to True). For mem_update, passing write triggers a merge query — omit to leave write unchanged.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [
+    "action"
+   ],
+   "input_schema_sha1": "0bd0d98cc333525d6801905e648b42fdabfced6f",
    "output_schema_chars": 2185,
    "output_schema_sha1": "5c2aaa59b0e1967740cde76b36c56c4a9843a268"
   },
@@ -139,15 +336,44 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: One-call crash-triage pack — identity + disassembly window + optional backtrace for an address.\n\nUSAGE: pass a crash PC or call target; identity resolves via addresses.yaml known_functions (IDA offset applied); disasm covers `window` instructions before/after; include_backtrace=true adds the call stack (pauses the CPU briefly).\n\nBEHAVIOR: READ-ONLY. Unknown addresses return identity=null and the raw window instead of failing; backtrace is skipped (not an error) when the CPU is running — the note field says why.\n\nROUTING: persistent breakpoints around this address -> ppsspp_breakpoint; one armed hit-capture -> ppsspp_breakpoint(action=\"trace\"); recurring sampling -> ppsspp_state_observer.\n\nRETURNS: {address, identity: {name, start, offset} | null, region, disasm: [{address, text}], backtrace: [...], backtrace_note}.",
-   "description_chars": 835,
-   "description_words": 107,
+   "description": "PURPOSE: One-call crash-triage pack — identity + disassembly window + optional backtrace for an address.\n\nUSAGE: pass a crash PC or call target; identity resolves via addresses.yaml known_functions (IDA offset applied); disasm covers `window` instructions before/after; include_backtrace=true adds the call stack (pauses the CPU briefly).\n\nBEHAVIOR: READ-ONLY. Unknown addresses return identity=null and the raw window instead of failing; backtrace is skipped (not an error) when the CPU is running — the note field says why.\nSCOPE: identity/region come from a TOPX-specific address knowledge base (addresses.yaml). For any other ISO they come back empty and `note` says so explicitly -- an empty identity means 'not in the tables', NOT 'bad address'.\n\nROUTING: persistent breakpoints around this address -> ppsspp_breakpoint; one armed hit-capture -> ppsspp_breakpoint(action=\"trace\"); recurring sampling -> ppsspp_state_observer.\n\nRETURNS: {address, identity: {name, start, offset} | null, region, disasm: [{address, text}], backtrace: [...], backtrace_note}.",
+   "description_chars": 1061,
+   "description_words": 142,
    "input_schema_chars": 866,
    "input_schema_properties": [
     "address",
     "include_backtrace",
     "session_id",
     "window"
+   ],
+   "input_schema_property_facts": {
+    "address": {
+     "default": null,
+     "description": "Address to triage, hex ('0x088EF0F4') or decimal — typically a crash PC or a call target.",
+     "has_default": false,
+     "type": "string"
+    },
+    "include_backtrace": {
+     "default": false,
+     "description": "Include the call stack (default false). Requires a paused CPU — the tool pauses/resumes around it; concurrent readers block briefly.",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; auto-resolved when exactly one session is active.",
+     "has_default": true,
+     "type": null
+    },
+    "window": {
+     "default": 8,
+     "description": "Disassembly instructions BEFORE the address (same count after, so 2*window+1 total; default 8, cap 32).",
+     "has_default": true,
+     "type": "integer"
+    }
+   },
+   "input_schema_required": [
+    "address"
    ],
    "input_schema_sha1": "84ec9f1bd68e92ed3b9c82317922309c39576f04",
    "output_schema_chars": 1987,
@@ -163,15 +389,64 @@
    "description": "PURPOSE: Snapshot a memory range and diff it against current memory — the classic \"what changed?\" variable-locator.\n\nUSAGE: diff_memory(action=\"snapshot\", start=..., end=...) → handle; act in game; diff_memory(action=\"compare\", handle=...) → changed-byte list; action=\"drop\"/\"list\" manage handles.\n\nBEHAVIOR: READ-ONLY. Memory is never written — only the per-server snapshot registry mutates. Large ranges are read across multiple reads; per-snapshot cap 8 MiB; registry cap 4 with FIFO eviction. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's snapshots can evict yours under load. compare requires the handle's exact range.\n\nRETURNS: snapshot → {handle, start, size_bytes, checksum}; compare → {handle, start, size_bytes, changed_count, truncated, changes: [{address, old, new}]}; drop → {handle, dropped}; list → {handles: [...], count, max_snapshots}.",
    "description_chars": 908,
    "description_words": 119,
-   "input_schema_chars": 1313,
+   "input_schema_chars": 1932,
    "input_schema_properties": [
     "action",
+    "address",
     "end",
     "handle",
     "session_id",
+    "size",
     "start"
    ],
-   "input_schema_sha1": "7d10c7cddddf6ae32e96b750b4893071a2a30c8a",
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "Diff operation. Valid values:\n- 'snapshot': read [start, start+size) and store it under a new handle (registry cap 4, FIFO eviction).\n- 'compare': read the same range now and diff against the handle's snapshot; returns a changed-byte list (inline cap 256, truncated flag keeps the true count).\n- 'drop': release a handle.\n- 'list': live handles.",
+     "has_default": false,
+     "type": "string"
+    },
+    "address": {
+     "default": null,
+     "description": "Range start, same format as 'start'. Provided for naming consistency with read_memory/write_memory/scan, which all take 'address'. Use either address+size or start+end.",
+     "has_default": true,
+     "type": null
+    },
+    "end": {
+     "default": null,
+     "description": "Range end (exclusive), same format — required for snapshot unless 'address'+'size' are given.",
+     "has_default": true,
+     "type": null
+    },
+    "handle": {
+     "default": null,
+     "description": "Snapshot handle — required for compare/drop.",
+     "has_default": true,
+     "type": null
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; auto-resolved when exactly one session is active (required for snapshot/compare, ignored for drop/list).",
+     "has_default": true,
+     "type": null
+    },
+    "size": {
+     "default": null,
+     "description": "Range length in bytes. Provided for naming consistency with read_memory/write_memory/scan, which all take 'size'. Use either address+size or start+end.",
+     "has_default": true,
+     "type": null
+    },
+    "start": {
+     "default": null,
+     "description": "Range start, hex ('0x08804000') or decimal — required for snapshot unless 'address'+'size' are given.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [
+    "action"
+   ],
+   "input_schema_sha1": "05464868927ac078c1758821fa69dbce28a5417b",
    "output_schema_chars": 2429,
    "output_schema_sha1": "100d6a4220b0972f9d129f7ce92c2727940595f2"
   },
@@ -185,13 +460,36 @@
    "description": "PURPOSE: Disassemble N MIPS instructions at a given address.\n\nUSAGE: address required; session_id optional when exactly one session is active; count optional (default 10).\n\nBEHAVIOR: READ-ONLY. Calls memory.disasm via WebSocket. Does not modify memory or CPU state.\n\nRETURNS: {address, count, instructions: [{address, text}...]}.\n",
    "description_chars": 330,
    "description_words": 43,
-   "input_schema_chars": 597,
+   "input_schema_chars": 776,
    "input_schema_properties": [
     "address",
     "count",
     "session_id"
    ],
-   "input_schema_sha1": "9c2cc84055eba4a33c2baf6c3bb01e5372fe7577",
+   "input_schema_property_facts": {
+    "address": {
+     "default": null,
+     "description": "Starting address for disassembly, as a hex string (e.g. '0x08804000').",
+     "has_default": false,
+     "type": "string"
+    },
+    "count": {
+     "default": 10,
+     "description": "Number of instructions to disassemble. Default 10. count=0 is treated as 'use the default' and returns 10 instructions (the response carries a note saying so). Capped at 100 to prevent oversized responses; a larger value is clamped and the note reports the clamp.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; omit to auto-resolve when exactly one session is active.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [
+    "address"
+   ],
+   "input_schema_sha1": "e72a417899cf8f768fb6b24b0bb81b435fba54f6",
    "output_schema_chars": 517,
    "output_schema_sha1": "3020799a7d8033e5ef9b2eaa3f09254d3db7f274"
   },
@@ -209,6 +507,30 @@
    "input_schema_properties": [
     "kind",
     "level",
+    "session_id"
+   ],
+   "input_schema_property_facts": {
+    "kind": {
+     "default": null,
+     "description": "What to capture from the CURRENTLY bound GPU state (no VRAM-address targeting): 'texture' = the bound texture (use level for mipmap); 'clut' = the bound CLUT palette.",
+     "has_default": false,
+     "type": "string"
+    },
+    "level": {
+     "default": 0,
+     "description": "Texture mipmap level (default 0). kind=texture only — a non-zero level with kind=clut is rejected.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "kind",
     "session_id"
    ],
    "input_schema_sha1": "ecbc466ac6c2858ff31d4ef2f5e22c4969b40613",
@@ -230,6 +552,24 @@
     "expression",
     "session_id"
    ],
+   "input_schema_property_facts": {
+    "expression": {
+     "default": null,
+     "description": "Debugger expression to evaluate. Examples: 'r5 + 0x10', 'pc', 'r5 + r6'. The supported syntax is whatever PPSSPP's expression evaluator accepts. Note: PPSSPP's evaluator does NOT support dereference syntax like '*0x08804000' — use read_u32 / read_bytes instead to read memory at an address.",
+     "has_default": false,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "expression",
+    "session_id"
+   ],
    "input_schema_sha1": "5c2dec588479d5bd4e8f897029fc417541d03fe4",
    "output_schema_chars": 694,
    "output_schema_sha1": "ec7d668d00d9189e8b1f5ceb25eee1a79cd9ff3d"
@@ -241,14 +581,37 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: One-call paused scene snapshot — pause (unless already paused), capture pc + registers + optional named probes, then resume.\n\nUSAGE: session_id; probes = optional comma-separated state_observer registry names; want_registers default true. Prefer this over a manual pause + query(registers) + resume sequence.\n\n\nROUTING: pause+capture+resume in one call -> here; cheap PC-only check -> ppsspp_query(action='register', name='pc', safe=true); recurring sampled probes -> ppsspp_state_observer.\nBEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.\n\nRETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — F-8 nullable-key contract, 2026-09-08.",
-   "description_chars": 955,
-   "description_words": 125,
+   "description": "PURPOSE: One-call paused scene snapshot — pause (unless already paused), capture pc + registers + optional named probes, then resume.\n\nUSAGE: session_id; probes = optional comma-separated state_observer registry names; want_registers default true. Prefer this over a manual pause + query(registers) + resume sequence.\n\n\nROUTING: pause+capture+resume in one call -> here; cheap PC-only check -> ppsspp_query(action='register', name='pc', safe=true); recurring sampled probes -> ppsspp_state_observer.\nBEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.\n\nRETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — nullable-key contract, 2026-09-08.",
+   "description_chars": 951,
+   "description_words": 124,
    "input_schema_chars": 538,
    "input_schema_properties": [
     "probes",
     "session_id",
     "want_registers"
+   ],
+   "input_schema_property_facts": {
+    "probes": {
+     "default": "",
+     "description": "Optional comma-separated state_observer registry probe names to capture alongside the CPU state (empty = none).",
+     "has_default": true,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "want_registers": {
+     "default": true,
+     "description": "Include the full CPU register dump (GPR/FPU/VFPU).",
+     "has_default": true,
+     "type": "boolean"
+    }
+   },
+   "input_schema_required": [
+    "session_id"
    ],
    "input_schema_sha1": "e18b3060d8f1fe98b88b5a9c1d763a07bdc09568",
    "output_schema_chars": 912,
@@ -268,6 +631,17 @@
    "input_schema_properties": [
     "session_id"
    ],
+   "input_schema_property_facts": {
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "session_id"
+   ],
    "input_schema_sha1": "fe1ce01a654cdf718b289f145e2295d039bc1db0",
    "output_schema_chars": 788,
    "output_schema_sha1": "333d6e11d90011c546c6882b62a3443ba1a3db05"
@@ -279,11 +653,22 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Query GPU counters — fps, vblanks per second, timing info.\n\nUSAGE: session_id. The CPU must be RUNNING; paused, the MCP pre-probe returns CPU_STATE_ERROR instead of hanging — which doubles as the cheapest paused-CPU probe.\n\nBEHAVIOR: READ-ONLY.\n\nRETURNS: {fps, vblanks_per_second, info, timing, raw, text}.",
-   "description_chars": 315,
-   "description_words": 44,
+   "description": "PURPOSE: Query GPU counters — fps, vblanks per second, timing info.\n\nUSAGE: session_id. The CPU must be RUNNING; paused, the MCP pre-probe returns CPU_STATE_ERROR instead of hanging — which doubles as the cheapest paused-CPU probe.\n\nBEHAVIOR: READ-ONLY.\n\nON TIMEOUT: the error names WHY it timed out -- expected_stall (the CPU was stepping, so no frame\nis coming), pairing_broken (a broadcast arrived meanwhile, so ticket pairing failed), or no_producer\n(nothing was broadcast at all, so the emulator is not producing frames -- check for a modal dialog\nblocking it). A CPU_FREEZE_SUSPECTED is re-checked against the frame heartbeat first: if no frames\nare arriving it is reported as WS_TIMEOUT with a no-producer attribution, NOT as a CPU freeze.\n\nRETURNS: {fps, vblanks_per_second, info, timing, raw, text}.",
+   "description_chars": 808,
+   "description_words": 123,
    "input_schema_chars": 187,
    "input_schema_properties": [
+    "session_id"
+   ],
+   "input_schema_property_facts": {
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
     "session_id"
    ],
    "input_schema_sha1": "5d063e9886ecd288a790d87fb6b17d01d0557a34",
@@ -297,16 +682,25 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Probe MCP server liveness and readiness — plus an optional four-point session health battery.\n\nUSAGE: no args for the server-level probe (does NOT contact PPSSPP); pass session_id to also run the session battery (iso_loaded / cpu_running / ws_connected / game_mode_valid — absorbed from the former ppsspp_smoke_test tool).\n\nBEHAVIOR: READ-ONLY. Server counters are read in-memory; the session battery (when requested) contacts PPSSPP over the session transport but never mutates state.\n\nRETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count — plus session_checks: [{name, passed, detail}] and overall_session_status when session_id is provided.\n",
-   "description_chars": 724,
-   "description_words": 93,
+   "description": "PURPOSE: Probe MCP server liveness and readiness — plus an optional four-point session health battery.\n\nUSAGE: no args for the server-level probe (does NOT contact PPSSPP); pass session_id to also run the session battery (iso_loaded / cpu_running / ws_connected / game_mode_valid — absorbed from the former ppsspp_smoke_test tool).\n\nBEHAVIOR: READ-ONLY. Server counters are read in-memory; the session battery (when requested) contacts PPSSPP over the session transport but never mutates state.\n\nREADING session_checks: each entry carries `value_status` besides `passed` -- 'ok' (the probe really read), 'stale_address_suspected' (the read succeeded and returned zero on several consecutive readings, so the probe address may have drifted -- a suspicion, not a verdict), 'failed' (the read raised or the data was absent; no value is reported), 'not_configured' (no probe address, so nothing was read). A probe that READ ZERO and one that COULD NOT READ both show passed=false while meaning opposite things: the first is a fact about the game, the second about the tooling. Do not read passed=false alone as a finding about the emulated game.\n\nRETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count — plus session_checks: [{name, passed, detail, value_status, value?}] and overall_session_status when session_id is provided.\n",
+   "description_chars": 1393,
+   "description_words": 197,
    "input_schema_chars": 439,
    "input_schema_properties": [
     "session_id"
    ],
+   "input_schema_property_facts": {
+    "session_id": {
+     "default": null,
+     "description": "Optional session ID — when provided, appends session_checks (the four-point battery: iso_loaded / cpu_running / ws_connected / game_mode_valid, absorbed from ppsspp_smoke_test) to the server-level report. Omit for the zero-contact server liveness probe.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [],
    "input_schema_sha1": "2ddaa5bdce10aa93d2e605fef31ba0aa97893b0f",
-   "output_schema_chars": 1975,
-   "output_schema_sha1": "97e8c3ec1648531442147ce049bba0163588e446"
+   "output_schema_chars": 2079,
+   "output_schema_sha1": "22c9132d5c07043c82a56e08efa39390f626f421"
   },
   "ppsspp_hold_buttons": {
    "annotations": {
@@ -315,11 +709,29 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Hold a combination of PSP buttons until a subsequent call changes the state.\n\nUSAGE: session_id + buttons required (pipe-separated combination, e.g. 'cross|circle'). Valid names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sets button-held state in PPSSPP; persists until next hold_buttons / send_analog call.\n\nRETURNS: {buttons}.\n",
-   "description_chars": 423,
-   "description_words": 64,
+   "description": "PURPOSE: Hold a combination of PSP buttons until a subsequent call changes the state.\n\nUSAGE: session_id + buttons required (pipe-separated combination, e.g. 'cross|circle'). Valid names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sets the button-held state in PPSSPP;\nit persists until the next hold_buttons call. To release, call\nhold_buttons with buttons='' (every button is then sent as\nreleased). Note: send_analog does NOT release buttons -- it\ndrives the analog axes on a separate PPSSPP event.\n\nRETURNS: {buttons}.\n",
+   "description_chars": 607,
+   "description_words": 95,
    "input_schema_chars": 547,
    "input_schema_properties": [
+    "buttons",
+    "session_id"
+   ],
+   "input_schema_property_facts": {
+    "buttons": {
+     "default": null,
+     "description": "Button combination string. Multiple buttons separated by '|' (e.g. 'cross|circle'). Held until released (send an empty combination or use press_button to clear). Valid names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.",
+     "has_default": false,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
     "buttons",
     "session_id"
    ],
@@ -341,6 +753,15 @@
    "input_schema_properties": [
     "section"
    ],
+   "input_schema_property_facts": {
+    "section": {
+     "default": null,
+     "description": "Optional section filter (e.g. 'known_functions', 'state_probes', 'top_base'). If omitted, returns all sections.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [],
    "input_schema_sha1": "7a467f0dee00d18eabe1bf7597e4dad4b7eff275",
    "output_schema_chars": 582,
    "output_schema_sha1": "dc5acc0f9a828c5f497bef91972c90ca5cb07265"
@@ -359,6 +780,15 @@
    "input_schema_properties": [
     "category"
    ],
+   "input_schema_property_facts": {
+    "category": {
+     "default": null,
+     "description": "Optional category filter. Valid values: eboot / state / p0ab / ndx / memory / misc / recipe. If omitted, all manifest entries are returned.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [],
    "input_schema_sha1": "26708a795dfb068e6ca1e033edf6349e6c2624a7",
    "output_schema_chars": 2314,
    "output_schema_sha1": "87bde79b1595f25f7b7ad14cf0d4a0e2fd8a6dd7"
@@ -377,9 +807,20 @@
    "input_schema_properties": [
     "session_id"
    ],
+   "input_schema_property_facts": {
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "session_id"
+   ],
    "input_schema_sha1": "70ea54cff4abfee33b312d533827953d43ef3742",
-   "output_schema_chars": 672,
-   "output_schema_sha1": "2ad617662a5ab1304dc58196953cb278ce80cf39"
+   "output_schema_chars": 792,
+   "output_schema_sha1": "de1f5bab5868c66297b6ed69c786d288a135907f"
   },
   "ppsspp_press_button": {
    "annotations": {
@@ -391,13 +832,37 @@
    "description": "PURPOSE: Simulate a single PSP button press for a duration.\n\nUSAGE: session_id + button required; duration optional (default 1 frame). Valid button names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.\n\nBEHAVIOR: STATE-CHANGE. Sends input events to PPSSPP. Button state returns to released after the duration elapses.\n\nRETURNS: {button, duration}.\n",
    "description_chars": 403,
    "description_words": 65,
-   "input_schema_chars": 611,
+   "input_schema_chars": 705,
    "input_schema_properties": [
     "button",
     "duration",
     "session_id"
    ],
-   "input_schema_sha1": "eb68a931fcedc239ae5f19ddb6cda472c2ea2e9e",
+   "input_schema_property_facts": {
+    "button": {
+     "default": null,
+     "description": "Button name. Valid: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.",
+     "has_default": false,
+     "type": "string"
+    },
+    "duration": {
+     "default": 1,
+     "description": "Press duration in frames (default 1; 60fps wall-clock, cap 18000 ≈ 300s — values above are rejected). duration=0 is accepted and is a no-op (the button is pressed and released in the same frame). The call blocks for the duration.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "button",
+    "session_id"
+   ],
+   "input_schema_sha1": "c0c12dd7bfa000706a4399dadcb600646c627d8a",
    "output_schema_chars": 286,
    "output_schema_sha1": "4ccfacfb401f465620d260960a9c7309eaad171c"
   },
@@ -411,7 +876,7 @@
    "description": "PURPOSE: Aggregate game-state queries — game_state, registers (all or one), backtrace, threads, modules, and function-list management (funcs/func_scan/func_add/func_remove).\n\nUSAGE: action + session_id; 'register' needs name; func_scan/func_remove need address; top_n defaults to 100 (pass 0 for the full list — hle.func.list can reach 700+KB).\n\n\nROUTING: one-shot PC read -> query(action='register', name='pc') (safe=true pauses for consistency; safe=false for hot-path polling); pause+capture -> ppsspp_frame_snapshot; recurring named probes -> ppsspp_state_observer; game_state / backtrace / threads / modules / HLE func management also here.\nBEHAVIOR: READ-ONLY. Lookups only — func_add/func_remove mutate the debugger function list. Verified on a live game: threads / modules / funcs / func_scan respond while the CPU is RUNNING (no pause needed); running-state PC/isCurrent reads are LOW trust unless safe=true (which pauses briefly for a consistent, high-trust read).\n\nRETURNS: {action, data, trust_level} — data shape depends on the action.",
    "description_chars": 1048,
    "description_words": 137,
-   "input_schema_chars": 2685,
+   "input_schema_chars": 2883,
    "input_schema_properties": [
     "action",
     "address",
@@ -422,9 +887,63 @@
     "thread",
     "top_n"
    ],
-   "input_schema_sha1": "8fe5adc92e3164d5d8221dcabd8e7e1b1e5976c8",
-   "output_schema_chars": 1010,
-   "output_schema_sha1": "224a2e0dd70e76e6e0bcfdc54a125b767bdba5a7"
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "Query action. Valid values:\n- 'game_state': PPSSPP game status (paused / game title).\n- 'registers': all CPU registers (GPR + FPU + VFPU).\n- 'register': single register by name (MIPS ABI name like 'a0'/'v0'/'t9', or 'pc'/'hi'/'lo').\n- 'backtrace': HLE call stack (thread optional).\n- 'threads': PSP thread list (safe: stepping → query → resume).\n- 'modules': list all loaded HLE modules.\n- 'funcs': list registered HLE function tracking entries.\n- 'func_scan': scan HLE functions in a 64KB range starting at address (requires address; CPU must be stepping).\n- 'func_add': add HLE function tracking (name? and/or address?).\n- 'func_remove': remove HLE function tracking (address required; PPSSPP protocol only accepts address, no name).",
+     "has_default": false,
+     "type": "string"
+    },
+    "address": {
+     "default": "0x0",
+     "description": "Required for func_remove and func_scan. Function address as a hex string (e.g. '0x08804000'). Not used by the other actions. The schema default of '0x0' exists for legacy callers -- do NOT rely on it when the action is one of the above.",
+     "has_default": true,
+     "type": "string"
+    },
+    "name": {
+     "default": null,
+     "description": "Required for action='register' (the register name to read) and for action='func_add'. Ignored by func_remove because PPSSPP's hle.func.remove protocol does not accept a name parameter.",
+     "has_default": true,
+     "type": null
+    },
+    "safe": {
+     "default": true,
+     "description": "action=register/registers only: pause the CPU for a consistent read (trust_level='high', same as the retired ppsspp_get_pc) — or read without pausing (trust_level='low', zero cost, racy while running; for hot-path polling).",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "size": {
+     "default": null,
+     "description": "Function size in bytes, 'func_add' only. When omitted the server sends no size — on PPSSPP builds where the omit path underflows (v1.20.4-1845 and earlier) this produces an unusable zero-size function, so this tool defaults to sending 4. Pass an explicit size to override.",
+     "has_default": true,
+     "type": null
+    },
+    "thread": {
+     "default": null,
+     "description": "Thread ID (backtrace action only; None = current).",
+     "has_default": true,
+     "type": null
+    },
+    "top_n": {
+     "default": 100,
+     "description": "Limit the number of entries returned for 'funcs' / 'func_scan' actions (default 100). 0 = no limit — hle.func.list can reach 700+KB, pass 0 only when the full list is genuinely needed.",
+     "has_default": true,
+     "type": "integer"
+    }
+   },
+   "input_schema_required": [
+    "action",
+    "session_id"
+   ],
+   "input_schema_sha1": "1d34e011c4cf50b8bfbe599e032fbfd4cc522652",
+   "output_schema_chars": 1127,
+   "output_schema_sha1": "91d8a05fc4d122978de77a878820fed4ec578abf"
   },
   "ppsspp_read_memory": {
    "annotations": {
@@ -436,7 +955,7 @@
    "description": "PURPOSE: Read memory (read_bytes / read_u32 / read_string).\n\nUSAGE: action; session_id optional when exactly one session is active; address as '0x' hex string; read_bytes ≤65536 per call (split larger reads); Memory scanning has moved to ppsspp_scan.\n\nBEHAVIOR: READ-ONLY. read_string is ASCII-only (use read_bytes + Shift-JIS decode for game text). Reading code segments: use ppsspp_disassemble — MCP provides no IR-encoding detection (a read_u32 over JIT-IR bytes just returns the raw value).\n\nRETURNS: {action, address, value, size, text, file} — read_bytes has output=value (default; byte list + hex text) / hex (text only, value=null) / file (paths + 64-byte preview; payload saved under .ppsspp-dfx/output/memory_reads/).",
    "description_chars": 727,
    "description_words": 102,
-   "input_schema_chars": 1898,
+   "input_schema_chars": 2043,
    "input_schema_properties": [
     "action",
     "address",
@@ -446,9 +965,56 @@
     "session_id",
     "size"
    ],
-   "input_schema_sha1": "13f6a377c0a4116a977fe8abff3093be389a2366",
-   "output_schema_chars": 1322,
-   "output_schema_sha1": "4a2a2117c470eddaa5aa232da6ce3d92121a3eaa"
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "Read action. Valid values:\n- 'read_bytes': read raw bytes (requires address + size).\n- 'read_u32': read a 32-bit unsigned int (requires address).\n- 'read_string': read a string (requires address).\n",
+     "has_default": false,
+     "type": "string"
+    },
+    "address": {
+     "default": "0x0",
+     "description": "Required for every action. Starting address for read_bytes/read_u32/read_string, as a hex string (e.g. '0x08804000'). The schema default of '0x0' exists for legacy callers -- do NOT rely on it.",
+     "has_default": true,
+     "type": "string"
+    },
+    "length": {
+     "default": null,
+     "description": "(deprecated, ignored) PPSSPP memory.readString does not accept a length parameter. Kept for backward schema compatibility.",
+     "has_default": true,
+     "type": null
+    },
+    "max_len": {
+     "default": 0,
+     "description": "Maximum string length in bytes for read_string (0 = default cap 4096). Values are clamped to 65536.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "output": {
+     "default": "value",
+     "description": "Payload channel for read_bytes (ignored by other actions). 'value' (default) returns the byte list inline plus a hex dump in `text`. 'hex' keeps only the hex dump in `text` (value=null) — roughly half the characters. 'file' saves raw bytes + hex dump under .ppsspp-dfx/output/memory_reads/ and returns the paths plus a 64-byte preview — use for reads near the 65536-byte cap.",
+     "has_default": true,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; omit to auto-resolve when exactly one session is active.",
+     "has_default": true,
+     "type": null
+    },
+    "size": {
+     "default": 0,
+     "description": "Number of bytes to read (read_bytes only). Max 65536 per call (MAX_SINGLE_READ_BYTES); larger reads are rejected with ARGS_INVALID -- chunk them instead.",
+     "has_default": true,
+     "type": "integer"
+    }
+   },
+   "input_schema_required": [
+    "action"
+   ],
+   "input_schema_sha1": "c924d0ae33a1a1b1f5cc371d2ad7c89375e452b6",
+   "output_schema_chars": 1348,
+   "output_schema_sha1": "34a8fe5c3aced57909eb2a90b6bfcd934cf2e5ca"
   },
   "ppsspp_reload_scripts": {
    "annotations": {
@@ -462,9 +1028,11 @@
    "description_words": 73,
    "input_schema_chars": 72,
    "input_schema_properties": [],
+   "input_schema_property_facts": {},
+   "input_schema_required": [],
    "input_schema_sha1": "e79ff2fa3801c9cc1c307997d43ff9ea2ab85dd6",
-   "output_schema_chars": 3388,
-   "output_schema_sha1": "96f752e36e397eaf342e24619cfb5451b8765f24"
+   "output_schema_chars": 3381,
+   "output_schema_sha1": "457bc130f8a7647d86a85c0c3e5601b86c589644"
   },
   "ppsspp_replay": {
    "annotations": {
@@ -473,10 +1041,10 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Aggregate PPSSPP replay subsystem — record input sequences, execute them, and save/load .ppr recordings.\n\nUSAGE: action + session_id; actions: begin/abort/flush/execute/status/time_get/time_set/save/load/wait_complete; execute needs version + base64_input; time_set needs value; save/load take a bare file name (always under output/replays/).\n\nBEHAVIOR: STATE-CHANGE. Recording requires the CPU RUNNING (real input timing); screenshots are rejected while recording. Replay timelines use ABSOLUTE game-clock timestamps anchored at the RECORDING session's boot — a replay only injects correctly when a fresh boot's clock is aligned to them: execute/load ONLY loads the event table and returns t0_s / estimated_end_s + the boot-aligned sequence (reset -> wait_ready -> wait boot+estimated_end_s -> abort); it does NOT play by itself. executing/saving NEVER clear on their own — only abort clears them — so wait_complete times out on any un-aborted replay; completion = the timeline estimate + explicit abort. execute/load auto-abort a live executing/saving state first (R4). restore_rtc defaults to False: setting it rewinds the game-visible wall clock of the RUNNING session and pollutes every in-game timer (R2); when needed, set it before the boot-aligned reset.\n\nRETURNS: {action, executing, saving, version, size, base64, base_rtc, data} — execute/load data carries t0_s, estimated_end_s, event_count and boot_aligned_sequence; fields depend on the action.",
-   "description_chars": 1467,
-   "description_words": 197,
-   "input_schema_chars": 3743,
+   "description": "PURPOSE: Aggregate PPSSPP replay subsystem — record input sequences, execute them, and save/load .ppr recordings.\n\nUSAGE: session_id optional when exactly one session is active; actions: begin/abort/flush/execute/status/time_get/time_set/save/load/wait_complete; execute needs version + base64_input; time_set needs value; save/load take a bare file name (always under output/replays/).\n\nBEHAVIOR: STATE-CHANGE. Recording requires the CPU RUNNING (real input timing); screenshots are rejected while recording. Replay timelines use ABSOLUTE game-clock timestamps anchored at the RECORDING session's boot — a replay only injects correctly when a fresh boot's clock is aligned to them: execute/load ONLY loads the event table and returns t0_s / estimated_end_s + the boot-aligned sequence (reset -> wait_ready -> wait boot+estimated_end_s -> abort); it does NOT play by itself. executing/saving NEVER clear on their own — only abort clears them — so wait_complete times out on any un-aborted replay; completion = the timeline estimate + explicit abort. execute/load auto-abort a live executing/saving state first. restore_rtc defaults to False: setting it rewinds the game-visible wall clock of the RUNNING session and pollutes every in-game timer; when needed, set it before the boot-aligned reset.\n\nRETURNS: {action, executing, saving, version, size, base64, base_rtc, data} — execute/load data carries t0_s, estimated_end_s, event_count and boot_aligned_sequence; fields depend on the action.",
+   "description_chars": 1492,
+   "description_words": 200,
+   "input_schema_chars": 4122,
    "input_schema_properties": [
     "action",
     "base64_input",
@@ -489,7 +1057,72 @@
     "value",
     "version"
    ],
-   "input_schema_sha1": "ec5981506ecd0ec739bb89a496298bd21dfae0dd",
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "Replay operation. Valid values:\n- 'begin': begin/resume recording.\n- 'abort': abort any recording or execution.\n- 'flush': flush recorded data (returns version + base64).\n- 'execute': execute a replay (requires version + base64_input). ONLY loads the event table — follow the boot-aligned sequence in the response (reset + wait + abort) or input never injects.\n- 'status': query {executing, saving}.\n- 'time_get': get base RTC.\n- 'time_set': set base RTC (requires value). WARNING: rewinds the game-visible wall clock on the RUNNING session — pollutes every in-game timer.\n- 'save': flush + time_get + write .ppr file (requires file_path: bare file name under output/replays/).\n- 'load': read .ppr + execute (requires file_path; same containment). Returns t0_s / estimated_end_s and the boot-aligned sequence.\n- 'wait_complete': poll replay.status until executing=False — NOTE: executing never clears on its own (only abort clears it), so this always times out on an un-aborted replay; kept for recording-completion checks and backwards compatibility.",
+     "has_default": false,
+     "type": "string"
+    },
+    "base64_input": {
+     "default": "",
+     "description": "Base64-encoded replay data (from a prior replay.flush). Required for action='execute'; ignored for all other actions.",
+     "has_default": true,
+     "type": "string"
+    },
+    "file_path": {
+     "default": "",
+     "description": "Bare .ppr file NAME (no directory parts) for action='save' / action='load'. The file is always placed under the server-managed directory .ppsspp-dfx/output/replays/ — absolute paths and path separators are rejected. Required for save / load; ignored for all other actions.",
+     "has_default": true,
+     "type": "string"
+    },
+    "interval_ms": {
+     "default": 100,
+     "description": "Polling interval in milliseconds for action='wait_complete' (default 100ms, clamped 10..5000 — below 10 the poll degenerates to a busy loop on the WS). Ignored for all other actions.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "restore_rtc": {
+     "default": false,
+     "description": "Whether to restore base_rtc via replay.time_set before execute when action='load' (default False). true sets the game-visible wall clock back to the recording moment — pollutes EVERY timer of the running session (attract timeouts, clocks, cooldowns) because game time = rtcBaseTime + elapsed. Only use for deterministic replays, and prefer setting it BEFORE the reset of the boot-aligned sequence so the game boots on the shifted base. Ignored for all other actions.",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; omit to auto-resolve when exactly one session is active.",
+     "has_default": true,
+     "type": null
+    },
+    "session_note": {
+     "default": "",
+     "description": "Optional human-readable note embedded in the .ppr file when action='save'. Ignored for all other actions.",
+     "has_default": true,
+     "type": "string"
+    },
+    "timeout_ms": {
+     "default": 10000,
+     "description": "Total timeout in milliseconds for action='wait_complete' (default 10000 = 10s, clamped 100..25000). The ceiling is 25s because the MCP client aborts a tool call at ~30s: a larger value could never be honoured. Ignored for all other actions.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "value": {
+     "default": 0,
+     "description": "Required for action='time_set'. Base RTC value in seconds (uint32). Not used by the other actions. The schema default of 0 exists for legacy callers -- do NOT rely on it when the action is 'time_set'.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "version": {
+     "default": 0,
+     "description": "Required for action='execute'. Replay format version (from a prior replay.flush). Not used by the other actions. The schema default of 0 exists for legacy callers -- do NOT rely on it when the action is 'execute'.",
+     "has_default": true,
+     "type": "integer"
+    }
+   },
+   "input_schema_required": [
+    "action"
+   ],
+   "input_schema_sha1": "c446f0cf3beeea100b2addd5aab7af93b81975da",
    "output_schema_chars": 1850,
    "output_schema_sha1": "76c6701d9e4fea30a1e72f5b2c6af40ba3b1203d"
   },
@@ -509,6 +1142,29 @@
     "name",
     "session_id"
    ],
+   "input_schema_property_facts": {
+    "input": {
+     "default": null,
+     "description": "Script input as a JSON dict. Validated against the script's Pydantic Input model. Pass {} for scripts with no required fields.",
+     "has_default": true,
+     "type": "object"
+    },
+    "name": {
+     "default": null,
+     "description": "Script name (must appear in manifest).",
+     "has_default": false,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Optional session ID. Enforced by this tool for scripts with requires_ppsspp=true (fails with SESSION_NOT_FOUND when none resolves). Priority: this parameter > an optional session_id field on the script's Input model.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [
+    "name"
+   ],
    "input_schema_sha1": "51780a7c95c233f17c8fc715da99f285c7961fa7",
    "output_schema_chars": 497,
    "output_schema_sha1": "b4470f59b98237e718ced6b04b4876a1f4372b9e"
@@ -523,7 +1179,7 @@
    "description": "PURPOSE: Three-mode memory scanner — byte-pattern search, Cheat-Engine-style value scan with narrowing sessions, and charset-aware string harvesting.\n\nUSAGE: mode='pattern' + pattern + start_addr/end_addr (migrated from read_memory scan); mode='value' + phase='initial'/value/width → handle, then phase='narrow'/op/value to converge, 'list'/'drop' to manage; mode='strings' + charset + start_addr/end_addr → [{address, text}]. background=true submits a detached job instead (recommended for full-band scans) and returns {action:'submitted', batch_id, ...} — poll ppsspp_batch_status(batch_id=...).\n\nBEHAVIOR: READ-ONLY. Large ranges are read across multiple reads; unreadable regions are skipped per-chunk (one WS round-trip each), but CONSECUTIVE read timeouts (10 s each, >5 in a row) abort the scan — a wedged PPSSPP fails the scan cleanly instead of pinning the session lock. pattern/strings ranges over 2 MiB are AUTO-BACKGROUNDED (returns {action:'submitted', batch_id, ...} even with background=false) — measured: 24 MB @ 4 KiB chunks takes 53-96 s depending on PPSSPP build, always past the ~30s client timeout, while @ 64 KiB chunks it is 3.4-40 s (build-dependent). Value sessions live in a bounded per-server registry (cap 4, FIFO), are bound to the creating session, and the initial-scan cap is 8 MiB foreground / 32 MiB background. Background scans carry a 600 s wall-clock budget; exceeding it fails the job and releases the session. The registry is process-global: parallel sessions share one cap and FIFO order, so another session's scans can evict your handle under load.\n\nROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.\n\nRETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background submission (explicit background=true OR pattern/strings range > 2 MiB) → {action: 'submitted', batch_id, session_id, estimated_s}.",
    "description_chars": 2244,
    "description_words": 295,
-   "input_schema_chars": 4251,
+   "input_schema_chars": 4362,
    "input_schema_properties": [
     "background",
     "charset",
@@ -543,7 +1199,114 @@
     "value",
     "width"
    ],
-   "input_schema_sha1": "5d7bc1c8d6ad33c25d6236cb5af19a70ecc98707",
+   "input_schema_property_facts": {
+    "background": {
+     "default": false,
+     "description": "Run as a detached background job: returns a batch_id immediately; poll ppsspp_batch_status(batch_id=...), cancel via ppsspp_batch_cancel. Value initial cap lifts 8 MiB → 32 MiB in background mode. NOTE: pattern/strings ranges over 2 MiB are auto-backgrounded even when this is false — a foreground scan that outlives the ~30s client timeout is the classic 'frozen session' trap.",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "charset": {
+     "default": "shift_jis",
+     "description": "String charset (strings mode; default shift_jis).",
+     "has_default": true,
+     "type": "string"
+    },
+    "chunk_size": {
+     "default": 65536,
+     "description": "Bytes per read request during chunked scans (default 65536 — measured ~6x faster end-to-end than the old 4096 default; clamped to [64, 65536]).",
+     "has_default": true,
+     "type": "integer"
+    },
+    "end_addr": {
+     "default": null,
+     "description": "Range end, exclusive, hex string (same format as `address`).",
+     "has_default": true,
+     "type": null
+    },
+    "max_results": {
+     "default": 100,
+     "description": "Maximum number of matches (pattern mode, default 100).",
+     "has_default": true,
+     "type": "integer"
+    },
+    "min_len": {
+     "default": 6,
+     "description": "Minimum string length (strings mode; default 6).",
+     "has_default": true,
+     "type": "integer"
+    },
+    "mode": {
+     "default": null,
+     "description": "Scan mode:\n- 'pattern': byte-pattern search (hex/ascii) over a range — migrated from read_memory(action=scan).\n- 'value': Cheat-Engine-style value scan with narrowing sessions (phase: initial → narrow → list → drop; width u8/u16/u32, op eq/ne/lt/gt).\n- 'strings': charset-aware string harvesting (charset shift_jis/utf8/ascii, min_len, quality filter) — returns [{address, text}].",
+     "has_default": false,
+     "type": "string"
+    },
+    "op": {
+     "default": "eq",
+     "description": "Comparison for value scans (initial + narrow; default eq).",
+     "has_default": true,
+     "type": "string"
+    },
+    "pattern": {
+     "default": null,
+     "description": "Pattern to scan for (pattern mode). Interpreted per pattern_type: 'hex' (default, e.g. 'AABBCCDD') or 'ascii'.",
+     "has_default": true,
+     "type": null
+    },
+    "pattern_type": {
+     "default": "hex",
+     "description": "How to interpret `pattern` (pattern mode). 'hex' (default) or 'ascii'.",
+     "has_default": true,
+     "type": "string"
+    },
+    "phase": {
+     "default": null,
+     "description": "Value-scan phase (value mode): 'initial' scans the range for `value`; 'narrow' re-reads candidates and filters by `op`+`value` (requires explicit session_id; auto-resolve not supported for this phase); 'list' returns current candidates; 'drop' releases the session.",
+     "has_default": true,
+     "type": null
+    },
+    "quality": {
+     "default": 0.2,
+     "description": "CJK-ratio quality floor for shift_jis (strings mode; 0..1, default 0.2; 0 disables). Random bytes can chance-decode to kana — the filter keeps signal. ascii/utf8 have no quality filter — expect noise in code regions.",
+     "has_default": true,
+     "type": "number"
+    },
+    "scan_handle": {
+     "default": null,
+     "description": "Value-scan session handle (narrow/list/drop phases).",
+     "has_default": true,
+     "type": null
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; auto-resolved when exactly one session is active. Required for the pattern / value initial / strings phases, which start a new scan. The narrow / list / drop phases only re-read addresses already recorded by an earlier phase, so they do not need it passed -- but it must still resolve to the same session.",
+     "has_default": true,
+     "type": null
+    },
+    "start_addr": {
+     "default": null,
+     "description": "Range start, inclusive, hex string (same format as `address`).",
+     "has_default": true,
+     "type": null
+    },
+    "value": {
+     "default": null,
+     "description": "Value to scan/narrow for (value mode).",
+     "has_default": true,
+     "type": null
+    },
+    "width": {
+     "default": "u16",
+     "description": "Value width (value mode; default u16).",
+     "has_default": true,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "mode"
+   ],
+   "input_schema_sha1": "aeaf35e2ea5905d8f8621a6ad313a79e510a1758",
    "output_schema_chars": 2362,
    "output_schema_sha1": "64899b993bdccfa2f8ecb4dcfb11f5efb83a76f5"
   },
@@ -563,6 +1326,27 @@
     "session_id",
     "source"
    ],
+   "input_schema_property_facts": {
+    "mode": {
+     "default": null,
+     "description": "DEPRECATED — use `source` instead. Legacy Win32 / VRAM fallback paths. 'auto' = three-tier fallback (wm_command → printwindow → vram). 'wm_command' / 'printwindow' / 'vram' = the specific strategy. Mutually exclusive with `source`.",
+     "has_default": true,
+     "type": null
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; omit to auto-resolve when exactly one session is active.",
+     "has_default": true,
+     "type": null
+    },
+    "source": {
+     "default": null,
+     "description": "Capture source (new, preferred). 'render' = with_stepping + gpu.buffer.renderColor (default when neither source nor mode is given). 'output' = gpu.buffer.screenshot (CRASH-RISK on some games). Mutually exclusive with `mode`.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [],
    "input_schema_sha1": "b1ff41048959743beb7d4aa5e26c5d6fd18e4605",
    "output_schema_chars": 1377,
    "output_schema_sha1": "efa7858cdac39c2eaec4f86d4b3a4ef9dd6bff10"
@@ -583,6 +1367,43 @@
     "end",
     "match",
     "max_results",
+    "session_id"
+   ],
+   "input_schema_property_facts": {
+    "address": {
+     "default": null,
+     "description": "Starting address for the disassembly search, as a hex string (e.g. '0x08804000').",
+     "has_default": false,
+     "type": "string"
+    },
+    "end": {
+     "default": "0x0",
+     "description": "End address for the search range, as a hex string (e.g. '0x08810000'). If 0 or equal to `address`, PPSSPP performs a loop search (wraps around memory).",
+     "has_default": true,
+     "type": "string"
+    },
+    "match": {
+     "default": null,
+     "description": "Case-insensitive substring to search for in the disassembly text (e.g., 'jal', 'addiu', 'lw r5'). May include '$' register prefix (e.g. 'jr $ra') — automatically stripped before forwarding to PPSSPP (PPSSPP register names have no '$' prefix). Required by PPSSPP's memory.searchDisasm event.",
+     "has_default": false,
+     "type": "string"
+    },
+    "max_results": {
+     "default": 100,
+     "description": "Maximum number of matches to collect (default 100). PPSSPP returns only the first match per call; the tool loops from each match address+4 until no more matches, this cap is reached, or a loop is detected.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "address",
+    "match",
     "session_id"
    ],
    "input_schema_sha1": "b6ad04ceff1a638ae4b2ee731038d914302ef1fa",
@@ -607,6 +1428,42 @@
     "session_id",
     "type"
    ],
+   "input_schema_property_facts": {
+    "address": {
+     "default": null,
+     "description": "Optional start address for the search range, as a hex string (e.g. '0x08804000'). If omitted, PPSSPP searches the entire address space.",
+     "has_default": true,
+     "type": null
+    },
+    "end": {
+     "default": null,
+     "description": "Optional end address for the search range, as a hex string (e.g. '0x08810000'). If omitted, PPSSPP searches to the end of the address space.",
+     "has_default": true,
+     "type": null
+    },
+    "match": {
+     "default": null,
+     "description": "Case-insensitive substring to match against memory region tags (e.g., 'texture', 'vertex', 'framebuf').",
+     "has_default": false,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "type": {
+     "default": null,
+     "description": "Optional type filter (e.g., 'texture', 'vertex'). If omitted, all region types are returned.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [
+    "match",
+    "session_id"
+   ],
    "input_schema_sha1": "2af68a1dea42f343d10260a259de5b957aa14e2c",
    "output_schema_chars": 786,
    "output_schema_sha1": "23cc25da578089f120147d925fe9af91e12bdebf"
@@ -627,6 +1484,31 @@
     "x",
     "y"
    ],
+   "input_schema_property_facts": {
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "x": {
+     "default": null,
+     "description": "Analog X coordinate in [0, 255] (128 = center). 0 = full left, 255 = full right.",
+     "has_default": false,
+     "type": "integer"
+    },
+    "y": {
+     "default": null,
+     "description": "Analog Y coordinate in [0, 255] (128 = center). 0 = full up, 255 = full down.",
+     "has_default": false,
+     "type": "integer"
+    }
+   },
+   "input_schema_required": [
+    "session_id",
+    "x",
+    "y"
+   ],
    "input_schema_sha1": "90eba7f13808c8010b4858f1eb763db546ffbc8f",
    "output_schema_chars": 285,
    "output_schema_sha1": "30e3272300d8090ca44af7b214dfc8c1528d50b3"
@@ -641,7 +1523,7 @@
    "description": "PURPOSE: Start / stop / inspect PPSSPP debug sessions — action=list / start / stop / get / wait_ready; wait_ready blocks until the emulated CPU is up.\n\nUSAGE: action='list' takes no other params and returns {sessions, count} (idle sessions >30min are auto-GC'd as a side effect; NOT a per-session health probe — use ppsspp_health(session_id=...) for that); action='start' needs iso_path (pass wait_ready=true to block until the CPU is up in the same call); stop/get/wait_ready need session_id. Call wait_ready AFTER start and BEFORE any memory tool — PPSSPP answers WebSocket before the CPU boots. start(resilient=true) self-heals boot wedges (blacklist quarantine + relaunch with the same session_id, ≤2 retries).\n\nBEHAVIOR: STATE-CHANGE. start spawns a PPSSPP subprocess + WS debugger; stop terminates it (never taskkill the process yourself); wait_ready polls the probe lock-free and fails [BOOT_TIMEOUT] on wedge suspicion; list/get are read-only.\n\nRETURNS: action=start/get → SessionResponse {session_id, iso_path, pid, ws_url, created_at, last_active_at, exec_count, ws_connected, recovered, restored (1 = session record was restored from sessions.json after a server restart, 0 = created in this process), ppsspp_version}; action=wait_ready → {action, ready, elapsed_s, probe_addr, probe_value, note} — elapsed_s is THIS call's wait duration, not the start→ready total; action=list → {sessions: [SessionResponse...], count}.",
    "description_chars": 1431,
    "description_words": 195,
-   "input_schema_chars": 2725,
+   "input_schema_chars": 2869,
    "input_schema_properties": [
     "action",
     "iso_path",
@@ -651,9 +1533,56 @@
     "timeout_s",
     "wait_ready"
    ],
-   "input_schema_sha1": "2c919a137e26522aa1d6701c36fda043b1e49875",
-   "output_schema_chars": 4716,
-   "output_schema_sha1": "8694e1354b422510b904b1349e78a4bb379a16d0"
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "Session operation. Valid values:\n- 'list': list all active sessions (no other params). Idle sessions (>30 min) are auto-GC'd as a side effect; returns {sessions, count}. NOT a per-session health probe — use ppsspp_health(session_id=…) for that.\n- 'start': launch a new PPSSPP session (requires iso_path). Set wait_ready=true to block until the emulated CPU is up (same probe/budget semantics as 'wait_ready').\n- 'stop': terminate an existing session (requires session_id).\n- 'get': query session health (requires session_id).\n- 'wait_ready': block until the emulated CPU has started (requires session_id). Call this after 'start' BEFORE any memory/disassembly tool — PPSSPP answers WebSocket before the ISO finishes booting, and early reads fail with 'CPU not started'.",
+     "has_default": false,
+     "type": "string"
+    },
+    "iso_path": {
+     "default": null,
+     "description": "Absolute path to the ISO file (required when action=start).",
+     "has_default": true,
+     "type": null
+    },
+    "probe_addr": {
+     "default": "0x08804000",
+     "description": "Hex address polled by the readiness probe (action=wait_ready, action=start with wait_ready=true, or the resilient-start gate; default '0x08804000', the project's top.prx load base).",
+     "has_default": true,
+     "type": "string"
+    },
+    "resilient": {
+     "default": false,
+     "description": "action=start only: self-healing boot — on wedge evidence (CPU-ready probe exhausted, handshake never accepted, process died) the launcher is torn down, the GPU-backend failure blacklist is quarantined (rename), and the session relaunches with the SAME session_id up to 2 retries; the response carries recovered=N (0 = first launch). Exhaustion raises [BOOT_TIMEOUT]. Ignored in fake mode.",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Session ID (required when action=stop / get / wait_ready).",
+     "has_default": true,
+     "type": null
+    },
+    "timeout_s": {
+     "default": 75.0,
+     "description": "Boot budget in seconds (action=wait_ready, action=start with wait_ready=true, or the per-attempt CPU-ready budget when action=start with resilient=true; default 75, clamped to [1, 300]).",
+     "has_default": true,
+     "type": "number"
+    },
+    "wait_ready": {
+     "default": true,
+     "description": "action=start only: block until the emulated CPU is ready before returning (same probe/budget as action=wait_ready; raises [BOOT_TIMEOUT] on wedge suspicion). Fake test mode is ready immediately. Default true: start() returns a session that is ready to use, so the first tool call does not fail with a version-handshake timeout. Pass false only when you want the raw launch without waiting.",
+     "has_default": true,
+     "type": "boolean"
+    }
+   },
+   "input_schema_required": [
+    "action"
+   ],
+   "input_schema_sha1": "f3d4b1ffa030ba9ff49ea6543dc5ef8d2e88c7a1",
+   "output_schema_chars": 4692,
+   "output_schema_sha1": "89a44c3e927b39f58a172f07a27f3e283eb7c5cb"
   },
   "ppsspp_state_observer": {
    "annotations": {
@@ -662,10 +1591,10 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Named memory-probe registry plus running-state observation — register probes once, then sample them cheaply every loop.\n\nUSAGE: action + session_id for observe; register needs name + address (+size 1/2/4, description); observe takes comma-separated names and samples.\n\n\nROUTING: recurring sampled probes across loops -> here; one-shot paused snapshot -> ppsspp_frame_snapshot; single-address access watch -> ppsspp_breakpoint(action=\"trace\").\nBEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PROCESS-wide (shared across sessions), seeded from addresses.yaml state_probes, and is NOT re-seeded after clear within the same process. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets (F-5 contract, 2026-09-08).\n\nRETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action.",
-   "description_chars": 984,
-   "description_words": 119,
-   "input_schema_chars": 2086,
+   "description": "PURPOSE: Named memory-probe registry plus running-state observation — register probes once, then sample them cheaply every loop.\n\nUSAGE: action + session_id for observe; register needs name + address (+size 1/2/4, description); observe takes comma-separated names and samples.\n\n\nROUTING: recurring sampled probes across loops -> here; one-shot paused snapshot -> ppsspp_frame_snapshot; single-address access watch -> ppsspp_breakpoint(action=\"trace\").\nBEHAVIOR: STATE-CHANGE. register/clear mutate the registry; observe is reliable while RUNNING. The registry is PER-SESSION (keyed by session_id), seeded from addresses.yaml state_probes; clear removes user-registered probes only, so the configured baseline survives. Delete semantics are IDEMPOTENT: clearing an unknown probe name succeeds (ok), unlike ppsspp_breakpoint mem_remove which rejects missing targets.\n\nRETURNS: {registered|probes|observations, count, success_count, failure_count} — shape depends on the action.",
+   "description_chars": 975,
+   "description_words": 116,
+   "input_schema_chars": 2192,
    "input_schema_properties": [
     "action",
     "address",
@@ -676,9 +1605,63 @@
     "session_id",
     "size"
    ],
-   "input_schema_sha1": "8bbaebf86a94a450054a3c6a05ebb7a8a22646b4",
-   "output_schema_chars": 2645,
-   "output_schema_sha1": "1e50bf8c2f70604650eb2212ce10586ded774cb3"
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "Observer operation. Valid values:\n- 'register': add a probe to the runtime registry (requires name + address; optional size default 4, optional description).\n- 'list': list all registered probes.\n- 'observe': read current value of named probe(s) (optional names — omit to observe all); optional samples (default 1) for multi-sample median.\n- 'clear': clear the runtime registry.",
+     "has_default": false,
+     "type": "string"
+    },
+    "address": {
+     "default": "0x0",
+     "description": "Required for action='register'. Absolute runtime address to read, as a hex string (e.g. '0x08804000'). Not used by the other actions. The schema default of '0x0' exists for legacy callers -- do NOT rely on it when the action is 'register'.",
+     "has_default": true,
+     "type": "string"
+    },
+    "description": {
+     "default": "",
+     "description": "Optional human-readable note for action='register'.",
+     "has_default": true,
+     "type": "string"
+    },
+    "name": {
+     "default": "",
+     "description": "Probe name. Required for action='register'; optional for action='observe' (comma-separated names; omit to observe all registered probes). Ignored for list / clear.",
+     "has_default": true,
+     "type": "string"
+    },
+    "names": {
+     "default": "",
+     "description": "Comma-separated probe names for action='observe'. If empty, all registered probes are observed. Ignored for all other actions.",
+     "has_default": true,
+     "type": "string"
+    },
+    "samples": {
+     "default": 1,
+     "description": "Number of samples to take per probe for action='observe' (default 1). If >1, samples are taken with a short yield between reads; the final value is the last read (caller can inspect stability by comparing samples externally).",
+     "has_default": true,
+     "type": "integer"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "size": {
+     "default": 4,
+     "description": "Read width in bytes (1 = u8, 2 = u16, 4 = u32). Default 4. Used by action='register'. Ignored for all other actions (probe's stored size is used at observe time).",
+     "has_default": true,
+     "type": "integer"
+    }
+   },
+   "input_schema_required": [
+    "action",
+    "session_id"
+   ],
+   "input_schema_sha1": "0fb4823e08f811c991b6bc0c922085479db6c685",
+   "output_schema_chars": 3039,
+   "output_schema_sha1": "fbf0227e60e6e4c06502b22d962c499263f0b2fa"
   },
   "ppsspp_step": {
    "annotations": {
@@ -687,18 +1670,41 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "PURPOSE: Aggregate CPU run-state control (pause / resume / reset / run_until / next_hle).\n\nUSAGE: action='pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.\n\nNOTE (v0.1.6): single-stepping (into/over/out) moved to\nppsspp_batch_step's cpu_step step type — this tool no longer accepts\nthose actions.\n\nROUTING: single run-state operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences and cpu_step -> ppsspp_batch_step.\nBEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.\n\nRETURNS: {action, address}.\n",
-   "description_chars": 722,
-   "description_words": 94,
-   "input_schema_chars": 1264,
+   "description": "PURPOSE: Aggregate CPU run-state control (pause / resume / reset / run_until / next_hle).\n\nUSAGE: action='pause' / 'resume' / 'reset' / 'next_hle' take only session_id (optional when exactly one session is active); 'run_until' requires address.\n\nNOTE (v0.1.6): single-stepping (into/over/out) moved to\nppsspp_batch_step's cpu_step step type — this tool no longer accepts\nthose actions.\n\nROUTING: single run-state operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences and cpu_step -> ppsspp_batch_step.\nBEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.\n\nRETURNS: {action, address, pc, ticks, reason, related_address}. pc is stepping-verified (HIGH trust) for 'pause'; for 'resume' pc/ticks are a best-effort LOW-trust cpu.status snapshot of the running CPU (0/0.0 if that read failed); 'reset' reports 0.\n",
+   "description_chars": 945,
+   "description_words": 126,
+   "input_schema_chars": 1498,
    "input_schema_properties": [
     "action",
     "address",
     "session_id"
    ],
-   "input_schema_sha1": "0a2e87fb98cca8ac17d35f3eee1fecf9241224e9",
-   "output_schema_chars": 1204,
-   "output_schema_sha1": "0e6b2c852029b0eba3d4fcbe23404bd14c36ac3c"
+   "input_schema_property_facts": {
+    "action": {
+     "default": null,
+     "description": "CPU step / run-state operation. Valid values:\n- 'pause': pause CPU (enter stepping mode).\n- 'resume': resume CPU (exit stepping mode); the response pc/ticks are a LOW-trust snapshot of the running CPU (inaccurate unless stepping), not a precise resume location.\n- 'reset': reset the game (reboot).\n- 'run_until': run until the specified address is reached (requires address).\n- 'next_hle': step to next HLE callback.\nNOTE: single-stepping (into/over/out) lives in ppsspp_batch_step as the 'cpu_step' step type (mode='into'|'over'|'out', count 1..1000) — it requires the CPU to enter stepping mode, which the executor handles automatically.",
+     "has_default": false,
+     "type": "string"
+    },
+    "address": {
+     "default": "0x0",
+     "description": "Required for action='run_until'. Target address, as a hex string (e.g. '0x08804000'). Not used by the other actions. The schema default of '0x0' exists for legacy callers -- do NOT rely on it when the action is 'run_until'. run_until is fire-and-forget: it returns immediately with no hit confirmation — poll PC or set a breakpoint to observe arrival.",
+     "has_default": true,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID; omit to auto-resolve when exactly one session is active.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [
+    "action"
+   ],
+   "input_schema_sha1": "53c63dedcf1d5806b51c4ba40668787cd2ca058a",
+   "output_schema_chars": 1379,
+   "output_schema_sha1": "09b9f51992514370d68b4ca7dfee2a55c740ff17"
   },
   "ppsspp_wait_frames": {
    "annotations": {
@@ -710,13 +1716,37 @@
    "description": "PURPOSE: Wait N frames (wall-clock sleep at 60 FPS by default) to let the emulator advance.\n\nUSAGE: session_id + frames required; interval optional (default 1/60 s).\n\nBEHAVIOR: STATE-CHANGE. Sleeps the caller; emulator advances N frames. Session must be alive (validated before sleep).\n\nRETURNS: {frames, elapsed_s}.\n",
    "description_chars": 317,
    "description_words": 45,
-   "input_schema_chars": 521,
+   "input_schema_chars": 640,
    "input_schema_properties": [
     "frames",
     "interval",
     "session_id"
    ],
-   "input_schema_sha1": "713611c260b3904ae10416008921fea3b8153dfb",
+   "input_schema_property_facts": {
+    "frames": {
+     "default": null,
+     "description": "Number of frames to wait (at 60 FPS, frames/60 seconds). MUST be >= 1 — frames=0 is rejected (it would be a silent no-op returning elapsed_s=0 without advancing the emulator).",
+     "has_default": false,
+     "type": "integer"
+    },
+    "interval": {
+     "default": null,
+     "description": "Per-frame interval in seconds (default 1/60). Total wait = frames * interval.",
+     "has_default": true,
+     "type": null
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "frames",
+    "session_id"
+   ],
+   "input_schema_sha1": "40bc785f198ec2fa5f30633780f2f1c90e55c648",
    "output_schema_chars": 294,
    "output_schema_sha1": "52e6b8d51e5ca1c8f1171c991953542b0d1c2ec6"
   },
@@ -727,10 +1757,10 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "PURPOSE: Value-change watch on an address — zero-pause alternative to a read watchpoint.\n\nUSAGE: session_id + address + mode + interval. Polls the value every\ninterval_frames and records changes (old/new/frame/time). Pure reads:\nthe CPU is never paused, so hot addresses are safe (D2 storm-free).\n\nBEHAVIOR: READ-ONLY. Polling loop; never mutates state; blocks ~duration_frames/60 seconds\n(cap 18000 frames).\n\nRETURNS: {address, size, mode, samples, first_value, last_value,\nchanges: [{frame, t_s, old, new}], change_count}.\n",
-   "description_chars": 525,
-   "description_words": 70,
-   "input_schema_chars": 780,
+   "description": "PURPOSE: Value-change watch on an address — zero-pause alternative to a read watchpoint.\n\nUSAGE: session_id + address + mode + interval. Polls the value every\ninterval_frames and records changes (old/new/frame/time). Pure reads:\nthe CPU is never paused, so hot addresses are safe (storm-free).\n\nBEHAVIOR: READ-ONLY. Polling loop; never mutates state; blocks ~duration_frames/60 seconds\n(cap 18000 frames).\n\nRETURNS: {address, size, mode, samples, first_value, last_value,\nchanges: [{frame, t_s, old, new}], change_count}.\n",
+   "description_chars": 522,
+   "description_words": 69,
+   "input_schema_chars": 1028,
    "input_schema_properties": [
     "address",
     "duration_frames",
@@ -738,7 +1768,43 @@
     "mode",
     "session_id"
    ],
-   "input_schema_sha1": "d587decf1d383c0e5cb734d9c6aa4f565ed31053",
+   "input_schema_property_facts": {
+    "address": {
+     "default": null,
+     "description": "Address to watch, hex string (e.g. '0x08A0D000').",
+     "has_default": false,
+     "type": "string"
+    },
+    "duration_frames": {
+     "default": 600,
+     "description": "Total watch window in frames (cap 18000 ~ 5 min at 60fps). A-19: holds the per-session lock for the WHOLE window — concurrent tool calls on this session get SESSION_BUSY after ~5s; use short windows or poll repeatedly instead.",
+     "has_default": true,
+     "type": "integer"
+    },
+    "interval_frames": {
+     "default": 60,
+     "description": "Poll cadence in frames (60 = 1s wall clock).",
+     "has_default": true,
+     "type": "integer"
+    },
+    "mode": {
+     "default": "u32",
+     "description": "Read width for change detection: 'u8', 'u16' or 'u32' (default u32). Must match how the watched value is meant to be read.",
+     "has_default": true,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "address",
+    "session_id"
+   ],
+   "input_schema_sha1": "4ecd430ef537a1047dd49debe56b8cb8fff977d3",
    "output_schema_chars": 785,
    "output_schema_sha1": "493b44f8487fb1f5387c25effc74ce10f31eeabd"
   },
@@ -752,15 +1818,58 @@
    "description": "PURPOSE: Write u8/u16/u32 or raw bytes to memory.\n\nUSAGE: session_id + address ('0x' hex) + data + format ('u8'|'u16'|'u32'|'bytes'; bytes accepts hex or base64).\n\nBEHAVIOR: DESTRUCTIVE. Protected ranges (kernel, top.prx code) need force=true (PROTECTED_ADDRESS).\n\nRETURNS: {address, format, bytes_written, value, text}.",
    "description_chars": 320,
    "description_words": 40,
-   "input_schema_chars": 1171,
+   "input_schema_chars": 1640,
    "input_schema_properties": [
     "address",
     "data",
     "force",
     "format",
+    "session_id",
+    "value"
+   ],
+   "input_schema_property_facts": {
+    "address": {
+     "default": null,
+     "description": "Target address, as a hex string (e.g. '0x08804000').",
+     "has_default": false,
+     "type": "string"
+    },
+    "data": {
+     "default": null,
+     "description": "Value to write, as a string. For format='u8'/'u16'/'u32', a hex string (e.g. '0x00000001') or decimal string (e.g. '1'). For format='bytes', a hex string (e.g. 'AABBCCDD') or base64 string. Optional when 'value' is supplied (alias); omitting both is an error.",
+     "has_default": true,
+     "type": null
+    },
+    "force": {
+     "default": false,
+     "description": "Set to True to write to protected code/data regions of the modules loaded in THIS session (kernel memory below 0x08800000, plus the top.prx code section as reported by the live module list); declared data addresses from addresses.yaml are exempt. Writing to those ranges without force=True raises ToolError to prevent accidental crashes.",
+     "has_default": true,
+     "type": "boolean"
+    },
+    "format": {
+     "default": "u32",
+     "description": "Write format. 'u32' (default) writes a 32-bit int. 'u8'/'u16' write byte/halfword granules (byte patches). 'bytes' writes raw bytes (data is hex-decoded).",
+     "has_default": true,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "value": {
+     "default": null,
+     "description": "Alias for 'data'. Accepted because sibling tools take a 'value'; 'data' remains the canonical name and wins when both are supplied.",
+     "has_default": true,
+     "type": null
+    }
+   },
+   "input_schema_required": [
+    "address",
     "session_id"
    ],
-   "input_schema_sha1": "0b53bea8b60e064de9be75d09828a06e1ea71d31",
+   "input_schema_sha1": "1c8091fd9c7a6527c10be8679a0fea9484e52a1a",
    "output_schema_chars": 787,
    "output_schema_sha1": "e2bb7d04a9a5ec0fda3cde5a739c520114ed8b63"
   },
@@ -780,11 +1889,36 @@
     "session_id",
     "value"
    ],
+   "input_schema_property_facts": {
+    "name": {
+     "default": null,
+     "description": "CPU register name (MIPS standard names). GPRs: 'v0'/'v1'/'a0'-'a3'/'t0'-'t9'/'s0'-'s7'/'gp'/'sp'/'fp'/'ra'/'hi'/'lo'/'pc'. FPU: 'f0'-'f31'. VFPU: 'v0'-'v127'. Numeric aliases like 'r5' are accepted and normalized (r5 -> a1, i.e. GPR index 5) — prefer the MIPS standard name. Case-sensitive (lowercase by convention).",
+     "has_default": false,
+     "type": "string"
+    },
+    "session_id": {
+     "default": null,
+     "description": "Active session ID.",
+     "has_default": false,
+     "type": "string"
+    },
+    "value": {
+     "default": null,
+     "description": "Value to write, as a hex string (e.g. '0x00000001'). Treated as an unsigned 32-bit int; values outside [0, 0xFFFFFFFF] are REJECTED (out-of-32-bit-range error), not wrapped.",
+     "has_default": false,
+     "type": "string"
+    }
+   },
+   "input_schema_required": [
+    "name",
+    "session_id",
+    "value"
+   ],
    "input_schema_sha1": "e55baf92b4113f6407469419eedd48169fb11caa",
    "output_schema_chars": 641,
    "output_schema_sha1": "43950014cf8eaad1c78bd034dd83bce4425b9cff"
   }
  },
- "total_description_chars": 26070,
- "total_input_schema_chars": 46611
+ "total_description_chars": 27930,
+ "total_input_schema_chars": 50110
 }

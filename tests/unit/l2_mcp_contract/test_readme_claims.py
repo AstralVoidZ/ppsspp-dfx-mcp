@@ -62,6 +62,17 @@ _TOOL_COUNT_DOCS = (
 _SCENARIO_DOCS = ("README.md", "README.en.md", "evals/README.md")
 _PAIR_DOCS = ("README.md", "README.en.md")
 
+# Scripts that describe the tool surface in docstrings/comments. They are not
+# prose docs, so the multi-language regex above does not apply — and they
+# drifted unpoliced (verify_real_mcp.py claimed "36 tools", record_fixtures.py
+# "30 tools") while the real surface was 37. A numeric tool-count claim here
+# must equal the baseline; the preferred state is no number at all (reference
+# tool_surface_baseline.json instead).
+_SCRIPT_TOOL_COUNT_PATHS = (
+    "scripts/verify_real_mcp.py",
+    "scripts/record_fixtures.py",
+)
+
 # Retired v0.1.6 tool names. They merged into dispatchers / other tools
 # (mapping table in CHANGELOG.md); a surviving mention advertises a tool
 # that cannot be called, so it is checked by an explicit list rather than
@@ -124,6 +135,31 @@ def test_static_tool_count_matches_baseline(doc: str) -> None:
         f"{doc}: static tool count {bad} != baseline {expected} "
         f"(tool_surface_baseline.json). Update this doc in the same commit "
         f"as the tool-surface change."
+    )
+
+
+# --- tool count in scripts: any numeric claim must equal the baseline -----
+
+
+@pytest.mark.parametrize("script", _SCRIPT_TOOL_COUNT_PATHS)
+def test_scripts_do_not_restate_stale_tool_count(script: str) -> None:
+    """A numeric "<N> tools" / "<N>-tool" claim in these scripts must be current.
+
+    Regex notes: ``(?<!\\w)`` keeps identifiers like "H1/H2 tools" from being
+    read as "2 tools"; the separator is a space or hyphen ("36 tools",
+    "30-tool"). The preferred fix is to drop the number and reference
+    tool_surface_baseline.json, but a *correct* number is tolerated so the
+    guard fails only on real drift — a stale claim (36 / 30 when the baseline
+    is 37) makes ``bad`` non-empty.
+    """
+    text = _read(script)
+    expected = _baseline_tool_count()
+    found = re.findall(r"(?<!\w)(\d+)[- ]tools?\b", text)
+    bad = sorted({n for n in found if int(n) != expected})
+    assert not bad, (
+        f"{script}: stale tool count {bad} != baseline {expected} "
+        f"(tool_surface_baseline.json). Do not restate the count here — "
+        f"reference the baseline file instead."
     )
 
 
@@ -227,3 +263,63 @@ def test_test_suite_size_is_claimed_as_a_floor(readme: str) -> None:
         f"floor was left behind as the suite grew (raise it, keeping the "
         f"'N+' shape)."
     )
+
+
+# ============================================================================
+# Review-v4 W-9: bilingual README structural symmetry
+# ============================================================================
+
+_BILINGUAL_HEADING_MAP = {
+    "项目状态": "Project status",
+    "功能特性": "Features",
+    "运行": "Running",
+    "配置": "Configuration",
+    "协议面": "Protocol surface",
+    "错误处理": "Error handling",
+    "性能参考（本机实测）": "Performance reference (measured locally)",
+    "社区与支持": "Community & support",
+    "贡献": "Contributing",
+    "开发": "Development",
+    "致谢": "Acknowledgements",
+    "引用": "Citation",
+    "许可证": "License",
+}
+
+
+def test_readme_language_versions_cover_the_same_sections() -> None:
+    """The two README language versions must cover the same `##` sections.
+
+    Numeric claim guards went green while the English version silently lost
+    the entire「性能参考 / Performance reference」section — count guards
+    cannot see structural drift. A new Chinese heading must be mapped here
+    (or the section deliberately dropped from the map with a reason), and
+    both files must carry it.
+    """
+    zh = (_REPO / "README.md").read_text(encoding="utf-8")
+    en = (_REPO / "README.en.md").read_text(encoding="utf-8")
+    zh_headings = {ln[3:].strip() for ln in zh.splitlines() if ln.startswith("## ")}
+    en_headings = {ln[3:].strip() for ln in en.splitlines() if ln.startswith("## ")}
+    unmapped = zh_headings - _BILINGUAL_HEADING_MAP.keys()
+    assert not unmapped, f"## headings missing from _BILINGUAL_HEADING_MAP: {unmapped}"
+    expected_en = {_BILINGUAL_HEADING_MAP[h] for h in zh_headings}
+    assert expected_en == en_headings, (
+        f"README.md/README.en.md sections diverged: "
+        f"missing-in-en={sorted(expected_en - en_headings)}, "
+        f"missing-in-zh={sorted(en_headings - expected_en)}"
+    )
+
+
+# --- review-v4 W-10 follow-up: SCOPE.md ships verification commands whose
+# --- expected output IS a tool count; pin those to the baseline directly.
+
+
+def test_scope_md_tool_count_claims_match_baseline() -> None:
+    """SCOPE.md's '-> 37)' command outputs and '清单（37）' headings must
+    equal the baseline — an unmaintained count there reads as authoritative
+    right next to the commands that verify it."""
+    text = _read("docs/SCOPE.md")
+    claims = re.findall(r"-> (\d+)\)", text)
+    claims += re.findall(r"静态工具清单（(\d+)）", text)
+    baseline = _baseline_tool_count()
+    assert claims, "SCOPE.md no longer states a tool count — update this guard"
+    assert {int(c) for c in claims} == {baseline}, claims

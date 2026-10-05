@@ -3,9 +3,10 @@
 Anchor: research_ppsspp_dfx_best_practice_gap_audit_v1 §G3 — every tool
 required an explicit session_id, though the overwhelmingly common case is
 exactly one active session. High-frequency tools now auto-resolve:
-explicit id passes through; 0 sessions raise a start hint; 2+ sessions
-raise SESSION_AMBIGUOUS listing every id. Destructive / low-frequency
-tools keep the required contract.
+explicit id passes through; 0 sessions raise SESSION_NOT_FOUND (FR-001 —
+the unified code, NOT ARGS_INVALID); 2+ sessions raise SESSION_AMBIGUOUS
+listing every id. Destructive / low-frequency tools keep the required
+contract.
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ from ppsspp_dfx_mcp.errors import SessionAmbiguous, ToolError
 from ppsspp_dfx_mcp.models.session import Session
 from ppsspp_dfx_mcp.session import session_manager
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id
+from ppsspp_dfx_mcp.tools.breakpoint import breakpoint
 from ppsspp_dfx_mcp.tools.memory import read_memory
+from ppsspp_dfx_mcp.tools.replay import replay
 
 pytestmark = pytest.mark.asyncio
 
@@ -43,11 +46,14 @@ class TestResolveSessionId:
         assert await resolve_session_id("sess-explicit") == "sess-explicit"
         mock_list.assert_not_awaited()
 
-    async def test_no_sessions_raises_start_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_no_sessions_raises_session_not_found(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """0 sessions → SESSION_NOT_FOUND (FR-001), not ARGS_INVALID."""
         _patch_list(monkeypatch, [])
         with pytest.raises(ToolError) as exc:
             await resolve_session_id(None)
-        assert exc.value.code == "ARGS_INVALID"
+        assert exc.value.code == "SESSION_NOT_FOUND"
         assert "no active session" in str(exc.value)
         assert 'ppsspp_session(action="start"' in str(exc.value)
 
@@ -82,6 +88,73 @@ class TestReadMemoryAutoResolve:
     async def test_omitted_id_resolves_and_reads(self, monkeypatch: pytest.MonkeyPatch) -> None:
         result = await self._run(monkeypatch, ["auto-sess"])
         assert result["value"] == [65, 66]
+
+    async def test_omitted_id_with_two_sessions_fails_ambiguous(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with pytest.raises(SessionAmbiguous):
+            await self._run(monkeypatch, ["sess-a", "sess-b"])
+
+
+class TestBreakpointAutoResolve:
+    """FR-014 (G-14): ppsspp_breakpoint's session_id is omit-able."""
+
+    async def _run(self, monkeypatch: pytest.MonkeyPatch, sids: list[str]):
+        _patch_list(monkeypatch, sids)
+        mock_client = AsyncMock()
+        mock_client.cpu_bp_list.return_value = {"breakpoints": []}
+        # The fake records what the tool actually handed to the client, so
+        # the assertion is falsifiable: drop the resolve call and this
+        # captures None instead of the resolved id.
+        captured: dict[str, str | None] = {}
+
+        @asynccontextmanager
+        async def fake_session_client(
+            session_id: str,
+        ) -> AsyncIterator[AsyncMock]:
+            captured["session_id"] = session_id
+            yield mock_client
+
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.breakpoint.session_client", fake_session_client)
+        result = await breakpoint(action="list")
+        return result, captured["session_id"]
+
+    async def test_omitted_id_resolves_and_lists(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result, resolved = await self._run(monkeypatch, ["auto-sess"])
+        assert result["breakpoints"] == []
+        assert resolved == "auto-sess"
+
+    async def test_omitted_id_with_two_sessions_fails_ambiguous(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with pytest.raises(SessionAmbiguous):
+            await self._run(monkeypatch, ["sess-a", "sess-b"])
+
+
+class TestReplayAutoResolve:
+    """FR-014 (G-14): ppsspp_replay's session_id is omit-able."""
+
+    async def _run(self, monkeypatch: pytest.MonkeyPatch, sids: list[str]):
+        _patch_list(monkeypatch, sids)
+        mock_client = AsyncMock()
+        mock_client.replay_flush.return_value = {"version": 1, "base64": "AAEC"}
+        captured: dict[str, str | None] = {}
+
+        @asynccontextmanager
+        async def fake_session_client(
+            session_id: str,
+        ) -> AsyncIterator[AsyncMock]:
+            captured["session_id"] = session_id
+            yield mock_client
+
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.replay.session_client", fake_session_client)
+        result = await replay(action="flush")
+        return result, captured["session_id"]
+
+    async def test_omitted_id_resolves_and_flushes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result, resolved = await self._run(monkeypatch, ["auto-sess"])
+        assert result["action"] == "flush"
+        assert resolved == "auto-sess"
 
     async def test_omitted_id_with_two_sessions_fails_ambiguous(
         self, monkeypatch: pytest.MonkeyPatch

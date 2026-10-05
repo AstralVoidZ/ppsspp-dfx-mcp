@@ -1,4 +1,4 @@
-"""Background batch job registry (A1, plan_batch_background_and_progress_v1).
+"""Background batch job registry.
 
 Why this exists: the ZCode MCP client enforces a ~30s tool-call timeout and
 then sends ``notifications/cancelled``; the SDK translates that into an
@@ -95,7 +95,7 @@ def estimate_batch_seconds(
                 else _PRESS_OVERHEAD_S
             )
         elif stype == "cpu_step":
-            # 🟡9: previously cost 0 — a [{cpu_step count=1000}] batch
+            # Previously cost 0 — a [{cpu_step count=1000}] batch
             # passed the 25s foreground budget gate, then burned minutes
             # of wall clock (and got cancelled by the ~30s client).
             count = step.get("count", 1)
@@ -112,7 +112,7 @@ def estimate_batch_seconds(
         elif stype == "state_probe":
             samples = step.get("samples", 1)
             n_samples = samples if isinstance(samples, (int, float)) and samples >= 1 else 1
-            # W12 (review v3): adjacent probes are folded into one block read
+            # Adjacent probes are folded into one block read
             # per sample (`_merge_runs`), so the cost scales with the number of
             # merged ROUND-TRIPS, not with the probe count. Callers pass the
             # per-step round-trip count; 1 is the conservative floor for

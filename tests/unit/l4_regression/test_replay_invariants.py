@@ -11,8 +11,8 @@ would break callers or hide bugs:
   (spike U3 contract)
 - R-04: replay tool validates action before touching session_client
   (so action validation is testable without a live session)
-- R-05: save / load actions raise ToolError code=NOT_IMPLEMENTED
-  (P1 placeholders, advertized in TDQS USAGE)
+- R-05: save / load actions require file_path (missing → ToolError
+  code=ARGS_INVALID; P1 implements them, advertized in TDQS USAGE)
 - R-06: execute action requires version != 0 AND base64_input != ""
   (P0 contract; silently sending empty data would corrupt PPSSPP state)
 - R-07: ReplayResult is a frozen dataclass (callers can't mutate it
@@ -199,8 +199,8 @@ class TestReplayActionValidation:
         """R-05: save / load require file_path (P1 file I/O invariant).
 
         Anchor: TDQS USAGE — "action=save requires file_path" /
-        "action=load requires file_path". P0 raised NOT_IMPLEMENTED;
-        P1 implements save/load but enforces file_path presence.
+        "action=load requires file_path". P1 implements save/load but
+        enforces file_path presence.
         """
         with pytest.raises(ToolError, match="file_path is required") as exc_info:
             await replay(session_id="dummy", action=action)
@@ -240,6 +240,53 @@ class TestReplayActionValidation:
                 base64_input="",
             )
         assert exc_info.value.code == "ARGS_INVALID"
+
+    @pytest.mark.asyncio
+    async def test_execute_with_undecodable_base64_raises_args_invalid(self):
+        """G-8/FR-008: undecodable base64_input is rejected before any I/O.
+
+        Anchor: tools/replay.py — `base64.b64decode(base64_input,
+        validate=True)` try/except. Before the fix the malformed blob
+        reached PPSSPP and the call "succeeded" silently, so a caller
+        could not distinguish a bad payload from an event-less replay.
+        "How it fails": if the validation is removed, no ToolError is
+        raised (session_client proceeds to resolve "dummy") and the
+        raises() assertion goes red.
+        """
+        with pytest.raises(ToolError, match="not valid base64") as exc_info:
+            await replay(
+                session_id="dummy",
+                action="execute",
+                version=1,
+                base64_input="@@@not-base64@@@",
+            )
+        assert exc_info.value.code == "ARGS_INVALID"
+
+    @pytest.mark.asyncio
+    async def test_execute_with_valid_base64_reaches_execute_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """G-8/FR-008 (two-direction): valid base64 still executes.
+
+        Locks in that the new validation does NOT over-reject: a decodable
+        payload must reach `client.replay_execute`. "How it fails": if the
+        validation rejects valid data, `replay_execute` is never awaited
+        (assert_awaited_once goes red).
+        """
+        mock = AsyncMock()
+        mock.replay_status.return_value = {"executing": False, "saving": False}
+        mock.replay_execute.return_value = {"ok": True}
+        _patch_session_client(monkeypatch, mock)
+
+        result = await replay(
+            session_id="sess-1",
+            action="execute",
+            version=1,
+            base64_input="AAEC",
+        )
+        assert result["action"] == "execute"
+        mock.replay_execute.assert_awaited_once()
+        assert mock.replay_execute.await_args.kwargs["base64"] == "AAEC"
 
 
 # ============================================================================

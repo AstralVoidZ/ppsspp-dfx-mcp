@@ -60,7 +60,7 @@ class ScreenshotResponse(FrozenModel):
             height=result.height,
             file_path=result.file_path,
             format=result.format,
-            # S2: `empty` 必须由工厂一并设置——它是「本次捕获没有像素」的**显式**
+            # `empty` 必须由工厂一并设置——它是「本次捕获没有像素」的**显式**
             # 信号，漏掉会让 0 字节捕获报成 empty=False，正是该字段要消除的歧义。
             # （工具路径手写 meta 时已正确设置；工厂是另一条入口。）
             empty=result.size_bytes == 0,

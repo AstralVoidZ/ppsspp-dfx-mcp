@@ -23,13 +23,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ppsspp_dfx_mcp.config import addresses as _addresses
-from ppsspp_dfx_mcp.config import fixture_dir, test_mode
+from ppsspp_dfx_mcp.config import fixture_dir, test_mode, ws_host
 from ppsspp_dfx_mcp.core.transport import WsTransport
 from ppsspp_dfx_mcp.errors import (
-    ArgsInvalid,
     SessionAmbiguous,
     SessionBusy,
     SessionNotFound,
+    WsConnectFailed,
     reset_error_context,
     set_error_context,
 )
@@ -45,26 +45,107 @@ logger = logging.getLogger(__name__)
 # behind a long wait_frames/batch_step gets a fast actionable error.
 SESSION_BUSY_TIMEOUT_S = 5.0
 
+# Hosts a session's OUTBOUND debugger WebSocket may target. SECURITY.md makes
+# loopback the premise for the (unauthenticated) PPSSPP debugger, and
+# sessions.json — which supplies ws_url — is written by any process that can
+# reach the state dir (the path is env-overridable). This is the single source
+# of truth for the loopback check, shared by session_manager._load_sessions
+# (defense in depth at rest) and the fallback connect path below (defense in
+# depth at use).
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def is_loopback_ws_url(ws_url: str) -> bool:
+    """True iff ``ws_url`` is a ``ws://`` URL pointed at a loopback host.
+
+    Allowed hosts are exactly ``127.0.0.1`` / ``::1`` / ``localhost`` and the
+    scheme must be ``ws`` (not ``wss``/``http``). Non-string input and
+    unparseable URLs return False. ``urlparse`` lowercases ``hostname``, so
+    case variants of ``localhost`` are accepted.
+
+    Used as the loopback predicate inside :func:`is_allowed_ws_url` — see the
+    module comment on ``LOOPBACK_HOSTS``.
+    """
+    if not isinstance(ws_url, str):
+        return False
+    try:
+        parsed = urlparse(ws_url)
+    except (ValueError, AttributeError):
+        return False
+    return parsed.scheme == "ws" and parsed.hostname in LOOPBACK_HOSTS
+
+
+def is_allowed_ws_url(ws_url: str) -> bool:
+    """True iff ``ws_url`` is a ``ws://`` URL the server may legitimately dial.
+
+    The allowlist is **loopback ∪ the host currently configured by
+    ``PPSSPP_DFX_WS_HOST``** (``config.ws_host()``). The configured host is
+    included because that env var is documented: an operator may deliberately
+    target a non-loopback host (e.g. PPSSPP on a LAN machine), and their own
+    persisted sessions must survive a server restart. The threat model for
+    sessions.json (a foreign process writing it) only requires refusing hosts
+    the server itself would not legitimately use — the configured host is not
+    one of those. Scheme must still be ``ws`` and the host must be non-empty.
+
+    Single source of truth for both enforcement points:
+    ``session_manager._load_sessions`` (defense in depth at rest) and the
+    per-call fallback connect path (defense in depth at use).
+    """
+    if is_loopback_ws_url(ws_url):
+        return True
+    if not isinstance(ws_url, str):
+        return False
+    try:
+        parsed = urlparse(ws_url)
+    except (ValueError, AttributeError):
+        return False
+    if parsed.scheme != "ws" or not parsed.hostname:
+        return False
+    configured = ws_host().strip().lower()
+    return bool(configured) and parsed.hostname == configured
+
+
 # Per-session FakeTransport cache — the byte-level write overlay must
 # survive across tool calls within a session.
 _FAKE_TRANSPORTS: dict[str, Any] = {}
 
 
+def drop_session(session_id: str) -> None:
+    """Drop a stopped session's cached fake transport.
+
+    Only populated in `PPSSPP_DFX_TEST_MODE=fake`, but it is keyed by the
+    session's uuid4 id and had no delete path at all, so a long-lived server
+    accumulated one FakeTransport per fake session forever.
+    Called from `session_manager._drop_session_side_tables()`.
+    """
+    _FAKE_TRANSPORTS.pop(session_id, None)
+
+
 async def resolve_session_id(session_id: str | None) -> str:
     """Resolve an omitted session_id against the active-session table.
 
-    Resolution policy: an explicit session_id passes through
-    untouched; when omitted, exactly ONE active session resolves silently
-    (the common single-game case), while 0 sessions raise a hint to start
-    one and 2+ sessions raise ``SessionAmbiguous`` listing every id.
+    THE single session-resolution entry point (FR-001): every
+    session-argument tool routes through here, so a given "no session"
+    situation always surfaces the SAME error contract.
+
+    Resolution policy: an explicit session_id passes through untouched
+    (existence is enforced by the downstream ``session_client`` lookup,
+    which raises ``SessionNotFound`` for an unknown id); when omitted,
+    exactly ONE active session resolves silently (the common
+    single-game case), 0 sessions raise ``SessionNotFound`` and 2+
+    sessions raise ``SessionAmbiguous`` listing every id.
+
+    ``SESSION_NOT_FOUND`` (not ``ARGS_INVALID``) is the unified code for
+    the 0-session case: the caller's request was well-formed, there was
+    simply no session to act on — the same semantic as an explicit id
+    that does not exist.
     """
     if session_id:
         return session_id
     sessions = await session_manager.list_sessions()
     if not sessions:
-        raise ArgsInvalid(
-            "session_id is required — no active session; start one with "
-            'ppsspp_session(action="start", iso_path=...)'
+        raise SessionNotFound(
+            'no active session — start one with ppsspp_session(action="start", iso_path=...)'
         )
     if len(sessions) > 1:
         ids = ", ".join(s.session_id for s in sessions)
@@ -204,7 +285,7 @@ async def session_client_with_transport(
         try:
             yield PpssppDebugClient(fake), fake
         except BaseException:
-            # W1 (review v3): reset ONLY on normal exit. While an exception
+            # Reset ONLY on normal exit. While an exception
             # unwinds, the scope must survive until the tool layer's
             # ``to_tool_error`` has read it — see the long comment in the
             # session-transport branch below. Fake mode injects (None, None)
@@ -300,7 +381,7 @@ async def _session_transport_context(
         # resolvers) so multi-session concurrent calls don't pollute
         # each other's resolvers.
         err_token = set_error_context(
-            pid_resolver=(lambda s=sess: s.pid) if sess.pid is not None else None,
+            pid_resolver=(lambda: sess.pid) if sess.pid is not None else None,
             game_state_resolver=session_observer.get_state
             if session_observer is not None
             else None,
@@ -315,7 +396,7 @@ async def _session_transport_context(
                 session_transport,
             )
         except BaseException:
-            # W1 (review v3): reset the error context ONLY on normal exit.
+            # Reset the error context ONLY on normal exit.
             #
             # Why: the exception that leaves this ``yield`` is on its way to
             # the tool layer, where ``except Exception as e:
@@ -362,10 +443,24 @@ async def _session_transport_context(
     host = url.hostname or "127.0.0.1"
     port = url.port or 12345
 
+    # Defense in depth (W18): _load_sessions already drops disallowed entries,
+    # but a session created in-process (or a future loader bypass) must not
+    # silently dial an arbitrary host — every read/write/input on this session
+    # would land there with forgeable responses. Refuse before constructing the
+    # transport. The allowlist is loopback ∪ the configured ws_host(), so an
+    # operator's own LAN-host session still works.
+    if not is_allowed_ws_url(sess.ws_url):
+        raise WsConnectFailed(
+            f"session {session_id} ws_url {sess.ws_url!r} is not loopback "
+            f"and does not match the configured PPSSPP_DFX_WS_HOST "
+            f"(scheme must be ws://) — refusing to send debugger traffic to an "
+            f"untrusted host; recreate the session"
+        )
+
     transport = WsTransport(host, port)
     # Set error context per-tool-call scope.
     err_token = set_error_context(
-        pid_resolver=(lambda s=sess: s.pid) if sess.pid is not None else None,
+        pid_resolver=(lambda: sess.pid) if sess.pid is not None else None,
         game_state_resolver=None,
     )
     try:
@@ -373,7 +468,7 @@ async def _session_transport_context(
         await transport.send_version()
         yield PpssppDebugClient(transport, pid=sess.pid), transport
     except BaseException:
-        # W1 (review v3): reset the error context ONLY on normal exit. While
+        # Reset the error context ONLY on normal exit. While
         # an exception unwinds, the scope must survive until the tool
         # layer's ``to_tool_error`` has read it — see the long comment in
         # the session-transport branch above. That covers both the body

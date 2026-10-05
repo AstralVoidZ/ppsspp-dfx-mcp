@@ -36,7 +36,7 @@ from pydantic import Field
 from ppsspp_dfx_mcp import config
 from ppsspp_dfx_mcp.address import format_address
 from ppsspp_dfx_mcp.errors import ArgsInvalid
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
 
 logger = logging.getLogger(__name__)
@@ -76,26 +76,10 @@ def _format_value(v: Any) -> Any:
     return v
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# List known address constants from addresses.yaml.
-#
-# Reads `.ppsspp-dfx/config/addresses.yaml` and returns all entries.
-# Every address value is formatted as a hex string (e.g.
-# "0x08804000") so it can be passed directly to ppsspp_read_memory,
-# ppsspp_breakpoint, etc.
-#
-# Args:
-# section: Optional section name to filter (e.g.
-# "known_functions" returns only the function address table).
-#
-# Returns:
-# Dict mapping section names to their contents. If `section` is
-# specified, only that section is returned. If the section does
-# not exist, an empty dict is returned.
 @mcp.tool(
     name="ppsspp_list_addresses",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors

@@ -1,6 +1,6 @@
 ---
 name: ppsspp-dfx
-description: Debug PSP games in PPSSPP via ppsspp-dfx-mcp. Use for ISO smoke test, crash/freeze analysis, memory scan/patch, breakpoints, register tracing, input automation, replay recording, screenshots, log analysis, or armips patch verification. Do NOT use for non-PSP emulators, PPSSPP end-user settings, or unrelated tasks.
+description: Debug PSP games in PPSSPP via ppsspp-dfx-mcp. Use when you need to trace, capture, analyze, verify, scan or automate: ISO smoke test, crash/freeze, memory patch, breakpoints, armips patches, replays, screenshots, logs. Do NOT use for non-PSP emulators, PPSSPP settings, or unrelated tasks.
 when_to_use: PPSSPP 调试; PSP 游戏调试; ISO 启动冒烟; 崩溃/卡死分析; 内存扫描; 断点追踪; 文本渲染追踪; 按键自动化; 录制回放; 截图取证; 日志分析; armips 补丁验证
 metadata:
   version: 3.0.1
@@ -18,7 +18,7 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 1. `ppsspp_health` — 探测 MCP server 存活（不连 PPSSPP）
 2. `ppsspp_session(action="start", iso_path=..., resilient=true, wait_ready=true)` — **一步启动并等就绪**（wait_ready=true 复用独立 wait_ready 的探针/预算语义，`[BOOT_TIMEOUT]`=楔死嫌疑）。可选 `resilient=true`：自愈启动——楔死证据（就绪探针耗尽/握手不受理/进程死亡）触发 关闭→隔离 GPU 后端黑名单文件→同 session_id 重启（≤2 次），响应 `recovered=N`（>0 表示现场已重置，断点需重设）
 3. `ppsspp_health(session_id=...)` — 启动健康四项检查（iso_loaded / cpu_running / ws_connected / game_mode_valid）
-4. 八个工具（`read_memory` / `disassemble` / `step` / `screenshot` / `breakpoint`(wait/stats/trace) / `diff_memory` / `context` / `scan`）的 `session_id` **可省略**（唯一活跃会话自动解析；0 会话报错提示启动，多会话报 `SESSION_AMBIGUOUS` 并列出全部 id）；其余工具仍必填
+4. 九个工具（`read_memory` / `disassemble` / `step` / `screenshot` / `breakpoint` / `diff_memory` / `context` / `scan` / `replay`）的 `session_id` **可省略**（唯一活跃会话自动解析；0 会话报错提示启动，多会话报 `SESSION_AMBIGUOUS` 并列出全部 id）；其余工具仍必填
 5. `ppsspp_session(action="stop", session_id=...)` — 结束（勿直接杀进程，会泄漏）
 
 约束：同一会话的工具调用被串行化（等锁超 5s 报 `SESSION_BUSY`）；`wait_frames`、`batch_step`、录制期间不要并发调用同会话；空闲 30 分钟会话被自动回收。
@@ -31,6 +31,7 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 | 读变量/文本 | `ppsspp_read_memory(action="read_bytes")` + 自行 decode；大块读取（≥数 KB）加 `output="file"`（落盘回路径+64B 预览，省上下文） | `read_string` 仅用于纯 ASCII（多字节会被截断语义） |
 | 扫内存 | `ppsspp_scan`（pattern/value/strings；全频段用 `background=true`） | 不可读区域被静默跳过；value/快照 handle 注册表进程级 4 FIFO |
 | 变量定位（什么变了） | `ppsspp_diff_memory`（snapshot→操作→compare） | handle 会话绑定；注册表进程级 4 FIFO（并行会话共享容量） |
+| 盯住某地址的变化（**不停 CPU**） | `ppsspp_watch_value`（按帧轮询，记 old/new/frame） | 内存断点会暂停 CPU；热点地址反复命中的场景用本工具 |
 | 查 PC/寄存器 | `ppsspp_query(action="register", name="pc", safe=true)`（高信任） | RUNNING 态裸 PC 是 LOW trust（VBlank 误导） |
 | 暂停抓现场 | `ppsspp_frame_snapshot`（pause→pc+寄存器→resume 一次完成） | 已暂停的 CPU 保持暂停不恢复；可选 `probes` 并采观察探针 |
 | 设断点 | `ppsspp_breakpoint`（设防）+ `ppsspp_breakpoint(action="wait")`（等命中） | 需 CPUCore=2；一步定位访问者用 `ppsspp_breakpoint(action="trace")`（仅内存断点） |
@@ -47,7 +48,7 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 | "录制与回放" | [common/replay_recording](references/playbook/common/replay_recording.md) |
 | "批量按键 + 状态观察" | [common/batch_automation](references/playbook/common/batch_automation.md) |
 
-地址常量一律查 `.ppsspp-dfx/config/addresses.yaml`（`ppsspp_list_addresses` 可列出）。IDA 偏移 ↔ 运行时地址的离线换算用 `scripts/addr_convert.py`（自动读取 addresses.yaml 基址，无需活跃会话；运行中会话内也可心算：`ppsspp_addr = ida_addr + (top_base.ppsspp - top_base.ida)`，v0.1.6 起 convert_address 已非工具化。具体游戏的界面签名、函数语义、码点约束等**项目上下文不在本技能书**——项目仓库如有对应的项目侧 skill（如 `ppsspp-dfx-<game>`），先确认其可用并优先遵循。
+地址常量一律查 `.ppsspp-dfx/config/addresses.yaml`（`ppsspp_list_addresses` 可列出）。IDA 偏移 ↔ 运行时地址的换算**无专用工具**（纯算术）：偏移 = `top_base.ppsspp - top_base.ida`；离线换算用 `scripts/addr_convert.py`，它自动读取 addresses.yaml 基址，无需活跃会话。具体游戏的界面签名、函数语义、码点约束等**项目上下文不在本技能书**——项目仓库如有对应的项目侧 skill（如 `ppsspp-dfx-<game>`），先确认其可用并优先遵循。
 
 ## 4. 通用约束（跨场景）
 
@@ -78,6 +79,7 @@ compatibility: Requires the ppsspp-dfx-mcp MCP server and a local PPSSPP with We
 | 断点不触发 | 确认 CPUCore=2（IR Interpreter，JIT 不触发）；确认目标地址确有执行流经过 |
 | 截图空帧 | 标题/加载屏 render 无内容 → 工具自动回退 VRAM（颜色不可靠）；进场景后再截 |
 | 菜单按键无效 | 用完整序列（Start → 确认键 → 等待 → 确认键），单次按键常无效 |
+| 探针读数恒为 0 | `value_status=stale_address_suspected`（连续多次读零后由工具标注）表示探针地址**疑似与当前构建脱节**——这是怀疑不是游戏事实；核对 `.ppsspp-dfx/config/addresses.yaml` 的 `state_probes`，勿把该读数当状态用 |
 
 > 本表为高频症状矩阵。全部错误码的语义与恢复路径全表见 [references/error-codes.md](references/error-codes.md)。
 

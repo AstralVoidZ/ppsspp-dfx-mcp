@@ -3,8 +3,9 @@
 Launches the MCP server as a subprocess using the EXACT same
 command/args/cwd/env as the zcode project-level config
 of the surrounding project), connects a real MCP client (mcp SDK,
-stdio transport), and drives all 36 tools through a three-phase
-scenario matrix:
+stdio transport), and drives the full static tool surface through a
+three-phase scenario matrix (the count lives in
+tests/unit/l2_mcp_contract/tool_surface_baseline.json):
 
 - Phase A (no session): no-session guards, parameter boundaries,
   rate-limit burst.
@@ -136,6 +137,12 @@ class Scenario:
     # per-tool dict budget — game-frame slowdowns (shader JIT,
     # title-screen processing) are environment, not regressions.
     frame_budget: bool = False
+    # Deliberately-long scenarios (lock-race primers) must NOT enter the
+    # per-tool p50 latency stats: their duration measures the SETUP, not the
+    # tool's cost. B.v3.session_busy_race primes an 8s lock hold through
+    # wait_frames, which pushed ppsspp_wait_frames' p50 to ~5s and tripped a
+    # false LATENCY-REGRESSION on every run (the gate then exits 1).
+    latency_exempt: bool = False
 
 
 @dataclass
@@ -225,6 +232,26 @@ def _hex_of(v: Any) -> str:
     return str(v)
 
 
+def _int_of(v: Any) -> int:
+    """Normalize an address/value that may be an int OR a '0x…' hex string.
+
+    The views render address fields as hex strings, so a listing's
+    ``address`` arrives as ``'0x09FE0000'`` — a bare ``int(x)`` raises
+    ``ValueError: invalid literal for int() with base 10`` on real hardware.
+    These validators crashed the whole phase B run the first time the
+    device gate was actually operated; they had never been exercised
+    because the harness could not configure its server (see
+    ``_wire.build_server_env``). Accept both shapes.
+    """
+    if isinstance(v, int):
+        return v
+    s = str(v).strip()
+    try:
+        return int(s, 0)
+    except ValueError:
+        return int(s, 16)
+
+
 # ── Validators ──────────────────────────────────────────────────────────────
 
 
@@ -282,7 +309,9 @@ def _v_register_equal(expected: str):
 def _v_bp_in_list(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     bps = s.get("breakpoints", [])
-    if not any(int(b.get("address", 0)) == int(SCRATCH, 16) for b in bps if isinstance(b, dict)):
+    if not any(
+        _int_of(b.get("address", 0)) == int(SCRATCH, 16) for b in bps if isinstance(b, dict)
+    ):
         return ["scratch breakpoint not present in listing"]
     return []
 
@@ -375,10 +404,45 @@ def _v_v2_string_8000(rec: Record, state: dict[str, Any]) -> list[str]:
 
 def _v_scan_pattern_cap(rec: Record, state: dict[str, Any]) -> list[str]:
     """S1: the rejection must name the scan pattern cap (fail-fast with
-    the budget named, not a generic internal error)."""
+    the budget named, not a generic internal error).
+
+    Expects ``[ARGS_INVALID]``: an oversized pattern is a client input error
+    (service/scan_engine.py:122). R15 asks for THE code prefix — the old
+    ``[INTERNAL]`` expectation was stale.
+    """
     hay = rec.error + rec.text_head
-    if "[INTERNAL]" not in hay or "scan cap" not in hay:
-        return ["expected '[INTERNAL] … scan cap' rejection (R15 code prefix + S1)"]
+    if "[ARGS_INVALID]" not in hay or "scan cap" not in hay:
+        return ["expected '[ARGS_INVALID] … scan cap' rejection (R15 code prefix + S1)"]
+    return []
+
+
+def _v_scan_range_cap(rec: Record, state: dict[str, Any]) -> list[str]:
+    """W4: an over-cap scan range must be rejected for the RANGE reason.
+
+    This scenario previously ``expect="error"``-passed VACUOUSLY: it sent
+    ``action="scan"`` to ``ppsspp_read_memory``, which rejected the action
+    enum instead of the 2 GiB range — green for the wrong reason (an empty
+    assertion). It now drives ``ppsspp_scan`` and pins the range-specific
+    wording (tools/scan.py:414 "exceeds the background cap"), so it can
+    only pass when the range cap is what fired.
+    """
+    hay = rec.error + rec.text_head
+    if "[ARGS_INVALID]" not in hay or "scan range" not in hay or "cap" not in hay:
+        return ["expected '[ARGS_INVALID] scan range … cap …' (W4 range cap, not the action enum)"]
+    return []
+
+
+def _v_zero_frames_rejected(rec: Record, state: dict[str, Any]) -> list[str]:
+    """G-10 / FR-010: ``frames=0`` must be REJECTED on the tool (MUST >= 1).
+
+    Pins both the code prefix and the phrasing promised by the schema
+    description. The scenario used to expect "ok" (old R12 wording, from
+    when 0 was a silent no-op) and the R-B shape validator was pinned to
+    the SUCCESS payload, so the flip to "error" needed this validator too.
+    """
+    hay = rec.error + rec.text_head
+    if "[ARGS_INVALID]" not in hay or "frames must be >= 1" not in hay:
+        return ["expected '[ARGS_INVALID] frames must be >= 1' (G-10/FR-010)"]
     return []
 
 
@@ -392,13 +456,42 @@ def _v_mem_remove_missing(rec: Record, state: dict[str, Any]) -> list[str]:
 
 def _v_analyze_default_mirror(rec: Record, state: dict[str, Any]) -> list[str]:
     """W4: default path (log_path=None) must read the mirrored ppsspp log
-    (the pre-seeded ERROR line must appear)."""
+    (the pre-seeded ERROR line must appear).
+
+    This log's structured payload exceeds the harness's 64 KiB capture cap,
+    so ``rec.structured`` is replaced by ``{"_truncated": true}`` — reading
+    it alone reported a false ``got ''``. ``log_path`` is the leading JSON
+    key, so it survives in ``text_head``; and a >64 KiB payload is itself
+    proof that the match list is non-empty.
+    """
     s = rec.structured or {}
+    if s.get("_truncated"):
+        # >64KB mirror: the enormous match list is the evidence, and
+        # `count` sits past the head cutoff. Log_path is the leading key.
+        if "ppsspp.log" not in (rec.text_head or ""):
+            return ["truncated payload does not name the ppsspp.log mirror — cannot confirm W4"]
+        return []
     source = str(s.get("log_path", ""))
     if not source.endswith("ppsspp.log"):
         return [f"default source should be the mirror file, got {source!r}"]
     if int(s.get("count", -1)) < 1:
         return [f"pre-seeded ERROR line not found (count={s.get('count')})"]
+    return []
+
+
+def _v_unknown_probe(rec: Record, state: dict[str, Any]) -> list[str]:
+    """observing an UNREGISTERED probe name must fail loudly.
+
+    The scenario previously passed ``name="nope"``, but action='observe'
+    reads ``names`` (plural) — ``name`` is the register-time parameter and
+    is ignored here. So the call observed ALL registered probes, returned
+    ok, and the ``expect="error"`` never touched the unknown-name path
+    (a silently vacuous scenario). It now passes ``names`` and pins the
+    rejection wording from service/probe_observer.py:189.
+    """
+    hay = rec.error + rec.text_head
+    if "unknown probe name" not in hay:
+        return [f"expected an 'unknown probe name(s)' rejection, got: {hay[:120]!r}"]
     return []
 
 
@@ -628,7 +721,7 @@ def _v_bp_mem_list_empty(rec: Record, state: dict[str, Any]) -> list[str]:
     s = rec.structured or {}
     bps = s.get("breakpoints", [])
     if bps:
-        addrs = [hex(int(b.get("address", 0))) for b in bps if isinstance(b, dict)]
+        addrs = [hex(_int_of(b.get("address", 0))) for b in bps if isinstance(b, dict)]
         return [f"leaked mem breakpoints after full phase B: {addrs}"]
     return []
 
@@ -760,10 +853,17 @@ def _v_race_contract(rec: Record, state: dict[str, Any]) -> list[str]:
 
 
 def _v_bp_size_guard(rec: Record, state: dict[str, Any]) -> list[str]:
-    """F-01 wire lock: the rejection must name the invalid size."""
+    """F-01 wire lock: the rejection must name the invalid size.
+
+    Expects the ``[ARGS_INVALID]`` prefix: a zero-width memcheck is a client
+    input error (raised as ``ArgsInvalid`` in tools/breakpoint.py:451), and
+    R15 asks for THE code prefix. The old ``[INTERNAL]`` expectation was
+    stale — it predates the rejection being tightened from a generic error
+    to ArgsInvalid.
+    """
     hay = rec.error + rec.text_head
-    if "[INTERNAL]" not in hay or "invalid memcheck size" not in hay:
-        return ["expected '[INTERNAL] invalid memcheck size …' (F-01)"]
+    if "[ARGS_INVALID]" not in hay or "invalid memcheck size" not in hay:
+        return ["expected '[ARGS_INVALID] invalid memcheck size …' (F-01 + R15 code prefix)"]
     return []
 
 
@@ -771,7 +871,7 @@ def _v_mem_list_size(expected: int):
     def v(rec: Record, state: dict[str, Any]) -> list[str]:
         s = rec.structured or {}
         for b in s.get("breakpoints", []):
-            if isinstance(b, dict) and int(b.get("address", 0)) == int(SCRATCH, 16):
+            if isinstance(b, dict) and _int_of(b.get("address", 0)) == int(SCRATCH, 16):
                 if int(b.get("size", 0)) != expected:
                     return [f"SCRATCH memcheck size {b.get('size')} != {expected}"]
                 return []
@@ -808,7 +908,10 @@ VALIDATORS: dict[str, Callable] = {
     "A.burst.list_addresses": _v_burst_limited,
     # ── V2 additions: post-review-fix contracts ──
     # ── V3 additions: review-r2 behavioral contracts ──
+    "B.v2.scan_range_over_cap": _v_scan_range_cap,
     "B.v3.scan_pattern_over_cap": _v_scan_pattern_cap,
+    "B.wait_frames.zero": _v_zero_frames_rejected,
+    "B.observer.observe_unknown": _v_unknown_probe,
     "B.v3.mem_remove_explicit_size_missing": _v_mem_remove_missing,
     "B.v3.analyze_default_mirror": _v_analyze_default_mirror,
     "B.v3.screenshot_empty_flag": _v_screenshot_meta,
@@ -1128,14 +1231,15 @@ PHASE_B: list[Scenario] = [
     ),
     Scenario(
         "B.read.scan_prologue",
-        "ppsspp_read_memory",
+        "ppsspp_scan",
         {
-            "action": "scan",
+            "mode": "pattern",
             "pattern": "E0FFBD27",
             "start_addr": "0x08804000",
             "end_addr": "0x08850000",
             "max_results": 3,
         },
+        note="pattern scan moved to ppsspp_scan(mode='pattern') — id kept for the validator map",
     ),
     Scenario(
         "B.read.huge_size",
@@ -1424,10 +1528,45 @@ PHASE_B: list[Scenario] = [
         "B.wait_frames.zero",
         "ppsspp_wait_frames",
         {"frames": 0},
-        "ok",
-        note="R12 定版: frames=0 合法（W3 校验 0..cap）",
+        "error",
+        note="G-10/FR-010: frames=0 已改为拒绝（ARGS_INVALID, MUST >= 1）——"
+        "旧 R12 口径'frames=0 合法'仅保留给 batch_step 的 wait 步骤",
     ),
     Scenario("B.wait_frames.negative", "ppsspp_wait_frames", {"frames": -3}, "error"),
+    # ── ppsspp_watch_value: the ONLY static tool with zero scenario coverage
+    #    (audit_test_modules --check GATE FAIL). Short 2s window so the
+    #    blocking poll loop stays cheap; the three rejections fail before
+    #    any sleeping.
+    Scenario(
+        "B.watch.u32_short",
+        "ppsspp_watch_value",
+        {"address": SCRATCH, "mode": "u32", "interval_frames": 15, "duration_frames": 15},
+        frame_budget=True,
+        note="single 15-frame poll (~250ms + overhead): exercises the real "
+        "polling loop. frame_budget uses the committed p50 (507ms) → "
+        "budget = p50×3 + 2s, since the cost IS the requested window",
+    ),
+    Scenario(
+        "B.watch.duration_over_cap",
+        "ppsspp_watch_value",
+        {"address": SCRATCH, "duration_frames": 18001},
+        "error",
+        note="duration cap 18000 rejected before the polling loop starts",
+    ),
+    Scenario(
+        "B.watch.interval_zero",
+        "ppsspp_watch_value",
+        {"address": SCRATCH, "interval_frames": 0},
+        "error",
+        note="interval_frames >= 1 (0 would busy-loop the session lock)",
+    ),
+    Scenario(
+        "B.watch.interval_over_window",
+        "ppsspp_watch_value",
+        {"address": SCRATCH, "interval_frames": 600, "duration_frames": 60},
+        "error",
+        note="cadence cannot outrun the window (guards the hours-long lock hold)",
+    ),
     Scenario(
         "B.batch_step.mixed",
         "ppsspp_batch_step",
@@ -1520,8 +1659,10 @@ PHASE_B: list[Scenario] = [
     Scenario(
         "B.observer.observe_unknown",
         "ppsspp_state_observer",
-        {"action": "observe", "name": "nope"},
+        {"action": "observe", "names": "nope"},
         "error",
+        note="W4/unknown-name: action='observe' reads `names` (plural); "
+        "passing `name` observed ALL probes and never hit the rejection",
     ),
     Scenario("B.image.screenshot", "ppsspp_screenshot", {}, validator=_v_image_present),
     Scenario(
@@ -1606,7 +1747,7 @@ PHASE_B: list[Scenario] = [
             "end_addr": "0x08808000",
         },
         "either",
-        note="16KB band scan: hits ok / no-match SCAN_NO_MATCH both ratified",
+        note="16KB band scan: hits and empty-match both ratified (no-match is a successful empty result, not an error)",
     ),
     Scenario(
         "B.batch_status.unknown",
@@ -1651,13 +1792,25 @@ PHASE_B: list[Scenario] = [
     ),
     Scenario("B.replay.execute_no_data", "ppsspp_replay", {"action": "execute"}, "error"),
     # ── F-02 fix contracts on the real wire (2026-09-08) ──
+    # A running emulator advances ~1 frame per 16ms, so "begin → save
+    # back-to-back = 0 frames" is NOT achievable in Practice — the scenario
+    # only ever passed when PPSSPP happened to be wedged (which is exactly
+    # how it went green in run 4 while CPU_FREEZE failures were firing).
+    # Freeze the CPU so the recording buffer provably stays empty.
+    Scenario(
+        "B.replay.pause_for_empty",
+        "ppsspp_step",
+        {"action": "pause"},
+        "ok",
+        note="setup: freeze frames so the recorder provably stays empty",
+    ),
     Scenario(
         "B.replay.begin_for_save",
         "ppsspp_replay",
         {"action": "begin"},
         "ok",
         validator=_v_has_keys("action"),
-        note="F-02 wire: fresh recorder (no frames elapsed yet)",
+        note="F-02 wire: fresh recorder with the CPU frozen (0 frames)",
     ),
     Scenario(
         "B.replay.save_empty_rejected",
@@ -1666,7 +1819,14 @@ PHASE_B: list[Scenario] = [
         "error",
         validator=_v_replay_empty_rejected,
         note="F-02 fixed: empty capture → [REPLAY_EMPTY], no .ppr "
-        "written (begin→save back-to-back = 0 frames)",
+        "written (CPU paused → genuinely 0 recorded frames)",
+    ),
+    Scenario(
+        "B.replay.resume_after_save",
+        "ppsspp_step",
+        {"action": "resume"},
+        "ok",
+        note="teardown: unfreeze after the empty-capture contract",
     ),
     Scenario(
         "B.replay.abort_after_save",
@@ -1734,9 +1894,9 @@ PHASE_B: list[Scenario] = [
     ),
     Scenario(
         "B.v2.scan_big_chunk",
-        "ppsspp_read_memory",
+        "ppsspp_scan",
         {
-            "action": "scan",
+            "mode": "pattern",
             "pattern": "DEADBEEF",
             "start_addr": "0x08800000",
             "end_addr": "0x08900000",
@@ -1746,9 +1906,9 @@ PHASE_B: list[Scenario] = [
     ),
     Scenario(
         "B.v2.scan_range_over_cap",
-        "ppsspp_read_memory",
+        "ppsspp_scan",
         {
-            "action": "scan",
+            "mode": "pattern",
             "pattern": "DEADBEEF",
             "start_addr": "0x08800000",
             "end_addr": "0x88800000",
@@ -1799,9 +1959,9 @@ PHASE_B: list[Scenario] = [
     # ── V3 additions (review-r2 behavioral contracts, round 3) ──
     Scenario(
         "B.v3.scan_pattern_over_cap",
-        "ppsspp_read_memory",
+        "ppsspp_scan",
         {
-            "action": "scan",
+            "mode": "pattern",
             "pattern": "41" * 4098,  # 4098 bytes > 4096 cap
             "start_addr": "0x08800000",
             "end_addr": "0x08810000",
@@ -1862,6 +2022,7 @@ PHASE_B: list[Scenario] = [
             }
         },
         "ok",
+        latency_exempt=True,
         note="W1: concurrent quick read behind an 8s holder gets "
         "SESSION_BUSY after the 5s timeout; holder still ok",
     ),
@@ -1985,7 +2146,11 @@ _RB_VALIDATORS: dict[str, Callable] = {
     "B.input.analog_center_ok": _v_has_keys("x", "y"),
     # waits (WaitFramesResponse)
     "B.wait_frames.5": _v_has_keys("frames", "elapsed_s"),
-    "B.wait_frames.zero": _v_has_keys("frames", "elapsed_s"),
+    # NOTE: B.wait_frames.zero is an ERROR contract since G-10 (frames>=1);
+    # it carries its own validator in VALIDATORS, so it must NOT get the
+    # success-payload shape check here.
+    # value watch (WatchValueResponse)
+    "B.watch.u32_short": _v_has_keys("address", "size", "mode", "samples", "change_count"),
     # observer (StateObserverResponse)
     "B.observer.list": _v_has_keys("action", "probes"),
     "B.observer.observe_game_mode": _v_has_keys("action"),
@@ -2202,7 +2367,15 @@ async def _call(session: ClientSession, sc: Scenario, phase: str) -> Record:
                 f"validator skipped: structured is {type(rec.structured).__name__}, not dict"
             ]
         else:
-            rec.problems = sc.validator(rec, STATE)
+            try:
+                rec.problems = sc.validator(rec, STATE)
+            except Exception as e:  # noqa: BLE001
+                # A validator crash is a HARNESS defect, not a scenario verdict.
+                # Letting it propagate aborted the entire run the first time the
+                # device gate was actually operated, hiding every later scenario
+                # behind the first bad validator. Record it and keep going, so
+                # one bug cannot mask the rest of the matrix.
+                rec.problems = [f"validator crashed: {type(e).__name__}: {e}"[:300]]
     # O3/R11: latency budget gate — a slow-but-successful call is a
     # regression, not a pass. Only phase-B ok calls are gated (phase A
     # guards are dominated by server-side arg validation, no emulator).
@@ -2513,9 +2686,17 @@ except (OSError, json.JSONDecodeError, KeyError):
 
 
 def _ok_p50_by_tool(records: list[dict]) -> dict[str, float]:
-    """Per-tool p50 latency (ms) over successful phase-B calls (R11)."""
+    """Per-tool p50 latency (ms) over successful phase-B calls (R11).
+
+    ``latency_exempt`` scenarios are excluded: their duration measures a
+    deliberate setup (an 8s lock-race primer), not the tool's own cost.
+    Without this, B.v3.session_busy_race's ~5s made ppsspp_wait_frames'
+    p50 ~5s and raised a false LATENCY-REGRESSION every run.
+    """
     by_tool: dict[str, list[float]] = {}
     for r in records:
+        if r["id"] in _LATENCY_EXEMPT_SCENARIOS:
+            continue
         if r["phase"] == "B" and r["status"] == "ok" and r["latency_ms"] > 0:
             by_tool.setdefault(r["tool"], []).append(r["latency_ms"])
     stats: dict[str, float] = {}
@@ -2523,6 +2704,11 @@ def _ok_p50_by_tool(records: list[dict]) -> dict[str, float]:
         lats.sort()
         stats[tool] = round(lats[len(lats) // 2], 1)
     return stats
+
+
+_LATENCY_EXEMPT_SCENARIOS: frozenset[str] = frozenset(
+    s.id for s in (*PHASE_A, *PHASE_B) if s.latency_exempt
+)
 
 
 # R19: tools whose latency is dominated by GAME frame time (press
@@ -2534,6 +2720,10 @@ _FRAME_TIME_TOOLS: frozenset[str] = frozenset(
         "ppsspp_batch_step",
         "ppsspp_wait_frames",
         "ppsspp_press_button",
+        # ppsspp_watch_value is a blocking frame-paced poll loop: its cost is
+        # (nearly) the requested window, so a flat 500ms budget is the wrong
+        # instrument (a 1-poll window already ~0.5s).
+        "ppsspp_watch_value",
     }
 )
 

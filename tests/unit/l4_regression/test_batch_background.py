@@ -164,6 +164,49 @@ class TestEstimateBatchSeconds:
         assert est >= 0
 
 
+class TestProbeRoundTripEstimate:
+    """W31 regression: the gate must SEE registered probes.
+
+    `batch_step`'s estimator resolves each state_probe step's round-trip
+    count via `_resolve_target_probes(names, session_id)`. A one-argument
+    call raised TypeError, was swallowed by the best-effort `except`, and
+    every probe batch estimated at the 1-round-trip floor — collapsing the
+    W31 gate to its floor. This locks the two-argument call + the seeding
+    that makes configured probes resolvable.
+    """
+
+    async def test_registered_probes_estimate_above_the_floor(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import ppsspp_dfx_mcp.service.probe_observer as so
+        from ppsspp_dfx_mcp.models.state_observer import StateProbe
+
+        _patch_session_client(monkeypatch, _make_mock_client())
+        _patch_validate(monkeypatch)
+        # Two far-apart probes → two merged block reads (not the floor of 1).
+        monkeypatch.setitem(
+            so._REGISTRY_BY_SESSION,
+            "s1",
+            {
+                "a": StateProbe("a", 0x001000, 4),
+                "b": StateProbe("b", 0x009000, 4),
+            },
+        )
+        steps = [{"type": "state_probe", "names": "a,b", "samples": 2}]
+        resp = await batch_step(session_id="s1", steps=steps, background=True)
+
+        floor = estimate_batch_seconds(steps, {0: 1})
+        # Falsifiable floor check: the floor must be non-trivial (0.5s) so
+        # the "estimates MORE" comparison cannot be vacuously true.
+        assert floor == pytest.approx(0.5)
+        assert resp["estimated_s"] > floor, (
+            "state_probe estimate collapsed to the 1-round-trip floor — "
+            "`_resolve_target_probes` is being called with the wrong arity "
+            "(TypeError swallowed), so the W31 gate under-counts probe cost"
+        )
+        assert resp["estimated_s"] == pytest.approx(2 * 2 * 0.25)
+
+
 # ============================================================================
 # Foreground budget gate (acceptance 2)
 # ============================================================================

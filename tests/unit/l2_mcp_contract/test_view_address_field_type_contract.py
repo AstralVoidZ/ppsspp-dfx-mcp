@@ -23,8 +23,6 @@ Tested view models (all in ppsspp_dfx_mcp.views):
 - ProbeObservationView.address
 - StateProbeView.address
 - StepResponse.address / .pc / .related_address
-- AddressConversionResponse.original / .converted / .top_base_ppsspp /
-  .top_base_ida
 - GetPcResponse.pc
 
 Not covered here (kept as int deliberately — these are data values, not
@@ -43,7 +41,6 @@ from typing import get_args, get_origin
 
 import pytest
 
-from ppsspp_dfx_mcp.views.analyze import AddressConversionResponse
 from ppsspp_dfx_mcp.views.assemble import AssembleResponse
 from ppsspp_dfx_mcp.views.breakpoint import BreakpointResponse
 from ppsspp_dfx_mcp.views.memory import (
@@ -154,36 +151,6 @@ class TestViewPcFieldsAreStr:
 
 
 # ============================================================================
-# Address conversion response — all four address fields
-# ============================================================================
-
-
-class TestAddressConversionResponseFieldsAreStr:
-    """AddressConversionResponse exposes 4 address fields — all must be `str`.
-
-    - original: input address (was `int`, now `str` for input/output symmetry)
-    - converted: output address
-    - top_base_ppsspp: top.prx PPSSPP base (constant)
-    - top_base_ida: top.prx IDA base (constant)
-
-    If any regresses to `int`, the conversion response becomes asymmetric
-    (hex string in → numeric out), forcing the LLM to convert.
-    """
-
-    @pytest.mark.parametrize(
-        "field_name",
-        ["original", "converted", "top_base_ppsspp", "top_base_ida"],
-    )
-    def test_conversion_field_is_str(self, field_name):
-        """L2 anchor: all 4 address fields in AddressConversionResponse are `str`."""
-        annotation = _get_field_type(AddressConversionResponse, field_name)
-        assert _is_str_field(annotation), (
-            f"AddressConversionResponse.{field_name} must be typed `str` "
-            f"(hex string output), got: {annotation!r}."
-        )
-
-
-# ============================================================================
 # Search range end address
 # ============================================================================
 
@@ -226,7 +193,6 @@ class TestFromResultFormatsAddressAsHex:
             (AssembleResponse, "ppsspp_dfx_mcp.views.assemble"),
             (SearchDisasmResponse, "ppsspp_dfx_mcp.views.search_disasm"),
             (StepResponse, "ppsspp_dfx_mcp.views.step"),
-            (AddressConversionResponse, "ppsspp_dfx_mcp.views.analyze"),
             (GetPcResponse, "ppsspp_dfx_mcp.views.query"),
             (ProbeObservationView, "ppsspp_dfx_mcp.views.state_observer"),
             (StateProbeView, "ppsspp_dfx_mcp.views.state_observer"),
@@ -313,20 +279,3 @@ class TestFromResultProducesHexOutput:
         )
         assert view.address == "0x00000000"
         assert view.related_address == "0x00000000"
-
-    def test_address_conversion_all_fields_hex(self):
-        """from_result formats all 4 address fields as hex strings."""
-        from ppsspp_dfx_mcp.models.analyze import AddressConversionResult
-
-        result = AddressConversionResult(
-            original=0x00010000,
-            converted=0x08814000,
-            mode="ida_to_ppsspp",
-            top_base_ppsspp=0x08804000,
-            top_base_ida=0x00010000,
-        )
-        view = AddressConversionResponse.from_result(result)
-        assert view.original == "0x00010000"
-        assert view.converted == "0x08814000"
-        assert view.top_base_ppsspp == "0x08804000"
-        assert view.top_base_ida == "0x00010000"

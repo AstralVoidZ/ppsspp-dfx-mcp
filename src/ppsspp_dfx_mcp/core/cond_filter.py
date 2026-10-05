@@ -1,4 +1,4 @@
-"""🔴-1/D1: MCP-side condition evaluator for CPU breakpoints.
+"""MCP-side condition evaluator for CPU breakpoints.
 
 PPSSPP v1.20.4 (IR mode) silently ignores register-referencing break
 conditions — the condition is stored on the breakpoint but never
@@ -71,6 +71,6 @@ def drop_session(session_id: str) -> int:
     return len(keys)
 
 
-def snapshot() -> dict[str, dict[str, Any]]:
+def snapshot() -> dict[tuple[str, int], dict[str, Any]]:
     """Read-only copy for diagnostics/tests."""
     return {k: dict(v) for k, v in _filters.items()}

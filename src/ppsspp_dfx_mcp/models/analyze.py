@@ -40,22 +40,3 @@ class AnalyzeLogResult:
     filter_mode: str = "any"
     total_matches: int = 0
     truncated: bool = False
-
-
-@dataclass(frozen=True)
-class AddressConversionResult:
-    """Result of an address conversion.
-
-    Attributes:
-        original: Input address.
-        converted: Output address.
-        mode: Conversion mode used ('ida_to_ppsspp' / 'ppsspp_to_ida').
-        top_base_ppsspp: top.prx PPSSPP base address.
-        top_base_ida: top.prx IDA base address.
-    """
-
-    original: int = 0
-    converted: int = 0
-    mode: str = "ida_to_ppsspp"
-    top_base_ppsspp: int = 0x08804000
-    top_base_ida: int = 0x00000000

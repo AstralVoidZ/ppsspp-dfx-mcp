@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ppsspp_dfx_mcp.config import config_dir
 from ppsspp_dfx_mcp.errors import ManifestError, ScriptNotFound
@@ -31,26 +31,23 @@ log = logging.getLogger(__name__)
 __all__ = ["ScriptEntry", "ScriptManifest", "get_manifest"]
 
 
-# Valid category values (single source of truth; mirrored in manifest YAML).
+# Valid category values (single source of truth; the manifest YAML's
+# `category:` field is validated against THIS set by `ScriptEntry`, so the
+# YAML is data, not a second definition of the allowlist).
 VALID_SCRIPT_CATEGORIES: frozenset[str] = frozenset(
     {"eboot", "state", "p0ab", "ndx", "memory", "misc", "recipe"}
 )
 
-# Machine-readable availability statuses (F1, review-r3):
+# Machine-readable availability statuses (validated by `ScriptEntry`):
 # - "migrated": contract converted; `run(input, ctx)` is real logic.
 # - "skeleton": contract converted but body returns not_implemented.
 # `exposed=true` + status="skeleton" is rejected by the exposed preflight
 # (server.py) so unusable capabilities are never registered as tools.
 _VALID_STATUSES: frozenset[str] = frozenset({"migrated", "skeleton"})
 
-# Description prefix that legacy manifests used to encode availability
-# before the `status` field existed. Entries without an explicit `status`
-# are inferred from this prefix so old manifests keep loading unchanged.
-_SKELETON_DESCRIPTION_PREFIX = "[skeleton]"
-
 _MANIFEST_FILENAME = "scripts.manifest.yaml"
 
-# W8 (review v3): opt-in for absolute `path` entries. Absolute paths skip
+# Opt-in for absolute `path` entries. Absolute paths skip
 # the project-root containment check, so they are refused unless the
 # operator sets this explicitly (trusted fixtures / workspace rewiring).
 _ALLOW_ABS_SCRIPT_ENV = "PPSSPP_DFX_ALLOW_ABS_SCRIPT"
@@ -69,14 +66,13 @@ class ScriptEntry(BaseModel):
         output_model: Pydantic BaseModel class name declared in the script.
         entry: async function name (default "run").
         exposed: true → dynamically registered as `ppsspp_script_<name>`.
-        status: migrated | skeleton (machine-readable availability; entries
-            without an explicit status inherit it from the legacy
-            description prefix, defaulting to migrated).
+        status: migrated | skeleton (machine-readable availability; explicit
+            only — a `[skeleton]` description prefix no longer back-fills it).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    # W15 (review v2): the name is interpolated into tool names
+    # The name is interpolated into tool names
     # (ppsspp_script_<name>), sys.modules keys and TypedDict names —
     # constrain it to the shape the server can actually use.
     name: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9_]*$")
@@ -90,6 +86,29 @@ class ScriptEntry(BaseModel):
     exposed: bool = Field(default=False)
     status: str = Field(default="migrated")
 
+    # Allowlist membership lives HERE (A16) so the model rejects an invalid
+    # value on construction — the manifest loader no longer re-checks it
+    # (that duplicate was a second source of truth). Raising `ManifestError`
+    # (not ValueError) keeps the failure wording stable: the loader's
+    # `except ValidationError` does not catch it, so it propagates as-is.
+    @field_validator("category")
+    @classmethod
+    def _validate_category(cls, v: str) -> str:
+        if v not in VALID_SCRIPT_CATEGORIES:
+            raise ManifestError(
+                f"has invalid category={v!r}; expected one of {sorted(VALID_SCRIPT_CATEGORIES)}"
+            )
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def _validate_status(cls, v: str) -> str:
+        if v not in _VALID_STATUSES:
+            raise ManifestError(
+                f"has invalid status={v!r}; expected one of {sorted(_VALID_STATUSES)}"
+            )
+        return v
+
     def normalized_path(self, project_root: Path) -> Path:
         """Resolve `path` against `project_root` (no parent walking).
 
@@ -97,7 +116,7 @@ class ScriptEntry(BaseModel):
         `.resolve()` here to keep tests deterministic — callers that
         need an absolute path can resolve themselves.
 
-        Escape hatch (W8, review v3): an already-absolute `path` is
+        Escape hatch: an already-absolute `path` is
         returned as-is ONLY when the operator opts in with
         ``PPSSPP_DFX_ALLOW_ABS_SCRIPT=1``. The opt-in exists so test
         fixtures and workspace-rewired dev scripts can point at files
@@ -123,7 +142,7 @@ class ScriptEntry(BaseModel):
                 )
             return p
         resolved = project_root / p
-        # W15 (review v2): relative paths are containment-checked — a
+        # Relative paths are containment-checked — a
         # tampered manifest must not reach outside the project root via
         # `..` (same defense shape as tools/_common.resolve_output_path).
         if ".." in p.parts or not resolved.resolve().is_relative_to(project_root.resolve()):
@@ -273,34 +292,14 @@ class ScriptManifest:
                 raise ManifestError(
                     f"manifest scripts[{idx}] must be a mapping, got {type(raw).__name__}"
                 )
-            # F1 status backfill: entries without an explicit `status`
-            # inherit it from the legacy description prefix so old
-            # manifests keep loading unchanged (review-r3 migration path).
-            if "status" not in raw:
-                description = raw.get("description", "")
-                inferred = (
-                    "skeleton"
-                    if isinstance(description, str)
-                    and description.startswith(_SKELETON_DESCRIPTION_PREFIX)
-                    else "migrated"
-                )
-                raw = {**raw, "status": inferred}
+            # A16: `category` / `status` allowlist membership is enforced by
+            # ScriptEntry's field validators — an invalid value raises
+            # ManifestError directly (not a ValidationError), so the wording
+            # stays "has invalid category=..." / "has invalid status=...".
             try:
                 entry = ScriptEntry(**raw)
             except ValidationError as e:
                 raise ManifestError(f"manifest scripts[{idx}] validation failed: {e}") from e
-            if entry.category not in VALID_SCRIPT_CATEGORIES:
-                raise ManifestError(
-                    f"manifest scripts[{idx}] name={entry.name!r} "
-                    f"has invalid category={entry.category!r}; "
-                    f"expected one of {sorted(VALID_SCRIPT_CATEGORIES)}"
-                )
-            if entry.status not in _VALID_STATUSES:
-                raise ManifestError(
-                    f"manifest scripts[{idx}] name={entry.name!r} "
-                    f"has invalid status={entry.status!r}; "
-                    f"expected one of {sorted(_VALID_STATUSES)}"
-                )
             if entry.exposed and entry.status == "skeleton":
                 log.warning(
                     "manifest scripts[%d] name=%r is exposed but status=skeleton; "

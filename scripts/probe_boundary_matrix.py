@@ -3,8 +3,8 @@
 Complements scripts/verify_real_mcp.py with the boundaries the
 three-phase harness does NOT cover:
 
-- ppsspp_frame_snapshot / ppsspp_trace_memory_access — ZERO harness
-  scenarios (only unit stubs + one-off probes so far).
+- ppsspp_frame_snapshot / ppsspp_breakpoint(action='trace') — these
+  used to have ZERO harness coverage; the harness now exercises both.
 - Prompts + Resources on the real wire (harness never touches them).
 - Exact-cap boundaries (65536/65537 read, disasm count>100, wait_frames
   interval>1.0, press duration cap, mem_set size=0/64, timeout clamps).
@@ -60,10 +60,27 @@ SCRATCH_INT = int(SCRATCH, 16)
 GAME_MODE = "0x08A0D000"
 CALL_TIMEOUT_S = 120.0
 
+
+def _int_of(v: Any) -> int:
+    """Normalize an address/value that may be an int OR a '0x…' hex string.
+
+    The views render address fields as hex strings, so a listing's
+    ``address`` arrives as ``'0x09FE0000'`` — a bare ``int(x)`` raises
+    ``ValueError: invalid literal for int() with base 10`` on real
+    hardware. Same helper as scripts/verify_real_mcp.py.
+    """
+    if isinstance(v, int):
+        return v
+    s = str(v).strip()
+    try:
+        return int(s, 0)
+    except ValueError:
+        return int(s, 16)
+
+
 SESSION_ID_TOOLS = {
     "ppsspp_read_memory",
     "ppsspp_write_memory",
-    "ppsspp_get_pc",
     "ppsspp_query",
     "ppsspp_write_register",
     "ppsspp_evaluate",
@@ -79,12 +96,10 @@ SESSION_ID_TOOLS = {
     "ppsspp_hold_buttons",
     "ppsspp_send_analog",
     "ppsspp_screenshot",
-    "ppsspp_dump_texture",
-    "ppsspp_dump_clut",
     "ppsspp_gpu_stats",
     "ppsspp_gpu_record",
     "ppsspp_replay",
-    "ppsspp_smoke_test",
+    "ppsspp_health",
     "ppsspp_run_script",
     "ppsspp_search_memory_info",
     "ppsspp_frame_snapshot",
@@ -139,7 +154,7 @@ async def call(
 async def mem_bp_addresses(session: ClientSession, state: dict[str, Any]) -> list[int]:
     r = await call(session, "ppsspp_breakpoint", {"action": "mem_list"}, state)
     s = r.get("structured") or {}
-    return [int(b.get("address", 0)) for b in s.get("breakpoints", []) if isinstance(b, dict)]
+    return [_int_of(b.get("address", 0)) for b in s.get("breakpoints", []) if isinstance(b, dict)]
 
 
 # ── surface probes (prompts / resources / tools.list) ────────────────────
@@ -161,13 +176,9 @@ async def _tools_list(session: ClientSession, state: dict[str, Any]) -> dict[str
 def _check_tools_list(rec: dict[str, Any]) -> list[str]:
     s = rec.get("structured") or {}
     names = s.get("names", [])
-    missing = [
-        t
-        for t in ("ppsspp_frame_snapshot", "ppsspp_trace_memory_access", "ppsspp_wait_breakpoint")
-        if t not in names
-    ]
-    if s.get("tool_count", 0) < 38:
-        return [f"tool_count={s.get('tool_count')} < 38"]
+    missing = [t for t in ("ppsspp_frame_snapshot", "ppsspp_breakpoint") if t not in names]
+    if s.get("tool_count", 0) < 41:
+        return [f"tool_count={s.get('tool_count')} < 41"]
     return [f"missing tools: {missing}"] if missing else []
 
 
@@ -209,7 +220,11 @@ def _prompt_get(name: str, args: dict[str, Any] | None) -> Callable:
                 "text": "",
             }
         msgs = res.messages
-        text = "\n".join(str(m.content) for m in msgs)[:1200]
+        # PromptMessage.content is a TextContent OBJECT: ``str()`` yields its
+        # repr (``text='…action=\'trace\'…'``), which escapes the inner single
+        # quotes — so a substring check for ``action='trace'`` could never
+        # match no matter what the prompt said. Read the real payload.
+        text = "\n".join(getattr(m.content, "text", None) or str(m.content) for m in msgs)[:1200]
         return {
             "status": "ok" if msgs else "tool_error",
             "error": "" if msgs else "empty messages list",
@@ -282,8 +297,8 @@ async def _tr_read_hit(session: ClientSession, state: dict[str, Any]) -> dict[st
     leak_before = await mem_bp_addresses(session, state)
     r = await call(
         session,
-        "ppsspp_trace_memory_access",
-        {"address": GAME_MODE, "access": "read", "size": 4, "timeout_s": 20.0},
+        "ppsspp_breakpoint",
+        {"action": "trace", "address": GAME_MODE, "read": True, "size": 4, "timeout_s": 20.0},
         state,
     )
     leak_after = await mem_bp_addresses(session, state)
@@ -328,10 +343,11 @@ async def _tr_read_hit_full(session: ClientSession, state: dict[str, Any]) -> di
     leak_before = await mem_bp_addresses(session, state)
     r = await call(
         session,
-        "ppsspp_trace_memory_access",
+        "ppsspp_breakpoint",
         {
+            "action": "trace",
             "address": GAME_MODE,
-            "access": "read",
+            "read": True,
             "size": 4,
             "timeout_s": 20.0,
             "want_registers": True,
@@ -371,8 +387,8 @@ async def _tr_timeout_clean(session: ClientSession, state: dict[str, Any]) -> di
     leak_before = await mem_bp_addresses(session, state)
     r = await call(
         session,
-        "ppsspp_trace_memory_access",
-        {"address": "0x09FF8000", "access": "read", "size": 4, "timeout_s": 0.1},
+        "ppsspp_breakpoint",
+        {"action": "trace", "address": "0x09FF8000", "read": True, "size": 4, "timeout_s": 0.1},
         state,
     )
     leak_after = await mem_bp_addresses(session, state)
@@ -406,7 +422,7 @@ def _check_tr_timeout(rec: dict[str, Any]) -> list[str]:
 
 async def _wb_already_paused(session: ClientSession, state: dict[str, Any]) -> dict[str, Any]:
     r_pause = await call(session, "ppsspp_step", {"action": "pause"}, state)
-    r_wb = await call(session, "ppsspp_wait_breakpoint", {"timeout_s": 2.0}, state)
+    r_wb = await call(session, "ppsspp_breakpoint", {"action": "wait", "timeout_s": 2.0}, state)
     r_resume = await call(session, "ppsspp_step", {"action": "resume"}, state)
     s = r_wb.get("structured") or {}
     ok = (
@@ -445,8 +461,8 @@ async def _tr_already_paused(session: ClientSession, state: dict[str, Any]) -> d
     r_pause = await call(session, "ppsspp_step", {"action": "pause"}, state)
     r_tr = await call(
         session,
-        "ppsspp_trace_memory_access",
-        {"address": GAME_MODE, "access": "read", "size": 4, "timeout_s": 2.0},
+        "ppsspp_breakpoint",
+        {"action": "trace", "address": GAME_MODE, "read": True, "size": 4, "timeout_s": 2.0},
         state,
     )
     r_resume = await call(session, "ppsspp_step", {"action": "resume"}, state)
@@ -639,7 +655,7 @@ async def _bp_mem_set_sizes(session: ClientSession, state: dict[str, Any]) -> di
     listed = [
         b
         for b in (r_list.get("structured") or {}).get("breakpoints", [])
-        if isinstance(b, dict) and int(b.get("address", 0)) == SCRATCH_INT
+        if isinstance(b, dict) and _int_of(b.get("address", 0)) == SCRATCH_INT
     ]
     remove_status: list[str] = []
     for _ in range(8):
@@ -657,7 +673,7 @@ async def _bp_mem_set_sizes(session: ClientSession, state: dict[str, Any]) -> di
         listed = [
             b
             for b in (r_list.get("structured") or {}).get("breakpoints", [])
-            if isinstance(b, dict) and int(b.get("address", 0)) == SCRATCH_INT
+            if isinstance(b, dict) and _int_of(b.get("address", 0)) == SCRATCH_INT
         ]
     after = await mem_bp_addresses(session, state)
     zero_rejected = r0["status"] == "tool_error"
@@ -789,9 +805,11 @@ async def _hygiene_final(session: ClientSession, state: dict[str, Any]) -> dict[
     flat_obs = json.dumps(r_obs.get("structured") or {}, default=str)
     leaked_obs = "bnd_probe" in flat_obs
     # Liveness: the title screen parks the PC in an idle loop, so a
-    # pc-delta sample is unreliable — use the smoke battery instead
-    # (it includes the CPU-running check).
-    r_smoke = await call(session, "ppsspp_smoke_test", {}, state)
+    # pc-delta sample is unreliable — use the health session battery
+    # instead (it includes the CPU-running check).
+    # v0.1.6: the smoke battery merged into ppsspp_health — passing a
+    # session_id appends `session_checks` (server-level health omits it).
+    r_smoke = await call(session, "ppsspp_health", {}, state)
     smoke = r_smoke.get("structured") or {}
     # R-C three-check liveness judge from the shared runner lib
     # (game_mode_valid excluded — game-phase dependent, F-07).
@@ -802,7 +820,7 @@ async def _hygiene_final(session: ClientSession, state: dict[str, Any]) -> dict[
         "error": ""
         if ok
         else f"bp_leak={leak_bp} obs_leak={leaked_obs} "
-        f"smoke={smoke.get('overall_status')!r} checks={checks}",
+        f"smoke={smoke.get('overall_session_status')!r} checks={checks}",
         "text": "",
         "latency_ms": r_smoke["latency_ms"],
         "structured": {
@@ -810,7 +828,7 @@ async def _hygiene_final(session: ClientSession, state: dict[str, Any]) -> dict[
             "observer_list_flat": flat_obs[:200],
             "leaked_observer_bnd_probe": leaked_obs,
             "cpu_running": cpu_running,
-            "smoke_overall": smoke.get("overall_status"),
+            "smoke_overall": smoke.get("overall_session_status"),
             "smoke_checks": checks,
         },
     }
@@ -833,7 +851,7 @@ async def _pre_clean(session: ClientSession, state: dict[str, Any]) -> dict[str,
     guard probes — a leftover session makes the no-session guard and the
     resource single-session guard non-deterministic (verified live:
     the first P0 run bound to a leftover PPSSPP and served real data)."""
-    r = await call(session, "ppsspp_session_list", {}, state)
+    r = await call(session, "ppsspp_session", {"action": "list"}, state)
     sids = [
         sess.get("session_id")
         for sess in (r.get("structured") or {}).get("sessions", [])
@@ -897,7 +915,7 @@ PROBES_P0: list[Probe] = [
         kind="composite",
         fn=_tools_list,
         check=_check_tools_list,
-        note="tool surface incl. the 2 zero-coverage tools",
+        note="tool surface incl. the trace / frame-snapshot entry points",
     ),
     Probe(
         "P0.prompts.list",
@@ -922,11 +940,11 @@ PROBES_P0: list[Probe] = [
         kind="composite",
         fn=_prompt_get("memory-trace-wizard", {"address": GAME_MODE}),
         check=lambda rec: (
-            ["prompt text does not mention trace_memory_access"]
-            if "trace_memory_access" not in rec.get("text", "")
+            ["prompt text does not mention ppsspp_breakpoint(action='trace')"]
+            if "action='trace'" not in rec.get("text", "")
             else []
         ),
-        note="content-quality gate: prompt must route to the H1 tool",
+        note="content-quality gate: prompt must route to the one-call trace action",
     ),
     Probe(
         "P0.prompts.get_bp_wizard",
@@ -972,8 +990,8 @@ PROBES_P0: list[Probe] = [
     ),
     Probe(
         "P0.wb.no_session",
-        tool="ppsspp_wait_breakpoint",
-        args={"session_id": "sess_unknown_guard", "timeout_s": 0.5},
+        tool="ppsspp_breakpoint",
+        args={"action": "wait", "session_id": "sess_unknown_guard", "timeout_s": 0.5},
         expect="error",
     ),
     Probe(
@@ -984,33 +1002,43 @@ PROBES_P0: list[Probe] = [
     ),
     Probe(
         "P0.tr.addr_zero",
-        tool="ppsspp_trace_memory_access",
-        args={"session_id": "sess_unknown_guard", "address": "0x0"},
+        tool="ppsspp_breakpoint",
+        args={"action": "trace", "session_id": "sess_unknown_guard", "address": "0x0"},
         expect="error",
         note="must reject BEFORE session validation",
     ),
     Probe(
         "P0.tr.size_3",
-        tool="ppsspp_trace_memory_access",
-        args={"session_id": "sess_unknown_guard", "address": GAME_MODE, "size": 3},
+        tool="ppsspp_breakpoint",
+        args={
+            "action": "trace",
+            "session_id": "sess_unknown_guard",
+            "address": GAME_MODE,
+            "size": 3,
+        },
         expect="error",
     ),
     Probe(
         "P0.tr.size_8",
-        tool="ppsspp_trace_memory_access",
-        args={"session_id": "sess_unknown_guard", "address": GAME_MODE, "size": 8},
+        tool="ppsspp_breakpoint",
+        args={
+            "action": "trace",
+            "session_id": "sess_unknown_guard",
+            "address": GAME_MODE,
+            "size": 8,
+        },
         expect="error",
     ),
     Probe(
         "P0.tr.bad_hex",
-        tool="ppsspp_trace_memory_access",
-        args={"session_id": "sess_unknown_guard", "address": "nothex"},
+        tool="ppsspp_breakpoint",
+        args={"action": "trace", "session_id": "sess_unknown_guard", "address": "nothex"},
         expect="error",
     ),
     Probe(
         "P0.tr.valid_no_session",
-        tool="ppsspp_trace_memory_access",
-        args={"session_id": "sess_unknown_guard", "address": GAME_MODE},
+        tool="ppsspp_breakpoint",
+        args={"action": "trace", "session_id": "sess_unknown_guard", "address": GAME_MODE},
         expect="error",
         note="valid params + dead session → SESSION_NOT_FOUND",
     ),
@@ -1057,26 +1085,26 @@ PROBES_P1: list[Probe] = [
     ),
     Probe(
         "P1.mem.scan_odd_pattern",
-        tool="ppsspp_read_memory",
+        tool="ppsspp_scan",
         args={
-            "action": "scan",
+            "mode": "pattern",
             "pattern": "ABC",
             "start_addr": "0x08804000",
             "end_addr": "0x08808000",
         },
         expect="error",
-        note="odd nibble count must be rejected",
+        note="odd nibble count must be rejected (moved to ppsspp_scan: pattern scan left read_memory)",
     ),
     Probe(
         "P1.mem.scan_no_match",
-        tool="ppsspp_read_memory",
+        tool="ppsspp_scan",
         args={
-            "action": "scan",
+            "mode": "pattern",
             "pattern": "CAFEBABE00",
             "start_addr": "0x08804000",
             "end_addr": "0x08808000",
         },
-        note="empty-hit scan is an ok result, not an error",
+        note="empty-hit scan is an ok result, not an error (moved to ppsspp_scan)",
     ),
     # ── disasm / evaluate boundaries ──
     Probe(
@@ -1098,7 +1126,14 @@ PROBES_P1: list[Probe] = [
         "P1.sd.no_match_huge_max",
         tool="ppsspp_search_disasm",
         args={"address": "0x08804000", "match": "zzzz_no_such_insn_zzz", "max_results": 100000},
-        note="loop-detect must bound the scan when max_results is huge",
+        expect="error",
+        check=lambda rec: (
+            []
+            if "max_results" in (rec.get("error") or "") and "1000" in (rec.get("error") or "")
+            else ["expected an over-cap max_results rejection naming the cap (1000)"]
+        ),
+        note="max_results is CAP-ENFORCED (rejects > 1000) — the old "
+        "'silent clamp' premise no longer holds; pin the rejection instead",
     ),
     Probe("P1.ev.expr_arith", tool="ppsspp_evaluate", args={"expression": "r3+0x10"}),
     Probe(
@@ -1132,8 +1167,8 @@ PROBES_P1: list[Probe] = [
     # ── wait_breakpoint clamp + already-paused ──
     Probe(
         "P1.wb.clamp_min",
-        tool="ppsspp_wait_breakpoint",
-        args={"timeout_s": 0.1},
+        tool="ppsspp_breakpoint",
+        args={"action": "wait", "timeout_s": 0.1},
         check=lambda rec: (
             [
                 f"latency {rec.get('latency_ms')}ms < 500ms — timeout_s=0.1 "
@@ -1151,7 +1186,7 @@ PROBES_P1: list[Probe] = [
         check=_check_wb_paused,
         note="pause→wait must short-circuit hit=true/already_paused=true",
     ),
-    # ── trace_memory_access full matrix ──
+    # ── ppsspp_breakpoint(action='trace') full matrix ──
     Probe(
         "P1.tr.read_hit",
         kind="composite",
@@ -1182,8 +1217,8 @@ PROBES_P1: list[Probe] = [
     ),
     Probe(
         "P1.tr.write_access",
-        tool="ppsspp_trace_memory_access",
-        args={"address": GAME_MODE, "access": "write", "size": 4, "timeout_s": 0.5},
+        tool="ppsspp_breakpoint",
+        args={"action": "trace", "address": GAME_MODE, "write": True, "size": 4, "timeout_s": 0.5},
         expect="either",
         note="write trap on a mostly-read address — either path valid",
     ),

@@ -11,35 +11,51 @@ import json
 import logging
 import platform
 import time
-from typing import Annotated, Any, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 
 import pydantic
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp import __version__
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session import session_manager
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.introspect import HealthResponse
 
-HealthOutput = derive_output_contract("HealthOutput", HealthResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    HealthOutput = dict[str, Any]
+else:
+    HealthOutput = derive_output_contract("HealthOutput", HealthResponse)
 
 
 class _HealthSessionCheck(TypedDict, total=False):
     name: str
     passed: bool
     detail: str
+    # How the value came to be, so a failed probe is never mistaken for a
+    # probe that read zero. `value` is present only when value_status is
+    # "ok" -- a failed read carries no value at all.
+    value_status: str
+    value: int
 
 
-class HealthWithSessionChecks(HealthOutput, total=False):
-    """HealthOutput + the per-session battery keys added when `session_id`
-    is given (M9: they previously existed only in the text channel — the
-    output contract dropped them from structuredContent)."""
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    HealthWithSessionChecks = dict[str, Any]
+else:
 
-    session_checks: list[_HealthSessionCheck]
-    overall_session_status: str
+    class HealthWithSessionChecks(HealthOutput, total=False):
+        """HealthOutput + the per-session battery keys added when `session_id`
+        is given. They previously existed only in the text channel — the
+        output contract dropped them from structuredContent."""
+
+        session_checks: list[_HealthSessionCheck]
+        overall_session_status: str
 
 
 logger = logging.getLogger(__name__)
@@ -76,19 +92,10 @@ def _probe_sessions_file() -> str | None:
     return None
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Probe server liveness and readiness.
-#
-# Returns server version, Python/Pydantic versions, uptime, tool count,
-# and active session count. When sessions.json exists but contains no
-# sessions (possibly corrupted — _load_sessions catches parse errors
-# and returns empty dict), returns status="degraded" with
-# session_error set, so callers can distinguish "no active sessions"
-# from "sessions.json may be broken".
 @mcp.tool(
     name="ppsspp_health",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -112,7 +119,9 @@ async def health(
 
     BEHAVIOR: READ-ONLY. Server counters are read in-memory; the session battery (when requested) contacts PPSSPP over the session transport but never mutates state.
 
-    RETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count — plus session_checks: [{name, passed, detail}] and overall_session_status when session_id is provided.
+    READING session_checks: each entry carries `value_status` besides `passed` -- 'ok' (the probe really read), 'stale_address_suspected' (the read succeeded and returned zero on several consecutive readings, so the probe address may have drifted -- a suspicion, not a verdict), 'failed' (the read raised or the data was absent; no value is reported), 'not_configured' (no probe address, so nothing was read). A probe that READ ZERO and one that COULD NOT READ both show passed=false while meaning opposite things: the first is a fact about the game, the second about the tooling. Do not read passed=false alone as a finding about the emulated game.
+
+    RETURNS: Dict with status ('ok'/'degraded'), version, python_version, pydantic_version, uptime_s, tool_count, session_count — plus session_checks: [{name, passed, detail, value_status, value?}] and overall_session_status when session_id is provided.
     """
     logger.info("tool_call", extra={"tool": "ppsspp_health"})
     sessions: list[Any] = []
@@ -140,7 +149,7 @@ async def health(
     # Read the live registration count from the server's tool registry
     # (static tools registered via decorators at import, dynamic exposed
     # scripts via add_tool in lifespan).
-    from ppsspp_dfx_mcp.server import registered_tool_count
+    from ppsspp_dfx_mcp.registry import registered_tool_count
 
     tool_count = registered_tool_count()
     response = HealthResponse(
@@ -158,6 +167,20 @@ async def health(
         from ppsspp_dfx_mcp.tools.smoke import run_smoke_checks
 
         checks, overall = await run_smoke_checks(session_id, checks=None)
+        # a stubbed/short-circuit battery may return None; the summary below
+        # iterates it, so normalise once here rather than at each use.
+        checks = list(checks or [])
         out["session_checks"] = checks
         out["overall_session_status"] = overall
+
+        # The headline must not read "ok" while this same
+        # response reports a failed battery.
+        if overall != "pass":
+            out["status"] = "degraded"
+            failed = [str(c.get("name")) for c in checks if not c.get("passed")]
+            # Name the failing checks up top so the reason is
+            # readable without walking the detail list.
+            out["failed_session_checks"] = failed
+            if failed:
+                out["session_error"] = f"session battery failed ({overall}): " + ", ".join(failed)
     return out

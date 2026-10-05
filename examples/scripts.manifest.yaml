@@ -10,7 +10,8 @@
 # Field semantics (see README "Configuration"):
 #   name            : unique script id → ppsspp_script_<name> when exposed=true,
 #                     otherwise callable via ppsspp_run_script
-#   description     : shown in tools/list; prefix with [migrated] or [skeleton]
+#   description     : shown in tools/list; a leading [migrated] / [skeleton]
+#                     marker is human-readable only (never parsed)
 #   category        : eboot | state | p0ab | ndx | memory | misc | recipe
 #   requires_ppsspp : true if the script needs an active PPSSPP session
 #   path            : project-root-relative path to the script's .py file.
@@ -23,7 +24,9 @@
 #   entry           : async function name (default "run")
 #   exposed         : true → registered as a dynamic tool at startup
 #   status          : migrated (runnable) | skeleton (run() returns
-#                     not_implemented; preflight rejects exposed ones)
+#                     not_implemented; preflight rejects exposed ones).
+#                     EXPLICIT — every entry must state it; there is no
+#                     fallback inference from the description prefix.
 #
 # The loader reads only the `scripts:` key. `dormant_scripts:` is a
 # human-readable migration ledger the server ignores — move entries back to

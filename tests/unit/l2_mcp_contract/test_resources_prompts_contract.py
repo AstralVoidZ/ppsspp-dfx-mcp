@@ -100,8 +100,8 @@ class TestToolsListOrdering:
     caching and improve LLM prompt cache hit rates."
 
     The SDK v2 registry preserves decorator registration order (module
-    import order is fixed by _TOOL_MODULE_NAMES), so repeated calls must
-    return identical sequences.
+    import order is fixed by `server._tool_module_names()`, now a sorted
+    directory scan), so repeated calls must return identical sequences.
     """
 
     def test_tools_list_order_stable_across_calls(self, _registered):
@@ -111,7 +111,7 @@ class TestToolsListOrdering:
             "caching and prompt cache hits would thrash"
         )
         # Note: the deterministic order is decorator registration order
-        # (fixed module list in server._TOOL_MODULE_NAMES). We do NOT
+        # (sorted module list from server._tool_module_names()). We do NOT
         # name-sort — the spec requires determinism, not sortedness.
 
 
@@ -140,3 +140,12 @@ class TestMemoryTraceWizardRegistered:
         assert "ppsspp_breakpoint(action='trace'" in text
         assert "ppsspp_breakpoint(action='wait'" in text
         assert "0x08A0D000" in text
+        # The rendered workflow must name the tool's REAL parameters:
+        # ppsspp_breakpoint takes read/write booleans — there is no `access`
+        # argument (access_v is derived from read/write internally). The
+        # prompt used to instruct `access="read_write"`, i.e. a parameter an
+        # Agent could not pass; assert the real ones and the absence of the
+        # fabricated one.
+        assert "read=true" in text
+        assert "write=true" in text
+        assert "access=" not in text

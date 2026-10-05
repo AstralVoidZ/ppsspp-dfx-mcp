@@ -8,11 +8,26 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import logging
+import re
 from collections.abc import Callable
 
 from mcp.server.mcpserver.exceptions import ToolError as _SDKToolError
 
 from ppsspp_dfx_mcp.core import proc
+
+logger = logging.getLogger(__name__)
+
+# Absolute host paths must never reach the MCP client: they embed the
+# server's filesystem layout and user name. Specific translated errors
+# (the ones carrying hints/codes) have no paths and pass through verbatim;
+# only the generic/unknown wrap is category-based when its message bears a
+# path. The full detail is kept in the server log.
+_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]"  # Windows drive root: C:\ or C:/
+    r"|\\\\[^\\/\s]+[\\/]"  # UNC \\server\share
+    r"|(?<![\w/])(?:/(?:[^/\s]+/)+)"  # POSIX absolute: /a/b/ (not a URL path)
+)
 
 
 class ToolError(_SDKToolError):
@@ -111,7 +126,7 @@ class SessionBusy(ToolError):
     a caller that waits longer than the busy timeout gets this explicit
     error and can retry.
 
-    A1 (2026-09-10): when the lock is held by a detached background batch,
+    Measured 2026-09-10: when the lock is held by a detached background batch,
     the message names the batch id and points at ppsspp_batch_status /
     ppsspp_batch_cancel instead of a blind retry.
     """
@@ -119,14 +134,8 @@ class SessionBusy(ToolError):
     code = "SESSION_BUSY"
 
 
-class SessionAlreadyExists(ToolError):
-    """A session is already active for the requested resource."""
-
-    code = "SESSION_ALREADY_EXISTS"
-
-
 class SessionAmbiguous(ToolError):
-    """G3 (best-practice gap audit): session_id omitted while 2+ sessions
+    """session_id omitted while 2+ sessions
     are active — auto-resolution is only safe for the single-session case.
 
     The message lists every active session_id so the caller can pass one
@@ -176,12 +185,6 @@ class AddrInvalid(ToolError):
     code = "ADDR_INVALID"
 
 
-class ScanNoMatch(ToolError):
-    """Memory scan produced no matches."""
-
-    code = "SCAN_NO_MATCH"
-
-
 class CaptureEmpty(ToolError):
     """Dump/screenshot strategy produced no image (nothing bound yet)."""
 
@@ -200,45 +203,24 @@ class StepInvalid(ToolError):
     code = "STEP_INVALID"
 
 
-class NotImplemented(ToolError):
-    """Requested action is not yet implemented."""
-
-    code = "NOT_IMPLEMENTED"
-
-
-class IrEncodingDetected(ToolError):
-    """read_u32 returned IR encoding — caller must use disassemble instead.
-
-    W5 (review v3): the discriminant is NOT implemented — this repo has no
-    raise site for the class. It is kept only because the error
-    classification table (``core/error_codes.py``) and the documented agent
-    instructions reference the code. Code segments must be routed to
-    ``ppsspp_disassemble`` instead; do not build behavior on this class
-    (v3 ruling: retract the claim rather than enable an unproven
-    heuristic).
-    """
-
-    code = "IR_ENCODING_DETECTED"
-
-
-class VerifyMismatch(ToolError):
-    """Disassembled instruction does not match expected.
-
-    W5 (review v3): the discriminant is NOT implemented — no raise site
-    exists in this repo; the class is retained only because the error
-    classification table and agent-facing error docs reference the code.
-    Verify expectations by re-reading/disassembling explicitly instead of
-    relying on this error (retract the claim rather than enable an
-    unproven heuristic).
-    """
-
-    code = "VERIFY_MISMATCH"
-
-
 class BreakpointError(ToolError):
     """Breakpoint operation failed."""
 
     code = "BREAKPOINT_ERROR"
+
+
+class FuncNotFound(ToolError):
+    """``func_remove`` target is not a tracked HLE function.
+
+    PPSSPP answers a remove for an unknown target with
+    ``"No function found at 'address'"`` — the parameter NAME stands in
+    for its value, and the event is a bare protocol error, so the caller
+    cannot tell "no such tracked function" from a transport failure. The
+    tool layer maps that one protocol message to this domain code and
+    composes a message carrying the address actually attempted.
+    """
+
+    code = "FUNC_NOT_FOUND"
 
 
 class RateLimitExceeded(ToolError):
@@ -425,8 +407,9 @@ _PPSSPP_ERROR_HINTS: dict[str, str] = {
     ),
     "invalid address": (
         "Hint: the address is outside PSP user memory range "
-        "(0x08800000-0x0C000000). Use convert_address to translate "
-        "IDA addresses to PSP addresses."
+        "(0x08800000-0x0C000000). Translate IDA <-> PPSSPP addresses by plain "
+        "arithmetic: ppsspp_addr = ida_addr + (top_base.ppsspp - top_base.ida) "
+        "(defaults 0x08804000 - 0x00000000); see ppsspp_list_addresses."
     ),
     "not connected": (
         "Hint: PPSSPP WebSocket is not connected. Start a session "
@@ -482,7 +465,7 @@ def set_error_context(
 def reset_error_context(token: ErrorContextToken) -> None:
     """Reset PID + game-state resolvers to their previous values.
 
-    Call on the NORMAL exit of the tool-call scope (W1, review v3:
+    Call on the NORMAL exit of the tool-call scope:
     ``session_client_with_transport`` deliberately does NOT reset while an
     exception unwinds — the tool layer's ``to_tool_error(e)`` runs after
     the ``async with`` and still needs the resolvers; the resulting scope
@@ -538,6 +521,25 @@ def _resolve_game_state() -> str | None:
         return None
 
 
+def _client_message(exc: Exception, msg: str) -> str:
+    """Client-safe message for the generic/unknown error wrap.
+
+    A raw message that embeds an absolute host path (or a Pydantic
+    ``ValidationError``'s ``input_value``) is replaced with a
+    category-based sentence; the verbatim detail is logged server-side.
+    Messages without a path are returned unchanged so agents keep the
+    actionable text.
+    """
+    if _ABSOLUTE_PATH_RE.search(msg):
+        logger.warning(
+            "to_tool_error: suppressing path-bearing detail from client response (%s): %s",
+            type(exc).__name__,
+            msg,
+        )
+        return f"{type(exc).__name__}: operation failed (see server log for details)"
+    return msg
+
+
 def to_tool_error(exc: Exception) -> ToolError:
     """Translate any exception to a ToolError.
 
@@ -589,7 +591,12 @@ def to_tool_error(exc: Exception) -> ToolError:
         A ToolError (or subclass) with a meaningful code and message.
     """
     if isinstance(exc, ToolError):
-        # Preserve the original instance + its class-level `code`.
+        # Preserve the original instance + its class-level `code`, verbatim.
+        # A ToolError's message may legitimately echo the CLIENT's own input
+        # (e.g. IsoNotFound's "ISO file not found: <iso_path>" — the F-1
+        # contract pins that business text), so path redaction does not
+        # apply here; server-derived paths must never be embedded at the
+        # raise site instead (review-v4 W-6).
         return exc
 
     # SteppingFailedError: pause failed — two-signal judgment based on
@@ -598,6 +605,13 @@ def to_tool_error(exc: Exception) -> ToolError:
     # message contains "stepping" but the correct diagnosis depends on
     # whether PPSSPP is unreachable (WsDisconnected) or alive-but-frozen
     # (CpuFreezeSuspected).
+    # Sanitize ONCE, up front (review-v4 W-6): every branch below composes
+    # its client-facing text from `msg`, so one redaction here covers the
+    # typed branches too (they used to embed `{exc}` verbatim and could
+    # leak absolute host paths past the module invariant).
+    msg = _client_message(exc, str(exc) or repr(exc))
+    msg_lower = msg.lower()
+
     if isinstance(exc, SteppingFailedError):
         cause = exc.__cause__
         pid_alive = getattr(exc, "pid_alive", None)
@@ -606,7 +620,7 @@ def to_tool_error(exc: Exception) -> ToolError:
         # regardless of pid_alive (transport-level failure wins).
         if isinstance(cause, ConnectionError):
             return WsDisconnected(
-                f"{exc} — Hint: pause failed, PPSSPP WebSocket "
+                f"{msg} — Hint: pause failed, PPSSPP WebSocket "
                 f"connection lost. Check that PPSSPP is running and "
                 f"the session is connected, then retry."
             )
@@ -614,13 +628,13 @@ def to_tool_error(exc: Exception) -> ToolError:
         # Signal 2: pid_alive attribute (set by pause() PID pre-check).
         if pid_alive is False:
             return WsDisconnected(
-                f"{exc} — Hint: pause failed, PID dead; PPSSPP "
+                f"{msg} — Hint: pause failed, PID dead; PPSSPP "
                 f"process no longer running. The session is dead; "
                 f"stop and restart it."
             )
         if pid_alive is True:
             return CpuFreezeSuspected(
-                f"{exc} — Hint: pause failed, PID alive but CPU not "
+                f"{msg} — Hint: pause failed, PID alive but CPU not "
                 f"entering STEPPING; suspected CPU freeze. Consider "
                 f"ppsspp_screenshot to capture current state, "
                 f"step(action='resume') to attempt unfreeze, or "
@@ -633,7 +647,7 @@ def to_tool_error(exc: Exception) -> ToolError:
             # Default conservative: timeout during pause without PID
             # context — suspected freeze (CpuFreezeSuspected).
             return CpuFreezeSuspected(
-                f"{exc} — Hint: pause timed out, CPU state unknown "
+                f"{msg} — Hint: pause timed out, CPU state unknown "
                 f"(no PID context); suspected CPU freeze. Consider "
                 f"ppsspp_screenshot, step(action='resume'), or "
                 f"hle.thread.list."
@@ -641,14 +655,11 @@ def to_tool_error(exc: Exception) -> ToolError:
 
         # Other / no cause: conservative WsDisconnected (legacy behavior).
         return WsDisconnected(
-            f"{exc} — Hint: pause failed, likely because PPSSPP is "
+            f"{msg} — Hint: pause failed, likely because PPSSPP is "
             f"unreachable or the WebSocket connection dropped. Check "
             f"that PPSSPP is running and the session is connected, "
             f"then retry."
         )
-
-    msg = str(exc) or repr(exc)
-    msg_lower = msg.lower()
 
     # asyncio.TimeoutError / TimeoutError → comprehensive judgment.
     # Since Python 3.11, asyncio.TimeoutError IS built-in TimeoutError
@@ -688,7 +699,7 @@ def to_tool_error(exc: Exception) -> ToolError:
             f"{msg} — Hint: this operation requires CPU stepping. "
             f"Use step(action='pause') to pause the CPU before retrying."
         )
-    # W18 (review v2): the bare "stepping" catch-all translated ANY
+    # The bare "stepping" catch-all translated ANY
     # error message that happened to contain the word (a diagnostic
     # script's own failure, a third-party warning) into CPU_STATE_ERROR
     # with a "resume" hint — steering the agent to the wrong remedy.
@@ -700,7 +711,7 @@ def to_tool_error(exc: Exception) -> ToolError:
             f"Use step(action='resume') to resume the CPU before retrying."
         )
 
-    # Default: wrap in generic ToolError.
+    # Default: wrap in generic ToolError (msg already path-redacted).
     return ToolError(msg)
 
 

@@ -60,7 +60,7 @@ _SAFE_RECIPE: list[tuple[str, dict[str, Any], str]] = [
 def _extend_recipe() -> list[tuple[str, dict[str, Any], str]]:
     """Game-dependent extras (--extend), built from the project config.
 
-    W26 (review v2): the TOP base was hardcoded to this project's
+    The TOP base was hardcoded to this project's
     address, violating the package rule (scripts/__init__.py) against
     baked-in project addresses. ``config.addresses()`` resolves
     ``top_base.ppsspp`` from the active config — the shipped examples

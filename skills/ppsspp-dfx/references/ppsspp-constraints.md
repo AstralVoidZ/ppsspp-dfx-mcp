@@ -91,9 +91,9 @@ MCP 会话工具已自动处理。仅当绕过 MCP 直接用 WebSocket 客户端
 
 60fps；30 帧 ≈ 0.5s。`press duration` 与 `wait frames` 上限 18000（≈300s）。
 
-### C2. `mkisofs` 必须用 `-iso-level 4 -xa`
+### C2. 重建 ISO 必须用 `mkisofs -iso-level 4 -xa`
 
-PPSSPP 大小写敏感路径比较；ISO 重建丢参会导致 "file does not exist: N>0"。
+任何改动 ISO 内容的项目（注入补丁、替换模块、重排文件）都要重建镜像。PPSSPP 对路径大小写敏感，丢这两个参数会导致游戏报 `file does not exist: N>0`。属"重建 ISO 即适用"的通用约束。
 
 ### C3. 断点需 IR Interpreter 模式（CPUCore=2）
 
@@ -119,11 +119,18 @@ Start → Cross → 等待 → Cross 完整序列；单次按键常无效。推�
 
 ### C8. 单次读取与扫描上限
 
-`read_bytes` ≤65536；`scan` 区间 ≤256MiB、pattern ≤4096B、不可读区域静默跳过（结果为空≠内容为空，先确认区间可读）。
+`read_bytes` 单次 ≤65536 字节。`scan` 区间 ≤256MiB、pattern ≤4096B；**pattern/strings 区间 >2MiB 会自动转后台作业**（即使 `background=false`），前台大区间会超出客户端等待预算而被取消——改用返回的 `batch_id` 经 `batch_status` 取结果；逐块读 10s 超时，连续 >5 次中止并释放会话锁。不可读区域静默跳过（**结果为空 ≠ 内容为空**，先确认区间可读）。
 
 ### C9. 受保护写区间
 
-kernel（<0x08800000）与 top.prx 代码段（0x08804000–0x08D34000）的 `write_memory`/`assemble` 需要 `force=True`（`PROTECTED_ADDRESS`）。
+`write_memory` / `assemble` 对两段区间要求 `force=True`（否则 `PROTECTED_ADDRESS`）：
+
+1. **kernel memory** —— PSP 内核区（用户空间起点 `0x08800000` 以下）。**不含** scratchpad（`0x00010000`）与 VRAM（`0x04000000`）：两者虽落在同一跨度内，却是合法写入目标，受保护的是真正的内核区。
+2. **top.prx 代码段** —— 上界**由活跃会话的模块表实时决定**，不是编译期常量；模块表不可用时按保守启发值**失败关闭**（宁可多拦，不可放宽）。
+
+误写会崩 PPSSPP 或破坏游戏逻辑，写入前先核对地址换算。**不要**用记忆中的固定区间推导保护范围——它以运行时模块信息为准。
+
+> 适用面：第 2 条的区间名 `top.prx code section` 来自实现（属错误契约的一部分，见 [error-codes.md](error-codes.md) 的 `PROTECTED_ADDRESS`）；区分"内核 vs 游戏模块"的判定逻辑本身对任意 PSP 项目成立。
 
 ## 关联资源
 

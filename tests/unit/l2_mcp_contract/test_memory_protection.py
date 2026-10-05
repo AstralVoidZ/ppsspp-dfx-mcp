@@ -14,6 +14,8 @@ tools automatically (DRY).
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from ppsspp_dfx_mcp.errors import ToolError
@@ -106,3 +108,11 @@ class TestCheckProtectedAddressForce:
     def test_force_bypasses_range_straddling_boundary(self):
         """force=True on a range crossing kernel boundary does not raise."""
         assert check_protected_address(0x087FFFFC, byte_count=8, force=True) is None
+
+    def test_force_override_warning_carries_attribution(self, caplog: pytest.LogCaptureFixture):
+        """A4: the forced-write trace is attributable (audit + request_id)."""
+        with caplog.at_level(logging.WARNING):
+            assert check_protected_address(0x08804000, byte_count=64, force=True) is None
+        record = next(r for r in caplog.records if "FORCE OVERRIDE" in r.getMessage())
+        assert getattr(record, "audit", None) == "force_override"
+        assert hasattr(record, "request_id"), "warning must carry request_id"

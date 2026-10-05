@@ -113,6 +113,7 @@ _DELEGATE_OPENERS = {
     "_scan_pattern",  # scan() → _scan_pattern → _read_range → session_client
     "_scan_value",  # scan() → _scan_value → _read_range → session_client
     "_scan_strings",  # scan() → _scan_strings → _read_range → session_client
+    "capture_frame",  # W19: screenshot() → service.screenshot_service → session_capture
     "run_smoke_checks",  # v0.1.7 D5: health 的会话电池委托（内部开 session_client）
 }
 

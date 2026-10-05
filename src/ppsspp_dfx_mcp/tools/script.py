@@ -21,6 +21,7 @@ Contract: each script declares
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import importlib.util
 import inspect
@@ -30,7 +31,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
@@ -42,12 +43,12 @@ from ppsspp_dfx_mcp.errors import (
     ArgsInvalid,
     ManifestError,
     ScriptContractError,
-    ScriptNotFound,
     SessionNotFound,
     ToolError,
     to_tool_error,
 )
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.spec.script_envelope import build_envelope
 from ppsspp_dfx_mcp.spec.script_manifest import (
     VALID_SCRIPT_CATEGORIES,
     ScriptEntry,
@@ -62,11 +63,18 @@ from ppsspp_dfx_mcp.views.script import (
     ScriptRunOutput,
 )
 
-ScriptListOutputContract = derive_output_contract("ScriptListOutputContract", ScriptListOutput)
-ScriptRunOutputContract = derive_output_contract("ScriptRunOutputContract", ScriptRunOutput)
-ReloadScriptsOutputContract = derive_output_contract(
-    "ReloadScriptsOutputContract", ReloadScriptsOutput
-)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    ScriptListOutputContract = dict[str, Any]
+    ScriptRunOutputContract = dict[str, Any]
+    ReloadScriptsOutputContract = dict[str, Any]
+else:
+    ScriptListOutputContract = derive_output_contract("ScriptListOutputContract", ScriptListOutput)
+    ScriptRunOutputContract = derive_output_contract("ScriptRunOutputContract", ScriptRunOutput)
+    ReloadScriptsOutputContract = derive_output_contract(
+        "ReloadScriptsOutputContract", ReloadScriptsOutput
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -110,10 +118,15 @@ class ScriptContext:
 #
 # We cache loaded modules by absolute path so a hot-loop of
 # `ppsspp_run_script(name=...)` calls doesn't re-import the script each
-# time. Cache is invalidated on `ppsspp_reload_scripts()`. We deliberately
-# do NOT use sys.modules for caching because script paths are not on
-# sys.path (and we don't want to pollute sys.modules with potentially
-# colliding names like `state` or `misc`).
+# time. Each entry is `(content_stamp, module)`. Cache is explicitly cleared
+# on `ppsspp_reload_scripts()`; we deliberately do NOT use sys.modules as the
+# cache because script paths are not on sys.path.
+#
+# A17 — content stamp: the cache is keyed by absolute path AND stamped with a
+# SHA-1 of the file BYTES. An edited script whose mtime/size did not change
+# (or a same-second write) still reloads on the next call, without needing
+# `reload_scripts`. We hash content rather than stat mtime_ns+size so the
+# stamp is robust to timestamp granularity and to a swap that preserves size.
 #
 # A module-level `threading.Lock` guards `_module_cache` reads/writes so
 # that the get-then-set sequence is atomic across threads (P1-8). On a
@@ -121,8 +134,13 @@ class ScriptContext:
 # does not affect async concurrency; it only prevents two threads from
 # concurrently executing the same script's top-level code.
 
-_module_cache: dict[str, Any] = {}
+_module_cache: dict[str, tuple[str, Any]] = {}
 _module_cache_lock = threading.Lock()
+
+
+def _content_stamp(path: Path) -> str:
+    """SHA-1 hex digest of `path`'s bytes — the cache's version stamp."""
+    return hashlib.sha1(path.read_bytes()).hexdigest()
 
 
 def _clear_module_cache() -> None:
@@ -142,10 +160,11 @@ def _load_script_module(entry: ScriptEntry, project_root: Path) -> Any:
     """Import the script module referenced by `entry`.
 
     Uses `importlib.util.spec_from_file_location` so the script file does
-    NOT need to be on sys.path. Cached by absolute path string. The
-    get-then-set cache sequence is guarded by `_module_cache_lock` so
-    that two threads cannot race and execute the same module's top-level
-    code twice (P1-8).
+    NOT need to be on sys.path. Cached by absolute path string, with a
+    content stamp (see A17 note above): a changed file is re-executed even
+    without an explicit `reload_scripts`. The get-then-set cache sequence is
+    guarded by `_module_cache_lock` so that two threads cannot race and
+    execute the same module's top-level code twice (P1-8).
 
     Raises:
         ScriptContractError: file missing, import error, or entry function
@@ -154,12 +173,12 @@ def _load_script_module(entry: ScriptEntry, project_root: Path) -> Any:
     abs_path = entry.normalized_path(project_root)
     cache_key = str(abs_path)
     with _module_cache_lock:
-        cached = _module_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
         if not abs_path.exists():
-            raise ScriptContractError(f"script file not found for {entry.name!r}: {abs_path}")
+            raise ScriptContractError(f"script file not found for {entry.name!r}: {entry.path}")
+        stamp = _content_stamp(abs_path)
+        cached = _module_cache.get(cache_key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
 
         # Use a unique module name to avoid collisions with sys.modules
         # entries like `state` or `misc` (which collide with stdlib /
@@ -168,11 +187,14 @@ def _load_script_module(entry: ScriptEntry, project_root: Path) -> Any:
         spec = importlib.util.spec_from_file_location(module_name, abs_path)
         if spec is None or spec.loader is None:
             raise ScriptContractError(
-                f"cannot load script module for {entry.name!r} from {abs_path}"
+                f"cannot load script module for {entry.name!r} from {entry.path}"
             )
         module = importlib.util.module_from_spec(spec)
-        # Populate sys.modules so relative imports inside the script work
-        # (though we don't expect any — scripts should be self-contained).
+        # Populate sys.modules before executing the module. This injection is
+        # REQUIRED: Pydantic resolves a script's forward references (e.g. a
+        # field annotated as a class declared later in the file) by looking
+        # the defining module up in sys.modules; without the entry those
+        # references fail to resolve at model-build time. (Prior investigation.)
         sys.modules[module_name] = module
         try:
             spec.loader.exec_module(module)
@@ -191,7 +213,7 @@ def _load_script_module(entry: ScriptEntry, project_root: Path) -> Any:
                 f"script {entry.name!r} entry {entry.entry!r} is not callable"
             )
 
-        _module_cache[cache_key] = module
+        _module_cache[cache_key] = (stamp, module)
         return module
 
 
@@ -245,7 +267,7 @@ def validate_script_contract(entry: ScriptEntry, project_root: Path) -> tuple[An
     input_cls, output_cls = _get_input_output_models(module, entry)
     fn = getattr(module, entry.entry, None)
     if fn is None or not callable(fn):
-        # W17 (review v2): class-default code (SCRIPT_CONTRACT_ERROR) —
+        # Class-default code (SCRIPT_CONTRACT_ERROR) —
         # the ad-hoc "INVALID_ENTRY" string rendered the same failure
         # under three different [CODE] prefixes depending on code path.
         raise ScriptContractError(
@@ -278,15 +300,10 @@ def _build_ctx(entry: ScriptEntry, session_id: str | None) -> ScriptContext:
 # ── Tools ─────────────────────────────────────────────────────────────────
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# List diagnostic scripts declared in the manifest.
-#
-# Returns:
-# ScriptListOutput dict: scripts + count + category.
 @mcp.tool(
     name="ppsspp_list_scripts",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 def list_scripts(
@@ -312,7 +329,7 @@ def list_scripts(
     """
     logger.info("tool_call", extra={"tool": "ppsspp_list_scripts", "category": category})
     if category is not None and category not in VALID_SCRIPT_CATEGORIES:
-        # M12: an unknown category used to silently return an empty list —
+        # An unknown category used to silently return an empty list —
         # indistinguishable from "category exists but has no scripts".
         # Fail like list_addresses does for unknown sections, listing the
         # valid values so the caller can self-correct.
@@ -324,32 +341,20 @@ def list_scripts(
         entries = manifest.list_scripts(category=category)
     except ManifestError as e:
         raise to_tool_error(e) from e
-    # F5 (review-r3): surface the ACTUAL dynamic-tool registration state
+    # Surface the ACTUAL dynamic-tool registration state
     # next to each exposed entry so declared-vs-registered drift (skipped
     # skeleton, contract failure, pending restart) is visible to agents.
-    from ppsspp_dfx_mcp.server import registered_exposed_names
+    from ppsspp_dfx_mcp.registry import registered_exposed_names
 
     return ScriptListOutput.from_entries(
         entries, category, exposed_registered_names=registered_exposed_names()
     ).model_dump(mode="json")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Invoke a diagnostic script by name.
-#
-# The script's `run(input, ctx)` is awaited. `input` is validated
-# against the script's Pydantic Input model; the return value is
-# serialized from the script's Pydantic Output model.
-#
-# Raises:
-# ToolError (ScriptNotFound): name not in manifest.
-# ToolError (ScriptContractError): script file missing, import
-# failed, or contract violation.
-# ToolError: any exception raised by the script's `run()`.
 @mcp.tool(
     name="ppsspp_run_script",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True
     ),
 )
 @translate_tool_errors
@@ -358,6 +363,10 @@ async def run_script(
         str,
         Field(description="Script name (must appear in manifest)."),
     ],
+    # 注解保持非可选 dict：对外 inputSchema 的既有形状是 type=object +
+    # default=null，改成 `dict[str, Any] | None` 会凭空多出一个 null 分支。
+    # cast 只是把「注解非可选、Python 默认值确为 None」这对事实告知类型
+    # 检查器（MCP 客户端省略该参数时框架把 None 传进来）。
     input: Annotated[
         dict[str, Any],
         Field(
@@ -367,7 +376,7 @@ async def run_script(
                 "fields."
             ),
         ),
-    ] = None,
+    ] = cast(dict[str, Any], None),  # noqa: B008 — cast 是零开销类型窄化，非副作用调用
     session_id: Annotated[
         str | None,
         Field(
@@ -394,89 +403,77 @@ async def run_script(
         "tool_call",
         extra={"tool": "ppsspp_run_script", "script_name": name, "session_id": session_id},
     )
+    manifest = get_manifest()
+    entry = manifest.get_script(name)
+    project_root = _project_root()
+    # Script module import executes the script's top-level code
+    # synchronously while holding the module-cache lock — run it in a
+    # worker thread so a slow import can't freeze the event loop.
+    module = await asyncio.to_thread(_load_script_module, entry, project_root)
+    input_cls, output_cls = _get_input_output_models(module, entry)
+    # Pydantic silently ignores unknown fields by default, so a
+    # typo'd parameter key passed validation and was swallowed — the
+    # caller believed the parameter took effect. Reject unknown keys
+    # up front (field aliases still resolve via the model itself).
+    unknown = set(input) - set(getattr(input_cls, "model_fields", {}))
+    if unknown:
+        raise ScriptContractError(
+            f"script {name!r} input has unknown field(s): "
+            f"{sorted(unknown)} — accepted fields: "
+            f"{sorted(getattr(input_cls, 'model_fields', {}))}"
+        )
     try:
-        manifest = get_manifest()
-        entry = manifest.get_script(name)
-        project_root = _project_root()
-        # Script module import executes the script's top-level code
-        # synchronously while holding the module-cache lock — run it in a
-        # worker thread so a slow import can't freeze the event loop.
-        module = await asyncio.to_thread(_load_script_module, entry, project_root)
-        input_cls, output_cls = _get_input_output_models(module, entry)
-        # M7: pydantic silently ignores unknown fields by default, so a
-        # typo'd parameter key passed validation and was swallowed — the
-        # caller believed the parameter took effect. Reject unknown keys
-        # up front (field aliases still resolve via the model itself).
-        unknown = set(input) - set(getattr(input_cls, "model_fields", {}))
-        if unknown:
-            raise ScriptContractError(
-                f"script {name!r} input has unknown field(s): "
-                f"{sorted(unknown)} — accepted fields: "
-                f"{sorted(getattr(input_cls, 'model_fields', {}))}"
-            )
-        try:
-            input_model = input_cls(**input)
-        except Exception as e:
-            raise ScriptContractError(f"script {name!r} input validation failed: {e}") from e
+        input_model = input_cls(**input)
+    except Exception as e:
+        raise ScriptContractError(f"script {name!r} input validation failed: {e}") from e
 
-        fn = getattr(module, entry.entry)
-        # F3 (review-r3): resolve the effective session and enforce
-        # requires_ppsspp HERE instead of leaving it to each script.
-        # Priority: explicit tool parameter > Input-model session_id
-        # field (the exposed wrapper forwards the same value via both
-        # channels, so this resolution is transparent to that path).
-        effective_session_id = session_id or getattr(input_model, "session_id", None)
-        if entry.requires_ppsspp and not effective_session_id:
-            raise SessionNotFound(
-                f"script {name!r} requires an active PPSSPP session "
-                f"(requires_ppsspp=true) but no session_id resolved; "
-                f"start one first with ppsspp_session(action='start', "
-                f"iso_path=...) and pass its session_id"
-            )
-        ctx = _build_ctx(entry, effective_session_id)
-        try:
-            result = await fn(input_model, ctx)
-        except ToolError:
-            # Don't re-wrap ToolError — `to_tool_error(e) from e` would
-            # set `e.__cause__ = e` (self-reference cycle) because
-            # `to_tool_error` returns the same ToolError instance (P1-10).
-            raise
-        except Exception as e:
-            # W17 (review v2): class-default code (was ad-hoc "CONTRACT").
-            raise ScriptContractError(f"Script '{name}' raised: {e}") from e
+    fn = getattr(module, entry.entry)
+    # Resolve the effective session and enforce
+    # requires_ppsspp HERE instead of leaving it to each script.
+    # Priority: explicit tool parameter > Input-model session_id
+    # field (the exposed wrapper forwards the same value via both
+    # channels, so this resolution is transparent to that path).
+    effective_session_id = session_id or getattr(input_model, "session_id", None)
+    if entry.requires_ppsspp and not effective_session_id:
+        # SESSION_NOT_FOUND (FR-001): a requires_ppsspp script with no
+        # resolvable session is the same "which session?" failure every
+        # other session tool reports, just with the script identity folded
+        # into the message.
+        raise SessionNotFound(
+            f"script {name!r} requires an active PPSSPP session "
+            f"(requires_ppsspp=true) but no session_id resolved; "
+            f"start one first with ppsspp_session(action='start', "
+            f"iso_path=...) and pass its session_id"
+        )
+    ctx = _build_ctx(entry, effective_session_id)
+    try:
+        result = await fn(input_model, ctx)
+    except ToolError:
+        # Don't re-wrap ToolError — `to_tool_error(e) from e` would
+        # set `e.__cause__ = e` (self-reference cycle) because
+        # `to_tool_error` returns the same ToolError instance (P1-10).
+        raise
+    except Exception as e:
+        # Class-default code (was ad-hoc "CONTRACT").
+        raise ScriptContractError(f"Script '{name}' raised: {e}") from e
 
-        if not isinstance(result, output_cls):
-            raise ScriptContractError(
-                f"script {name!r} returned {type(result).__name__}; expected {entry.output_model}"
-            )
-    except ScriptNotFound as e:
-        raise to_tool_error(e) from e
-    except ScriptContractError as e:
-        raise to_tool_error(e) from e
-    except ManifestError as e:
-        raise to_tool_error(e) from e
+    if not isinstance(result, output_cls):
+        raise ScriptContractError(
+            f"script {name!r} returned {type(result).__name__}; expected {entry.output_model}"
+        )
 
-    return ScriptRunOutput(
-        name=name,
-        output=result.model_dump(mode="json"),
-        output_model=entry.output_model,
-    ).model_dump(mode="json")
+    # isinstance 检查在运行时保证 result 是该契约的 Pydantic 模型；output_cls
+    # 是运行时变量，类型检查器无法据此收窄，故显式 cast。
+    result_model = cast(BaseModel, result)
+    # Envelope shape has ONE definition (`spec.script_envelope`), shared
+    # with the exposed wrapper's return contract — see A15.
+    return build_envelope(name, result_model.model_dump(mode="json"), entry.output_model)
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Manually reload the manifest YAML.
-#
-# Idempotent: re-reading an unchanged file produces an equal registry.
-# Also clears the script module cache so code edits are picked up on
-# the next `ppsspp_run_script` call.
-#
-# Returns:
-# ReloadScriptsOutput dict: reloaded_count + exposed_count +
-# manifest_path + scripts.
 @mcp.tool(
     name="ppsspp_reload_scripts",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 async def reload_scripts(ctx: Context | None = None) -> ReloadScriptsOutputContract:
@@ -501,10 +498,10 @@ async def reload_scripts(ctx: Context | None = None) -> ReloadScriptsOutputContr
     except ManifestError as e:
         raise to_tool_error(e) from e
 
-    # F4 (review-r3): reconcile the dynamic tool registry with the
+    # Reconcile the dynamic tool registry with the
     # reloaded manifest — register newly exposed scripts, unregister
     # removed/reclassified ones — so edits no longer require a restart.
-    from ppsspp_dfx_mcp.server import registered_exposed_names, sync_exposed_tools
+    from ppsspp_dfx_mcp.registry import registered_exposed_names, sync_exposed_tools
 
     sync_report = await sync_exposed_tools()
 
@@ -514,7 +511,7 @@ async def reload_scripts(ctx: Context | None = None) -> ReloadScriptsOutputContr
     # `idempotentHint=True` and a no-op reload must stay side-effect free.
     #
     # The notification is **best-effort and must never fail the call**
-    # (design D8：握手时代的能力不可达，本通知本就是尽力而为的额外项)：
+    # (握手时代的能力不可达，本通知本就是尽力而为的额外项)：
     #   * `Context.request_context` raises outside a real request — e.g.
     #     `MCPServer.call_tool(name, args)` builds a Context with no request
     #     context (`mcpserver/server.py:540`), so an in-process call that
