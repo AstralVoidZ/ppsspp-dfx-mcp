@@ -131,28 +131,71 @@ cd ppsspp-dfx-mcp
 # (editable, with dev extras):
 python scripts/check_env.py --bootstrap
 
-# Verify interpreter / SDK version / package imports:
+# Verify interpreter / SDK version / package imports / every .mcp.json:
 python scripts/check_env.py --check
 ```
 
+`--bootstrap` provisions a venv beside **every** `.mcp.json` in the checkout
+(the workspace root, plus the package dir `mcps/ppsspp-dfx-mcp/` in a
+monorepo). Why: an MCP client resolves a relative `command` against the
+**config's own directory**, and the repo policy forbids committing absolute
+paths — so a committed config only resolves if a matching venv really sits next
+to it. `--check` validates each config and fails on mismatch (the
+package-local config drifted unpoliced).
+
+`--bootstrap` prepares only the **main venv** (`.venv/ppsspp-dfx-mcp`, used by the
+tests and the full-suite run). Launching the **server** no longer needs it: the
+committed `.mcp.json` uses the general-runner form, and the runner provisions its
+own environment on first run.
+
+The two legal shapes of `.mcp.json` (both are checked by `--check`):
+
+| Config location | Shape | Why |
+|---|---|---|
+| **Package root** (repo root of a standalone checkout) | `["run", "ppsspp-dfx-mcp"]` | Self-locating: the runner finds the project from the working directory |
+| **Not the package root** (workspace root of the monorepo) | `["run", "--directory", "<package dir>", "ppsspp-dfx-mcp"]` | The package directory **must** be pinned, otherwise the workspace's own project is picked up |
+
+**Working-directory assumption**: MCP clients normally spawn the server with
+**the directory holding `.mcp.json`** as the working directory; the relative
+form depends on that. `config.project_root()` resolves
+`PPSSPP_DFX_PROJECT_ROOT` first and then the working directory, and it does
+**not** search upwards — a working directory pointing elsewhere misresolves the
+output directory and the script manifest (symptom: the dynamic script tools
+silently disappear).
+
+Do **not** put a platform-bound interpreter path (`…/Scripts/python.exe` or
+`…/bin/python`) in a committed config: it necessarily fails on the other
+operating system.
+
 Register the server with your MCP client — point the client at the in-repo
-`.mcp.json`, or inline it with the same structure:
+`.mcp.json`, or inline it with the same structure (package-root case):
 
 ```json
 {
   "mcpServers": {
     "ppsspp-dfx": {
-      "command": ".venv/ppsspp-dfx-mcp/Scripts/python.exe",
-      "args": ["-m", "ppsspp_dfx_mcp"],
-      "cwd": "${CLAUDE_PROJECT_DIR}"
+      "command": "uv",
+      "args": ["run", "ppsspp-dfx-mcp"]
     }
   }
 }
 ```
 
-`cwd` must be the directory holding both `.venv/` and `.ppsspp-dfx/`
-(the repo root in a standalone checkout). On POSIX use
-`.venv/ppsspp-dfx-mcp/bin/python` instead of `Scripts/python.exe`.
+If the client resolves `command` against a **different** working directory (i.e.
+it does not honour the assumption above), use the fragment printed by
+`python scripts/check_env.py --print-config` — it has the same runner shape but
+pins the package directory by absolute path, ready to paste.
+Also make sure the general runner is on `PATH` (`--check` verifies it; when it
+is missing, an stdio client only sees the subprocess exit, never the reason).
+
+If your client resolves a relative `command` against some other working
+directory (not the config's directory), the relative snippet above is
+unreliable. Use `--print-config` instead — it prints an absolute-path snippet
+with `cwd` set to the workspace root, ready to paste:
+
+```bash
+python scripts/check_env.py --print-config
+```
 
 Manual start for verification:
 
@@ -180,6 +223,9 @@ Environment variables (all optional):
 | `PPSSPP_DFX_BOOT_HEAL_QUARANTINE` | `1` | `1` = let boot-wedge self-heal quarantine the GPU backend blacklist file (rename only, never delete); `0` = skip that step |
 | `PPSSPP_DFX_MEMSTICK_DIR` | auto-detected | Memstick dir (log / screenshot capture) |
 | `PPSSPP_DFX_WORKSPACE_ROOT` | auto-detected | Workspace root for `scripts/_wire.py` (nearest ancestor holding `.mcp.json`). Bootstrap scripts only |
+| `PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER` | unset | Set to `1` to accept a debugger bound to a non-loopback address (default: fail closed). See [SECURITY.md](SECURITY.md) |
+| `PPSSPP_DFX_ALLOW_ABS_SCRIPT` | unset | Set to `1` to allow absolute paths in the script manifest (default: relative only). See [SECURITY.md](SECURITY.md) |
+| `PPSSPP_DFX_ISO_ROOT` | unset | ISO path allowlist root — when set, `iso_path` must resolve inside that tree. See [SECURITY.md](SECURITY.md) |
 
 > **`PPSSPP_DFX_WS_PORT` only applies when connecting to an already-running
 > PPSSPP.** When the server launches PPSSPP itself it picks a random free port
@@ -319,6 +365,7 @@ step exists.
 | Symptom | Cause / fix |
 |---|---|
 | `-32000: Connection closed` (no other info) | A wrapper script sits between the MCP client and the server: on Windows `os.execv` is really `CreateProcess` + parent wait (not POSIX exec-replacement), so the inner server's stdin hits EOF immediately and exits silently. Remove the middle layer and use the venv interpreter as `command` (see [Run from source](#run-from-source)) |
+| Client fails to start the server with `-32000: Connection closed` / `command` path does not exist | The config's relative interpreter path was never provisioned (no venv beside it), or the client resolved the relative `command` against a different working directory. Run `python scripts/check_env.py --bootstrap` to create the venv beside each config, or paste the absolute-path snippet from `python scripts/check_env.py --print-config` (see [Run from source](#run-from-source)) |
 | `check_env` reports "standalone venv missing" | `.venv/` is gitignored, so a fresh clone never has it. Run `python scripts/check_env.py --bootstrap` |
 | `mcp SDK version unsatisfied` / import-time crash | The system Python's `mcp` package is often pinned to 1.x by other MCP servers — irreconcilable with SDK v2. Don't install globally — use `check_env.py --bootstrap`, or install into a dedicated venv per [Install from PyPI](#install-from-pypi) |
 | All `ppsspp_script_*` tools vanish (server starts fine) | `.ppsspp-dfx/config/scripts.manifest.yaml` missing — absence only warns, dynamic tools silently empty. Follow [Standalone quick start](#standalone-quick-start) to fetch the three templates (`check_env.py --check` tells you; under a PyPI install they are not in the wheel, so fetch them from GitHub) |
@@ -381,6 +428,18 @@ annotated in the corresponding tool description; summarized here:
   session registration across processes; concurrent MCP server instances
   pointed at the same path last-write-wins.
 
+## Performance reference (measured locally)
+
+Reference environment: Windows x64, PPSSPP v1.20.4-605, server and PPSSPP on
+the same machine (localhost WS). Numbers vary with machine and game load —
+use them to estimate timeout budgets, not as a performance promise:
+
+| Operation | Measured |
+|---|---|
+| Single WS round-trip (lightweight call such as `game.status`) | p50 ≈ 0.21 ms, p95 ≈ 0.28 ms (n=60) |
+| Full-band 24 MB pattern scan (`ppsspp_scan` `background=true`, 64 KiB chunks) | ≈ 40 s (384 chunked reads) |
+| Breakpoint hit → observable (hot-address `set` + `wait`, from resume to confirmed wait) | p50 ≈ 11 ms (n=30) |
+
 ## Community & support
 
 - Report bugs and feature requests via
@@ -404,7 +463,7 @@ system: scenario cards, deterministic gates, runner, reports).
 # default) — either of:
 #   uv sync                                # installs the dependency group
 #   pip install -e ".[dev]"                # or the dev extra
-# Full test suite (unit + contract + integration; 1300+ test cases (excluding parametrize expansion)):
+# Full test suite (unit + contract + integration; 1700+ test cases (excluding parametrize expansion)):
 .venv/ppsspp-dfx-mcp/Scripts/python -m pytest tests -q
 
 # Regenerate the tool-surface baseline after signature/description changes

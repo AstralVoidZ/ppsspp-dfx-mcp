@@ -27,5 +27,7 @@ evals/llm_api.json
 .idea/
 .DS_Store
 
-# uv lockfile — library project; regenerate locally with `uv lock`
-uv.lock
+# uv lockfile — COMMITTED on purpose. This project ships a server (published
+# to PyPI / the MCP registry), and CI's W7 `uv lock --check` drift guard needs
+# a committed baseline to compare pyproject against. Update with `uv lock`.
+.venv-test/

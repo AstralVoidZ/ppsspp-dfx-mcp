@@ -43,10 +43,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import IO
 
 from ppsspp_dfx_mcp.config import ppsspp_exe_path
-from ppsspp_dfx_mcp.errors import IsoNotFound, PpssppNotFound
+from ppsspp_dfx_mcp.errors import IsoNotFound, PpssppNotFound, WsConnectFailed
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +106,34 @@ def _pick_free_port(host: str = "127.0.0.1") -> int:
         return sock.getsockname()[1]
 
 
-def _write_appendconfig_ini(port: int) -> Path:
+def _clear_failed_gpu_backends(exe_dir: Path) -> Path | None:
+    """Delete PPSSPP's sticky GPU-backend failure list.
+
+    Returns the path that was cleared, or None if there was nothing to
+    clear. Never raises: a locked or read-only file must not stop a launch.
+    """
+    candidates = [
+        exe_dir / "memstick" / "PSP" / "SYSTEM" / "FailedGraphicsBackends.txt",
+        Path.home() / "Documents" / "PPSSPP" / "PSP" / "SYSTEM" / "FailedGraphicsBackends.txt",
+    ]
+    cleared: Path | None = None
+    for f in candidates:
+        if not f.is_file():
+            continue
+        # "IGNORE" is PPSSPP's documented opt-out (NativeApp.cpp:462); if the
+        # operator set it, deleting the file would silently revoke it.
+        if f.read_text(encoding="utf-8", errors="replace").strip() == "IGNORE":
+            continue
+        with contextlib.suppress(OSError):
+            f.unlink()
+            cleared = f
+    return cleared
+
+
+def _write_appendconfig_ini(
+    port: int,
+    graphics_backend: int | None = None,
+) -> Path:
     """Write a temporary PPSSPP appended-config ini overriding the WS port.
 
     The ini is written to the system temp dir with a unique name
@@ -119,6 +151,11 @@ def _write_appendconfig_ini(port: int) -> Path:
     settings and reads only keys found under the registered section name.
     A mismatch (e.g. writing ``[SystemParam]`` or ``iRemoteISOPort``) is
     silently ignored, causing PPSSPP to fall back to its global ini.
+
+    NOTE: ``RemoteDebuggerLocal`` does NOT narrow the debugger bind —
+    PPSSPP binds it to the wildcard address unconditionally. It is kept
+    for parity with the shipped template; the actual guard is the runtime
+    bind probe (``warn_if_debugger_exposed_externally``).
     """
     content = (
         "[General]\n"
@@ -126,6 +163,11 @@ def _write_appendconfig_ini(port: int) -> Path:
         "RemoteDebuggerOnStartup = True\n"
         "RemoteDebuggerLocal = True\n"
     )
+    # Pinning the backend stops PPSSPP's auto-detection from picking a
+    # crashing adapter on this host. GraphicsBackend enum: 0=D3D9, 1=D3D11,
+    # 2=OpenGL, 3=VULKAN. Omitted when None -> byte-identical to before.
+    if graphics_backend is not None:
+        content += "[Graphics]\n" + f"GraphicsBackend = {graphics_backend}\n"
     # 内存断点在 JIT fastmem 直写下不触发（skill §4）：设 PPSSPP_DFX_IR=1
     # 时强制 CPUCore=2 解释器模式，专供 trace/breakpoint 调试会话。
     # CPUCore/FastMemoryAccess are registered under the [CPU] section.
@@ -163,7 +205,7 @@ def _parse_netstat_windows(output: str, pid: int) -> list[int]:
 
 def _parse_netstat_windows_with_binds(output: str, pid: int) -> list[tuple[int, str]]:
     """Same as _parse_netstat_windows, but also returns the bind address
-    per port (🟡8: a 0.0.0.0 bind exposes the unauthenticated debugger to
+    per port (a 0.0.0.0 bind exposes the unauthenticated debugger to
     the network — the caller must be able to detect and warn)."""
     pid_str = str(pid)
     binds: list[tuple[int, str]] = []
@@ -312,11 +354,14 @@ def _get_listening_binds_for_pid_posix(pid: int) -> list[tuple[int, str]] | None
     """Return (port, bind_addr) pairs for ``pid`` on POSIX, or None when
     no discovery tool exists (lsof / ss / netstat all absent).
 
-    W7 (review v2): the exposure warning needs the BIND ADDRESS, not just
+    The exposure warning needs the BIND ADDRESS, not just
     the port — the ports-only POSIX helper discards exactly the
     information this check exists for.
     """
-    commands: list[tuple[list[str], object]] = [
+    # 末项 (netstat → None) 是「不可用」的记录：ss/netstat 没有逐行 pid 归属，
+    # 无法回答「是否就是本 pid」；[:-1] 把它排除在循环外，断言向类型检查器
+    # 传达这一点。
+    commands: list[tuple[list[str], Callable[[str], list[tuple[int, str]]] | None]] = [
         (["lsof", "-a", "-iTCP", "-sTCP:LISTEN", "-p", str(pid), "-P", "-n"], _parse_lsof_binds),
         (
             ["ss", "-tlnp"],
@@ -336,6 +381,7 @@ def _get_listening_binds_for_pid_posix(pid: int) -> list[tuple[int, str]] | None
         (["netstat", "-tlnp"], None),
     ]
     for cmd, parser in commands[:-1]:
+        assert parser is not None
         try:
             result = subprocess.run(
                 cmd,
@@ -401,7 +447,7 @@ def _get_listening_ports_for_pid(pid: int) -> list[int]:
 
 
 def _get_listening_binds_for_pid_windows(pid: int) -> list[tuple[int, str]]:
-    """(🟡8) listening (port, bind_ip) pairs for pid on Windows."""
+    """Listening (port, bind_ip) pairs for pid on Windows."""
     try:
         result = subprocess.run(
             ["netstat", "-ano", "-p", "tcp"],
@@ -415,24 +461,119 @@ def _get_listening_binds_for_pid_windows(pid: int) -> list[tuple[int, str]]:
     return _parse_netstat_windows_with_binds(result.stdout or "", pid)
 
 
-def warn_if_debugger_exposed_externally(pid: int, port: int) -> None:
-    """🟡8: warn when the debugger port is NOT bound to loopback.
+def _remote_debugger_allowed() -> bool:
+    """Whether the operator explicitly accepts an externally-bound debugger.
+
+    Reads ``PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER`` (default OFF). The PPSSPP
+    debugger is unauthenticated, so a non-loopback bind is fatal by
+    default; this env var is the only opt-out. It lives here (not in
+    ``config.py``) on purpose: it is a launch-time fail-closed decision,
+    not general configuration.
+    """
+    return os.environ.get("PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _port_owned_by_pid(pid: int, port: int) -> bool | None:
+    """Whether a listening ``port`` is owned by ``pid``.
+
+    ``_wait_for_port`` Phase 1 accepts *any* listener on ``self.ws_port``
+    (a bare TCP connect), so a same-host process that grabbed the port in
+    ``_pick_free_port``'s TOCTOU window would be mistaken for the
+    emulator — every memory/input/state command would then flow to the
+    attacker-controlled endpoint. This attributes the listener to OUR pid
+    using the same netstat / ss / lsof parsers as port discovery.
+
+    Returns:
+        True  — the probe attributes ``port`` to ``pid``.
+        False — the probe RAN but did NOT attribute ``port`` to ``pid``
+                (foreign owner, or our process has not bound it yet).
+                Callers must NOT accept the port on this result.
+        None  — no ownership probe is available (netstat / ss / lsof
+                missing), so ownership cannot be determined.
+    """
+    if pid <= 0:
+        return None
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=5,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return None
+        binds = _parse_netstat_windows_with_binds(result.stdout or "", pid)
+        return any(bport == port for bport, _ in binds)
+    # POSIX: lsof is the only probe whose per-pid attribution does not
+    # require root. `ss -p` / `netstat -p` print process info only as root.
+    try:
+        result = subprocess.run(
+            ["lsof", "-a", "-iTCP", "-sTCP:LISTEN", "-p", str(pid), "-P", "-n"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=5,
+        )
+    except FileNotFoundError:
+        pass
+    except (subprocess.SubprocessError, OSError):
+        return None
+    else:
+        binds = _parse_lsof_binds(result.stdout or "")
+        return any(bport == port for bport, _ in binds)
+    # lsof absent — fall back to `ss -tlnp`, but only trust it when it
+    # actually printed per-socket process attribution (root-only). A
+    # non-root ss lists the socket WITHOUT any owner, so a "not owned"
+    # answer would be a false rejection of our own port.
+    try:
+        result = subprocess.run(
+            ["ss", "-tlnp"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return None
+    output = result.stdout or ""
+    if "users:(" not in output:
+        return None
+    return port in _parse_ss_or_netstat_posix(output, pid)
+
+
+def warn_if_debugger_exposed_externally(pid: int, port: int) -> bool:
+    """Warn when the debugger port is NOT bound to loopback.
 
     PPSSPP's debugger is unauthenticated (see SECURITY.md); a wildcard
     bind exposes memory read/write + input injection to the network.
-    Windows desktop silently ignores --appendconfig, so RemoteDebuggerLocal
-    in our generated ini is dead config there — this runtime check is the
-    only reliable detection.
+    PPSSPP binds this port to the wildcard address unconditionally
+    (Common/Net/HTTPServer.cpp:221 INADDR_ANY; in6addr_any for IPv6), so
+    no ppsspp.ini setting can narrow it — including ``RemoteDebuggerLocal``,
+    which only picks the locally-hosted browser-debugger URL. That makes
+    this runtime check the only reliable detection.
+
+    Returns:
+        True if a non-loopback bind of ``port`` by ``pid`` was detected,
+        else False. ``False`` also covers the probe-unavailable case: the
+        exposure cannot be detected there, so callers must NOT escalate
+        to a fatal error (behavior is unchanged — see the warning).
     """
     if pid <= 0:
-        return
+        return False
     binds: list[tuple[int, str]] | None
     if sys.platform == "win32":
         binds = _get_listening_binds_for_pid_windows(pid)
     else:
         binds = _get_listening_binds_for_pid_posix(pid)
         if binds is None:
-            # W7 (review v2): the check used to be Windows-only while
+            # The check used to be Windows-only while
             # being called on every platform — on POSIX the netstat
             # invocation failed into `[]` and the security check
             # silently no-op'd. Say so instead.
@@ -442,7 +583,7 @@ def warn_if_debugger_exposed_externally(pid: int, port: int) -> None:
                 "that the PPSSPP debugger port is NOT bound to a "
                 "non-loopback address — the debugger is UNAUTHENTICATED."
             )
-            return
+            return False
     for bport, bip in binds:
         if bport != port:
             continue
@@ -450,13 +591,56 @@ def warn_if_debugger_exposed_externally(pid: int, port: int) -> None:
             log.warning(
                 "WSDBG-EXPOSED: PPSSPP debugger on port %d is bound to "
                 "'%s' (not loopback). The debugger is UNAUTHENTICATED — "
-                "any reachable host can read/write emulated memory. Set "
-                "RemoteDebuggerLocal=True in the GLOBAL ppsspp.ini "
-                "(Windows desktop ignores --appendconfig).",
+                "any reachable host can read/write emulated memory. PPSSPP "
+                "binds this port to the wildcard address unconditionally "
+                "(Common/Net/HTTPServer.cpp), so NO ppsspp.ini setting can "
+                "make it loopback (RemoteDebuggerLocal does not affect the "
+                "bind). Restrict the port with an OS firewall rule, or "
+                "explicitly accept the risk via "
+                "PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1.",
                 port,
                 bip,
             )
-        return
+            return True
+        return False
+    return False
+
+
+def _validate_iso_path(iso_path: Path) -> Path:
+    """Validate the caller-supplied ISO path.
+
+    Rejects two classes of path before PPSSPP ever sees them:
+
+    - **UNC / SMB paths** (``\\\\host\\share\\...`` or ``//host/share/...``).
+      Resolving one would make the server account's SMB credentials reach
+      an attacker-controlled host.
+    - Paths **outside ``PPSSPP_DFX_ISO_ROOT``** when that env var is set —
+      opt-in containment for deployments that pin ISO storage to one tree.
+
+    Ordinary local paths are unaffected (the common case stays a plain
+    "is this a file" check). Raises ``IsoNotFound`` — the existing error
+    type for a bad ISO path.
+    """
+    raw = str(iso_path)
+    # `\\?\` / `\\.\` are local Win32 device-namespace prefixes, NOT UNC.
+    is_unc = (
+        raw.startswith("\\\\") and not raw.startswith(("\\\\?\\", "\\\\.\\"))
+    ) or raw.startswith("//")
+    if is_unc:
+        raise IsoNotFound(
+            f"ISO path must be a local file, not a UNC/SMB path (resolving "
+            f"it would send this account's SMB credentials to a remote "
+            f"host): {raw}"
+        )
+    resolved = iso_path.resolve()
+    root = os.environ.get("PPSSPP_DFX_ISO_ROOT", "").strip()
+    if root:
+        root_path = Path(root).resolve()
+        if not resolved.is_relative_to(root_path):
+            raise IsoNotFound(f"ISO path {resolved} is outside PPSSPP_DFX_ISO_ROOT ({root_path})")
+    if not resolved.is_file():
+        raise IsoNotFound(f"ISO file not found: {resolved}")
+    return resolved
 
 
 def _discover_listening_port_for_pid(
@@ -502,6 +686,8 @@ class PpssppLauncher:
         exe_path: Path | None = None,
         ws_port: int | None = None,
         log_path: Path | None = None,
+        diagnostic_mode: bool = False,
+        graphics_backend: int | None = None,
     ):
         if exe_path is not None:
             self.exe_path = Path(exe_path).resolve()
@@ -515,6 +701,13 @@ class PpssppLauncher:
         # None = random port per start(); int = fixed port.
         self.ws_port: int | None = ws_port
         self.log_path = log_path
+        # Opt-in only. False keeps stdout/stderr on DEVNULL exactly as
+        # before, so no existing caller changes behaviour.
+        self.diagnostic_mode = diagnostic_mode
+        self.graphics_backend = graphics_backend
+        self._log_sink: IO[str] | None = None
+        # Path of the failure list the last start() cleared, if any.
+        self.cleared_failed_backends: Path | None = None
         self._proc: subprocess.Popen | None = None
         # Track the appendconfig ini so we can clean it up on stop().
         self._appendconfig_path: Path | None = None
@@ -546,7 +739,7 @@ class PpssppLauncher:
             PpssppNotFound: PPSSPP executable does not exist.
             IsoNotFound: ISO file does not exist.
         """
-        # W9 (review v2): start() over a still-live process would orphan
+        # start() over a still-live process would orphan
         # the old one (its Popen handle is overwritten, so stop() can
         # never reach it) and leak the old appendconfig ini. Fail fast
         # instead — the caller owns the stop/restart sequencing.
@@ -555,11 +748,9 @@ class PpssppLauncher:
                 f"launcher already has a live PPSSPP process (pid "
                 f"{self._proc.pid}); call stop() before start()"
             )
-        iso_path = Path(iso_path).resolve()
         if not self.exe_path.is_file():
             raise PpssppNotFound(f"PPSSPP executable not found: {self.exe_path}")
-        if not iso_path.is_file():
-            raise IsoNotFound(f"ISO file not found: {iso_path}")
+        iso_path = _validate_iso_path(Path(iso_path))
 
         # Pick a port: random if self.ws_port is None.
         if self.ws_port is None:
@@ -573,7 +764,7 @@ class PpssppLauncher:
         # Write appendconfig ini and pass --appendconfig=<path> to PPSSPP.
         # Desktop PPSSPP does not parse --debugger=PORT (only headless does).
         # See open_source/ppsspp/UI/NativeApp.cpp:610-613.
-        self._appendconfig_path = _write_appendconfig_ini(self.ws_port)
+        self._appendconfig_path = _write_appendconfig_ini(self.ws_port, self.graphics_backend)
 
         cmd = [str(self.exe_path), f"--appendconfig={self._appendconfig_path}"]
         if extra_args:
@@ -582,20 +773,43 @@ class PpssppLauncher:
 
         # PPSSPP loading ISO requires graphics subsystem; default windowed.
         # CREATE_NO_WINDOW causes CPU not started, game=null, PC=0x00000000.
-        creationflags = (
-            0 if windowed else (subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-        )
+        creationflags = 0
+        if not windowed and sys.platform == "win32":
+            # getattr: CREATE_NO_WINDOW only exists on Windows; a plain attribute
+            # access fails mypy on POSIX (typeshed has no such attribute there).
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         # cwd set to PPSSPP exe dir for portable mode (memstick/ lookup).
         ppsspp_cwd = self.exe_path.parent
+
+        # Drop any recorded GPU-backend failure before booting, or the
+        # previous run's state makes this one pop a modal dialog and hang.
+        self.cleared_failed_backends = _clear_failed_gpu_backends(ppsspp_cwd)
 
         # subprocess.Popen is blocking-ish but very short; run in thread
         # to keep event loop free. _wait_for_port polls with time.sleep,
         # so it MUST run in a thread (else it blocks the event loop).
         def _spawn_and_wait() -> subprocess.Popen:
+            # By default both streams are discarded, so a PPSSPP-side
+            # crash (the graphics-driver dialog the user reported) leaves no
+            # trace. diagnostic_mode redirects them to log_path so the evidence
+            # survives root-cause analysis. stderr is folded into stdout so
+            # the interleaved ordering is preserved in one file.
+            self._log_sink = None
+            if self.diagnostic_mode and self.log_path is not None:
+                self.log_path.parent.mkdir(parents=True, exist_ok=True)
+                self._log_sink = open(  # noqa: SIM115 - closed in stop()
+                    self.log_path, "w", encoding="utf-8", errors="replace"
+                )
+                sink: int | IO[str] = self._log_sink
+                err_sink: int | IO[str] = subprocess.STDOUT
+            else:
+                sink = subprocess.DEVNULL
+                err_sink = subprocess.DEVNULL
+
             proc = subprocess.Popen(
                 cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=sink,
+                stderr=err_sink,
                 # Make PPSSPP the leader of a new session/process-group on
                 # POSIX (start_new_session=True ⇒ setsid()). This is required
                 # for _force_kill_pid's POSIX path, which calls
@@ -633,38 +847,83 @@ class PpssppLauncher:
         updated value automatically (no API change).
 
         Both branches end by running
-        ``warn_if_debugger_exposed_externally`` (W9, review v3): the
+        ``_ensure_debugger_not_exposed``: the
         fast path used to return before it, so the *common* case never
         produced the unauthenticated-debugger exposure warning.
 
+        Ownership: Phase 1 no longer accepts *any* listener — the port is
+        attributed to OUR pid via ``_port_owned_by_pid`` first, so a
+        foreign process that grabbed the port in ``_pick_free_port``'s
+        TOCTOU window is never mistaken for the emulator.
+
         Returns:
             True if ``self.ws_port`` is confirmed listening.
+
+        Raises:
+            WsConnectFailed: the debugger port for OUR pid is bound to a
+                non-loopback address (unauthenticated exposure) and the
+                operator has not set ``PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER``.
         """
         if self._proc is None or self.ws_port is None:
             return False
+        pid = self._proc.pid
 
         # Phase 1: poll picked port briefly.
         phase1_timeout = timeout / 2
         phase1_deadline = time.time() + phase1_timeout
+        ownership_unverified = False
         while time.time() < phase1_deadline:
             if self._is_port_listening():
-                # 🟡8: the port we requested is the one now listening, so
-                # that (not a discovered value) is the one to audit.
-                warn_if_debugger_exposed_externally(self._proc.pid, self.ws_port)
-                return True
+                owned = _port_owned_by_pid(pid, self.ws_port)
+                if owned is False:
+                    # A foreign process owns the picked port (port
+                    # squatting / endpoint hijack). Do NOT accept it; keep
+                    # waiting — the phase/deadline logic keeps this bounded.
+                    log.warning(
+                        "WSDBG-SQUAT: port %d is listening but is NOT owned "
+                        "by PPSSPP pid %s — a foreign process owns it; "
+                        "refusing to treat it as the emulator. Still waiting "
+                        "for the real debugger port.",
+                        self.ws_port,
+                        pid,
+                    )
+                else:
+                    if owned is None and not ownership_unverified:
+                        # Probe unavailable: ownership cannot be verified, so
+                        # keep today's accept behavior but say so once.
+                        log.warning(
+                            "WSDBG-SQUAT: cannot verify that port %d is owned "
+                            "by PPSSPP pid %s (no netstat/ss/lsof ownership "
+                            "probe available) — accepting it UNVERIFIED.",
+                            self.ws_port,
+                            pid,
+                        )
+                        ownership_unverified = True
+                    self._ensure_debugger_not_exposed(pid, self.ws_port)
+                    return True
             if self._proc.poll() is not None:
                 # Process died; no point waiting further.
                 return False
             time.sleep(0.3)
 
         # Phase 2: discover actual listening port for the PID.
-        if self._proc.pid <= 0:
+        if pid <= 0:
             return False
         discovered = _discover_listening_port_for_pid(
-            self._proc.pid,
+            pid,
             timeout=phase1_timeout,
         )
         if discovered is None:
+            return False
+        # Verify the discovered port too: if its owner is known and is not
+        # our pid, reject it rather than hand commands to a foreign listener.
+        if _port_owned_by_pid(pid, discovered) is False:
+            log.warning(
+                "WSDBG-SQUAT: discovered port %d is NOT owned by PPSSPP pid "
+                "%s — refusing to accept a foreign listener.",
+                discovered,
+                pid,
+            )
             return False
         if discovered != self.ws_port:
             log.info(
@@ -674,12 +933,49 @@ class PpssppLauncher:
                 self.ws_port,
             )
             self.ws_port = discovered
-        # 🟡8: detect a non-loopback debugger bind (Windows desktop
-        # ignores our RemoteDebuggerLocal=True, so this runtime check is
-        # the only reliable detection of an unauthenticated debugger
-        # exposed to the network).
-        warn_if_debugger_exposed_externally(self._proc.pid, discovered)
+        # Detect a non-loopback debugger bind. PPSSPP always binds the
+        # debugger port to the wildcard address (Common/Net/HTTPServer.cpp),
+        # so this runtime check is the only reliable detection of an
+        # unauthenticated debugger exposed to the network — no ini setting
+        # narrows the bind (see warn_if_debugger_exposed_externally).
+        self._ensure_debugger_not_exposed(pid, discovered)
         return self._is_port_listening()
+
+    def _ensure_debugger_not_exposed(self, pid: int, port: int) -> None:
+        """Fail closed when OUR pid/port is bound to a non-loopback address.
+
+        ``pid`` is the emulator process id (callers pass the pid they already
+        resolved); ``port`` is the port to probe.
+
+        ``warn_if_debugger_exposed_externally`` still emits its warning and
+        now also reports whether exposure WAS detected. Detection is fatal
+        by default (the debugger is UNAUTHENTICATED); the operator can opt
+        out with ``PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER``. When the bind probe
+        is unavailable the exposure cannot be detected, so behaviour is
+        unchanged (no raise) — the probe helper logs that degradation.
+        """
+        if not warn_if_debugger_exposed_externally(pid, port):
+            return
+        if _remote_debugger_allowed():
+            log.warning(
+                "WSDBG-EXPOSED: PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER is set — "
+                "accepting the externally-bound, UNAUTHENTICATED debugger on "
+                "port %d against the default fail-closed policy.",
+                port,
+            )
+            return
+        raise WsConnectFailed(
+            f"PPSSPP debugger on port {port} is bound to a non-loopback "
+            f"address (pid {pid}) and is UNAUTHENTICATED: any "
+            f"reachable host can read/write emulated memory and inject "
+            f"input. PPSSPP binds this port to the wildcard address "
+            f"unconditionally (Common/Net/HTTPServer.cpp:221 INADDR_ANY), so "
+            f"no ppsspp.ini setting — RemoteDebuggerLocal included — can "
+            f"narrow it. Restrict the port to loopback with an OS firewall "
+            f"rule, or explicitly accept the risk by setting env "
+            f"PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1. "
+            f"Refusing to connect."
+        )
 
     def _is_port_listening(self) -> bool:
         """Check if WebSocket port is listening."""
@@ -712,7 +1008,28 @@ class PpssppLauncher:
                         self._proc.wait(timeout=2)
                     except subprocess.TimeoutExpired:
                         _force_kill_pid(self._proc.pid)
+                        # Reap after the force-kill (review-v4 W-8):
+                        # taskkill / SIGKILL are asynchronous with respect
+                        # to our reaper, so without this final wait() a
+                        # POSIX child lingers as a zombie until the next
+                        # Popen reaps it, and a Windows Popen is dropped
+                        # while the tree may still be dying. Bounded and
+                        # best-effort: never mask the cleanup below.
+                        try:
+                            self._proc.wait(timeout=5)
+                        except (subprocess.TimeoutExpired, OSError) as e:
+                            log.warning(
+                                "force-killed PPSSPP pid %s did not reap within 5s: %s",
+                                self._proc.pid,
+                                e,
+                            )
             self._proc = None
+        # Close the diagnostic sink so the log is flushed and can be
+        # read back. Best-effort: a failure here must not block cleanup.
+        if self._log_sink is not None:
+            with contextlib.suppress(OSError):
+                self._log_sink.close()
+            self._log_sink = None
         # Clean up the appendconfig ini (best-effort; ignore errors).
         if self._appendconfig_path is not None:
             try:

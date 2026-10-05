@@ -34,6 +34,7 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp.types import CallToolResult, ImageContent
 
+from ppsspp_dfx_mcp.service import screenshot_service
 from ppsspp_dfx_mcp.tools import screenshot as sc
 
 pytestmark = pytest.mark.asyncio
@@ -79,6 +80,10 @@ def _patch_capture(monkeypatch: pytest.MonkeyPatch, **returns: Any) -> AsyncMock
         yield AsyncMock(), capture
 
     monkeypatch.setattr(sc, "session_capture", fake_session_capture)
+    # `ppsspp_screenshot` captures through the service (W19); `dump` still
+    # opens session_capture in the tool module. Patch both so either path is
+    # intercepted.
+    monkeypatch.setattr(screenshot_service, "session_capture", fake_session_capture)
     return capture
 
 

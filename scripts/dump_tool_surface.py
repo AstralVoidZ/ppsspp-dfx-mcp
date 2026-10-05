@@ -50,6 +50,36 @@ def _canonical(schema: dict | None) -> str:
     return json.dumps(schema or {}, ensure_ascii=False, sort_keys=True)
 
 
+def _required_of(schema: dict | None) -> list[str]:
+    """The schema's `required` list, or [] when absent."""
+    return list((schema or {}).get("required") or [])
+
+
+def _property_facts(schema: dict | None) -> dict[str, dict]:
+    """Per-property `description` / `default` presence, for input parameters.
+
+    Spec 008 defect A4: a property that is absent from `required` but carries a
+    non-null `default` is filled silently by a generic JSON-Schema client. The
+    description then has to carry the requiredness statement (FR-007). Only the
+    names were recorded before, so that combination was invisible in the diff.
+
+    `has_default` is recorded even when the value is null, so "no default key"
+    and "explicitly null default" stay distinguishable.
+    """
+    props = (schema or {}).get("properties") or {}
+    out: dict[str, dict] = {}
+    for name, node in props.items():
+        if not isinstance(node, dict):
+            continue
+        out[name] = {
+            "description": node.get("description"),
+            "has_default": "default" in node,
+            "default": node.get("default"),
+            "type": node.get("type"),
+        }
+    return out
+
+
 async def _dump() -> dict:
     server_mod.register_all_tools()
     tools = await server_mod.mcp.list_tools()
@@ -82,6 +112,14 @@ async def _dump() -> dict:
             # rename does happen, the baseline diff shows the name instead
             # of two opaque digests.
             "input_schema_properties": sorted((input_schema or {}).get("properties") or {}),
+            # `required`, and per-property `description` / `default`, were added
+            # for spec 008 (defects A4 / FR-007). A parameter that is NOT in
+            # `required` but HAS a non-null default is silently filled by a
+            # generic JSON-Schema client -- so the default has to be visible in
+            # the baseline alongside the description that must compensate for
+            # it. Property NAMES alone were not enough to see that.
+            "input_schema_required": sorted(_required_of(input_schema)),
+            "input_schema_property_facts": _property_facts(input_schema),
             "output_schema_chars": len(output_json),
             "output_schema_sha1": hashlib.sha1(output_json.encode("utf-8")).hexdigest(),
             "annotations": _annotations_dict(getattr(t, "annotations", None)),

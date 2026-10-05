@@ -14,6 +14,7 @@ import asyncio
 import pytest
 
 from ppsspp_dfx_mcp.core.batch_jobs import get_registry
+from ppsspp_dfx_mcp.service import scan_engine as scan_engine_mod
 from ppsspp_dfx_mcp.tools import scan as scan_mod
 from ppsspp_dfx_mcp.tools.scan import scan
 
@@ -69,13 +70,18 @@ async def _resolve(session_id: str | None) -> str:
 def fake_scan(monkeypatch: pytest.MonkeyPatch):
     client = FakeClient()
     monkeypatch.setattr(scan_mod, "session_client", lambda session_id: FakeSessionClient(client))
+    # Pattern mode runs through the extracted service (W19), which opens
+    # session_client from its own module globals.
+    monkeypatch.setattr(
+        scan_engine_mod, "session_client", lambda session_id: FakeSessionClient(client)
+    )
     monkeypatch.setattr(scan_mod, "resolve_session_id", _resolve)
 
     async def _alive(session_id: str) -> None:
         return None
 
     monkeypatch.setattr(scan_mod, "validate_session_alive", _alive)
-    scan_mod._reset_value_sessions_for_tests()
+    scan_mod.reset_value_sessions()
     return client
 
 
@@ -146,7 +152,8 @@ async def test_value_foreground_cap_contract_unchanged(fake_scan):
     )
     assert r.get("action") != "submitted"
     assert r["scan_handle"]
-    scan_mod._VALUE_SESSIONS.pop(r["scan_handle"], None)
+    # T053 S-4：尾清理走生产语义化回收 API，不再直写 _VALUE_SESSIONS。
+    scan_mod.reset_value_sessions()
 
 
 # ── Background wall-clock budget ─────────────────────────────────────────
@@ -162,6 +169,9 @@ async def test_bg_budget_exceeded_fails_job_cleanly(fake_scan, monkeypatch: pyte
     monkeypatch.setattr(scan_mod, "SCAN_BG_BUDGET_S", 0.05)
     monkeypatch.setattr(
         scan_mod, "session_client", lambda session_id: FakeSessionClient(SlowClient())
+    )
+    monkeypatch.setattr(
+        scan_engine_mod, "session_client", lambda session_id: FakeSessionClient(SlowClient())
     )
     r = await scan(
         mode="pattern",

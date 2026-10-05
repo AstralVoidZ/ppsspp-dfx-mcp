@@ -13,40 +13,38 @@ regions in the same response.
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.search_memory_info import SearchMemoryInfoResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.search_memory_info import SearchMemoryInfoResponse
 
-SearchMemoryInfoOutput = derive_output_contract("SearchMemoryInfoOutput", SearchMemoryInfoResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    SearchMemoryInfoOutput = dict[str, Any]
+else:
+    SearchMemoryInfoOutput = derive_output_contract(
+        "SearchMemoryInfoOutput", SearchMemoryInfoResponse
+    )
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["search_memory_info"]
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Search memory allocation/write/texture metadata tags.
-#
-# Returns:
-# SearchMemoryInfoResponse dict: regions / count / raw / text.
-#
-# Raises:
-# ToolError: on session lookup failure, empty session_id, or WS
-# failure.
 @mcp.tool(
     name="ppsspp_search_memory_info",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -124,15 +122,10 @@ async def search_memory_info(
         },
     )
 
-    try:
-        async with session_client(session_id) as client:
-            raw = await client.search_memory_info(
-                match=match, address=address_int, end=end_int, type=type
-            )
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        raw = await client.search_memory_info(
+            match=match, address=address_int, end=end_int, type=type
+        )
 
     if not isinstance(raw, dict):
         raw = {}

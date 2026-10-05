@@ -219,11 +219,11 @@ class TestA1BuildStepFilterUnit:
     """Unit tests for PpssppDebugClient._build_step_filter."""
 
     def test_returns_none_when_no_pre_state(self) -> None:
-        """No pre_pc AND no pre_ticks → filter disabled (None)."""
-        assert PpssppDebugClient._build_step_filter(None, None) is None
+        """No pre_pc AND no pre_ticks → filter disabled (None).
 
-    def test_returns_none_when_both_none(self) -> None:
-        """Explicit None for both → None (backward compat)."""
+        Covers both the omitted-args and the explicit-``None`` call shape
+        (backward compat): they hit the same branch, so one case suffices.
+        """
         assert PpssppDebugClient._build_step_filter(None, None) is None
 
     def test_rejects_broadcast_matching_pre_pc_and_ticks(self) -> None:

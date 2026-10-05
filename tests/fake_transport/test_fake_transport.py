@@ -145,13 +145,6 @@ class TestCall:
         # timeout is an explicit named param, not in **params
         assert "timeout" not in params
 
-    async def test_call_returns_dict_protocol_compatible_with_wsTransport(self):
-        """FakeTransport.call returns a dict — same protocol as WsTransport.call."""
-        ft = FakeTransport()
-        ft.set_response("test.event", {"foo": "bar"})
-        result = await ft.call("test.event")
-        assert isinstance(result, dict)
-
 
 # ============================================================================
 # fire_and_forget() — task 5.2
@@ -304,19 +297,14 @@ class TestProtocolCompatibility:
         ft = FakeTransport()
         ft.set_response("test.event", {"ok": True})
         result = await ft.call("test.event")
-        assert isinstance(result, dict)
-
-    async def test_protocol_fire_and_forget_returns_none(self):
-        ft = FakeTransport()
-        result = await ft.fire_and_forget("cpu.stepping")
-        assert result is None
+        assert result == {"ok": True}
 
     async def test_protocol_wait_for_state_returns_dict_or_raises_timeout(self):
         ft = FakeTransport()
         ft.set_state({"stepping": True})
-        # Satisfied → returns dict
+        # Satisfied → returns the state dict
         result = await ft.wait_for_state(lambda s: s["stepping"] is True, timeout_ms=50)
-        assert isinstance(result, dict)
+        assert result == {"stepping": True}
 
         # Not satisfied → raises TimeoutError
         ft.set_state({"stepping": False})

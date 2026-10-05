@@ -23,6 +23,13 @@ import pytest
 from fake_transport import FakeTransport
 
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
+from tests.unit.probe_isolation import register_probe_fixtures
+
+# Probe-registry reset fixtures (T005). The reset logic lives in
+# tests/unit/probe_isolation.py so it is independently testable; the
+# fixtures are registered here because pytest only auto-discovers
+# conftest.py files, and this package provides fixtures per subdirectory.
+register_probe_fixtures(globals())
 
 
 def _set_stepping_true(t: FakeTransport, **params: Any) -> None:

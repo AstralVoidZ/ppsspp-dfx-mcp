@@ -51,7 +51,7 @@ def fake_scan(monkeypatch: pytest.MonkeyPatch):
         return None
 
     monkeypatch.setattr(scan_mod, "validate_session_alive", _alive)
-    scan_mod._reset_value_sessions_for_tests()
+    scan_mod.reset_value_sessions()
     return client
 
 
@@ -62,6 +62,22 @@ async def _resolve(session_id: str | None) -> str:
 async def test_pattern_requires_pattern_arg(fake_scan):
     with pytest.raises(scan_mod.ArgsInvalid, match="pattern is required"):
         await scan(mode="pattern", start_addr="0x08804000", end_addr="0x08805000")
+
+
+async def test_value_without_phase_rejected_early(fake_scan):
+    """phase 缺失 = 请求非法，必须在解析会话/进入后台分支之前拒绝。
+
+    回归护栏：此前 background=true 时 phase=None 会放行到后台分支，以 None
+    会话调用 validate_session_alive(None)，报出与真实原因无关的
+    SessionNotFound；前台路径则由 _scan_value 的 phase 兜底检查挡住。
+    """
+    with pytest.raises(scan_mod.ArgsInvalid, match="requires phase"):
+        await scan(
+            mode="value",
+            background=True,
+            start_addr="0x08804000",
+            end_addr="0x08805000",
+        )
 
 
 async def test_value_initial_returns_handle_and_caps_range(fake_scan):
@@ -114,7 +130,8 @@ async def test_narrow_rejects_cross_session_handle(fake_scan):
         await scan(
             mode="value", phase="narrow", value=0x41, scan_handle=handle, session_id="sess-B"
         )
-    scan_mod._VALUE_SESSIONS.pop(handle, None)
+    # T053 S-4：尾清理走生产语义化回收 API，不再直写 _VALUE_SESSIONS。
+    scan_mod.reset_value_sessions()
 
 
 async def test_value_lifecycle_narrow_list_drop(fake_scan):
@@ -228,4 +245,5 @@ async def test_second_background_scan_on_same_session_rejected(fake_scan):
         if first.status in ("completed", "failed", "cancelled"):
             break
         await asyncio.sleep(0.05)
-    scan_mod._VALUE_SESSIONS.clear()
+    # T053 S-4：尾清理走生产语义化回收 API，不再直写 _VALUE_SESSIONS。
+    scan_mod.reset_value_sessions()

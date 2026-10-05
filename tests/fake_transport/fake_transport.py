@@ -45,6 +45,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from ppsspp_dfx_mcp.core.call_diagnostics import CallDiagnostics
+
 # Type alias for response configuration: either a fixed dict or a
 # callable that takes the call's **params and returns a dict.
 ResponseConfig = dict[str, Any] | Callable[..., dict[str, Any]]
@@ -67,6 +69,10 @@ class FakeTransport:
         # Configured handlers for `fire_and_forget()` — event -> callable.
         self._faf_handlers: dict[str, FAFHandler] = {}
         # Recorded call() invocations: list of (event, params) tuples.
+        # Same diagnostics surface the real WsTransport exposes, so code
+        # paths that read it (T044 timeout attribution) are actually
+        # exercised by fixture-backed tests rather than silently skipped.
+        self.diagnostics = CallDiagnostics()
         self.calls: list[tuple[str, dict[str, Any]]] = []
         # Recorded fire_and_forget() invocations: list of (event, params) tuples.
         self.fire_and_forget_calls: list[tuple[str, dict[str, Any]]] = []

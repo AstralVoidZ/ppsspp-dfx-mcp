@@ -105,3 +105,28 @@ async def test_session_start_then_read_memory_roundtrip(mcp_inspector):
     read_payload = json.loads(read_result.content[0].text)
     # value field must be present (recorded fixture has it).
     assert "value" in read_payload, f"read_memory response missing 'value' field: {read_payload!r}"
+
+
+@_ASYNC
+async def test_replay_execute_rejects_undecodable_base64(mcp_inspector):
+    """G-8/FR-008 end-to-end: undecodable base64 is rejected over the wire.
+
+    Goes through the FULL stdio JSON-RPC path (client → server → tool).
+    The rejection happens before session resolution / any PPSSPP I/O, so
+    a dummy session_id is enough. "How it fails": if the pre-validation
+    is removed, the response is an error from session resolution instead
+    of an [ARGS_INVALID] base64 message.
+    """
+    result = await mcp_inspector.call_tool(
+        "ppsspp_replay",
+        {
+            "session_id": "spike-dummy",
+            "action": "execute",
+            "version": 1,
+            "base64_input": "@@@not-base64@@@",
+        },
+    )
+    assert result.is_error, f"expected an error result, got {result.content!r}"
+    text = result.content[0].text if result.content else ""
+    assert "[ARGS_INVALID]" in text, f"missing [ARGS_INVALID]: {text!r}"
+    assert "not valid base64" in text, f"missing base64 rejection message: {text!r}"

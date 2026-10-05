@@ -182,21 +182,46 @@ class TestScriptEntryContract:
         assert entry.requires_ppsspp is False  # default
 
     def test_script_entry_rejects_invalid_category(self):
-        """An invalid category value raises ManifestError (validated in
-        ScriptManifest._load_locked, not in ScriptEntry itself — the
-        model accepts any string, the manifest enforces the allowlist)."""
-        # ScriptEntry itself accepts any category string (no enum check);
-        # the manifest loader enforces the _VALID_CATEGORIES allowlist.
-        entry = ScriptEntry(
-            name="test",
-            description="desc",
-            category="invalid_category",  # accepted by model
-            path="scripts/test.py",
-            input_model="In",
-            output_model="Out",
-        )
-        assert entry.category == "invalid_category"  # model accepts
-        # Manifest loader is the gatekeeper (covered by other tests).
+        """An invalid category value is rejected by ScriptEntry itself (A16:
+        the allowlist lives on the model via a field validator, and raises
+        ManifestError — the loader no longer re-checks it)."""
+        with pytest.raises(ManifestError, match="invalid category"):
+            ScriptEntry(
+                name="test",
+                description="desc",
+                category="invalid_category",
+                path="scripts/test.py",
+                input_model="In",
+                output_model="Out",
+            )
+
+    def test_script_entry_accepts_every_valid_category(self):
+        """Every value in VALID_SCRIPT_CATEGORIES is accepted by the model."""
+        from ppsspp_dfx_mcp.spec.script_manifest import VALID_SCRIPT_CATEGORIES
+
+        for category in sorted(VALID_SCRIPT_CATEGORIES):
+            entry = ScriptEntry(
+                name="test",
+                description="desc",
+                category=category,
+                path="scripts/test.py",
+                input_model="In",
+                output_model="Out",
+            )
+            assert entry.category == category
+
+    def test_script_entry_rejects_invalid_status(self):
+        """An invalid status value is rejected by ScriptEntry (ManifestError)."""
+        with pytest.raises(ManifestError, match="invalid status"):
+            ScriptEntry(
+                name="test",
+                description="desc",
+                category="misc",
+                path="scripts/test.py",
+                input_model="In",
+                output_model="Out",
+                status="wip",
+            )
 
 
 # ============================================================================

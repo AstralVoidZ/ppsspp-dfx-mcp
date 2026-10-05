@@ -5,9 +5,10 @@ Anchor: spec/script_manifest.py `ScriptEntry.status` (F1) + server.py
 (F4/F5) + tools/script.py `run_script` session resolution (F2/F3).
 
 Review-r3 fixes covered here:
-- F1: machine-readable `status` (explicit > description-prefix inference >
-  migrated default); invalid status → ManifestError; exposed+skeleton is
-  rejected by the registration preflight (never surfaces in tools/list).
+- F1: machine-readable `status` is EXPLICIT (an invalid value → ManifestError;
+  the legacy `[skeleton]` description-prefix back-fill was removed in A16);
+  exposed+skeleton is rejected by the registration preflight (never surfaces
+  in tools/list).
 - F2: the exposed wrapper forwards session_id so ctx.session_id is set.
 - F3: `requires_ppsspp=true` scripts fail with SESSION_NOT_FOUND when no
   session resolves (tool parameter > Input-model field).
@@ -136,12 +137,12 @@ def _inject_manifest(manifest_path: Path) -> ScriptManifest:
 
 
 # ============================================================================
-# F1 — status field: explicit > description-prefix inference > default
+# F1 — status field is explicit (no description-prefix inference)
 # ============================================================================
 
 
-class TestStatusInference:
-    """`status` backfill keeps legacy manifests loading unchanged."""
+class TestStatusExplicit:
+    """`status` is taken verbatim; the legacy prefix back-fill is GONE (A16)."""
 
     def test_explicit_status_wins(self, tmp_path: Path):
         """An explicit status field is kept as-is, even with a prefix."""
@@ -157,29 +158,27 @@ class TestStatusInference:
         manifest = _inject_manifest(manifest_path)
         assert manifest.get_script("probe").status == "migrated"
 
-    def test_skeleton_prefix_infers_skeleton(self, tmp_path: Path):
-        """Legacy '[skeleton]' description prefix infers status=skeleton."""
+    def test_skeleton_prefix_no_longer_backfills_status(self, tmp_path: Path):
+        """Legacy '[skeleton]' prefix must NOT infer status (A16: back-fill is
+        removed). Without an explicit `status`, the field defaults to
+        migrated — so the prefix is decorative text only."""
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
             tmp_path,
             [_manifest_entry("probe", path, description="[skeleton] body not re-wired")],
         )
         manifest = _inject_manifest(manifest_path)
-        assert manifest.get_script("probe").status == "skeleton"
+        assert manifest.get_script("probe").status == "migrated"
 
-    def test_migrated_prefix_and_no_prefix_default_to_migrated(self, tmp_path: Path):
-        """'[migrated]' prefix and plain descriptions both infer migrated."""
+    def test_no_prefix_defaults_to_migrated(self, tmp_path: Path):
+        """A plain description with no explicit status defaults to migrated."""
         path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
         manifest_path = _write_manifest(
             tmp_path,
-            [
-                _manifest_entry("probe_a", path, description="[migrated] converted"),
-                _manifest_entry("probe_b", path, description="no marker"),
-            ],
+            [_manifest_entry("probe", path, description="no marker")],
         )
         manifest = _inject_manifest(manifest_path)
-        assert manifest.get_script("probe_a").status == "migrated"
-        assert manifest.get_script("probe_b").status == "migrated"
+        assert manifest.get_script("probe").status == "migrated"
 
     def test_invalid_status_raises_manifest_error(self, tmp_path: Path):
         """An unknown status value fails manifest validation loudly."""
@@ -187,6 +186,53 @@ class TestStatusInference:
         manifest_path = _write_manifest(tmp_path, [_manifest_entry("probe", path, status="wip")])
         with pytest.raises(ManifestError, match="invalid status"):
             _inject_manifest(manifest_path)
+
+    def test_invalid_category_raises_manifest_error(self, tmp_path: Path):
+        """An unknown category value fails manifest validation loudly (A16:
+        the allowlist now lives on ScriptEntry, not the loader)."""
+        path = _write_script(tmp_path, "probe.py", _PROBE_SCRIPT)
+        manifest_path = _write_manifest(
+            tmp_path, [_manifest_entry("probe", path, category="nonsense")]
+        )
+        with pytest.raises(ManifestError, match="invalid category"):
+            _inject_manifest(manifest_path)
+
+
+# ============================================================================
+# A17 — module cache carries a content stamp (edited scripts reload)
+# ============================================================================
+
+
+class TestModuleCacheContentStamp:
+    """A script edited on disk reloads without an explicit `reload_scripts`."""
+
+    async def test_edited_script_reloads_without_reload_scripts(self, tmp_path: Path):
+        from ppsspp_dfx_mcp.tools.script import run_script
+
+        path = _write_script(tmp_path, "plain.py", _PLAIN_SCRIPT)
+        manifest_path = _write_manifest(
+            tmp_path,
+            [
+                _manifest_entry(
+                    "stamp_probe", path, input_model="PlainInput", output_model="PlainOutput"
+                )
+            ],
+        )
+        _inject_manifest(manifest_path)
+
+        first = await run_script(name="stamp_probe", input={})
+        assert first["output"]["status"] == "ok"
+
+        # Rewrite the file with different behaviour; the content stamp must
+        # invalidate the cache WITHOUT calling reload_scripts.
+        edited = _PLAIN_SCRIPT.replace('status="ok"', 'status="edited"')
+        Path(path).write_text(edited, encoding="utf-8")
+
+        second = await run_script(name="stamp_probe", input={})
+        assert second["output"]["status"] == "edited", (
+            "edited script was served from stale cache — the content stamp "
+            "did not invalidate it (A17 regression)"
+        )
 
 
 # ============================================================================
@@ -207,6 +253,7 @@ class TestSkeletonExposedPreflight:
                     "skeleton_probe",
                     str(tmp_path / "does_not_matter.py"),
                     description="[skeleton] not implemented",
+                    status="skeleton",
                 )
             ],
         )
@@ -228,6 +275,7 @@ class TestSkeletonExposedPreflight:
                     "skeleton_probe",
                     str(tmp_path / "does_not_matter.py"),
                     description="[skeleton] not implemented",
+                    status="skeleton",
                 )
             ],
         )
@@ -428,6 +476,7 @@ class TestSyncReport:
                     "skel_probe",
                     str(tmp_path / "unused.py"),
                     description="[skeleton] not implemented",
+                    status="skeleton",
                 ),
                 _manifest_entry("broken_probe", str(tmp_path / "missing.py")),
             ],

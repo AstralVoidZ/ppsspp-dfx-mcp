@@ -14,8 +14,10 @@ Key contracts:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import logging
+import os
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -25,79 +27,39 @@ from ppsspp_dfx_mcp.config import output_dir
 from ppsspp_dfx_mcp.core.primitives import (
     DEFAULT_FRAME_INTERVAL_S,
     FOREGROUND_SCAN_LIMIT_BYTES,  # noqa: F401 — tool-layer re-export hub
-    MAX_SINGLE_READ_BYTES,  # noqa: F401 — tool-layer re-export hub (R9 contract)
+    MAX_SINGLE_READ_BYTES,  # noqa: F401 — tool-layer re-export hub
     MAX_WAIT_FRAMES,
     SCAN_BG_BUDGET_S,  # noqa: F401 — tool-layer re-export hub
     SCAN_MAX_CONSECUTIVE_READ_FAILURES,  # noqa: F401 — tool-layer re-export hub
     SCAN_READ_TIMEOUT_S,  # noqa: F401 — tool-layer re-export hub
 )
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.value_staleness import (
+    _ZERO_STREAKS,  # noqa: F401 — tool-layer re-export hub
+    STALE_ADDRESS_STREAK,  # noqa: F401 — tool-layer re-export hub
+    VALUE_OK,  # noqa: F401 — tool-layer re-export hub
+    VALUE_STALE_SUSPECTED,  # noqa: F401 — tool-layer re-export hub
+    classify_probe_reading,  # noqa: F401 — tool-layer re-export hub
+    reset_probe_streaks,  # noqa: F401 — tool-layer re-export hub
+)
+from ppsspp_dfx_mcp.errors import ArgsInvalid, SessionNotFound, ToolError, to_tool_error
+from ppsspp_dfx_mcp.spec.tool_surface_policy import (
+    CONDITIONAL_REQUIRED_PARAMS,  # noqa: F401 — tool-layer re-export hub
+    DESTRUCTIVE_HINT_POLICY,  # noqa: F401 — tool-layer re-export hub
+    DESTRUCTIVE_TOOLS,  # noqa: F401 — tool-layer re-export hub
+    DYNAMIC_INPUT_PARAMETERS,  # noqa: F401 — tool-layer re-export hub
+    MULTI_SHAPE_OUTPUT_TOOLS,  # noqa: F401 — tool-layer re-export hub
+    NON_DESTRUCTIVE_BY_POLICY,  # noqa: F401 — tool-layer re-export hub
+    REMOVAL_ACTIONS,  # noqa: F401 — tool-layer re-export hub
+)
 
 logger = logging.getLogger(__name__)
 
-# ── Schema governance: registered exceptions to `tool-schema-contract` ────
-# Parameters whose shape is decided by *runtime data* and therefore cannot
-# be constrained statically. Each entry is `<tool_name>.<param_name>` and
-# MUST be argued for in the `tool-schema-contract` spec's exception clause
-# before being listed here.
-#
-# Single source of truth on purpose: the guard test
-# (`tests/unit/l2_mcp_contract/test_output_schema_contract.py`) and the
-# gate script (`scripts/report_schema_surface.py`) both import this set —
-# if only one of them knew about an exemption, the other would report a
-# violation forever (the script's exit code is the CI signal).
-DYNAMIC_INPUT_PARAMETERS: frozenset[str] = frozenset(
-    {
-        # Shape depends on the called script (each diagnostic script
-        # declares its own Input model); callers must first learn the
-        # target via ppsspp_list_scripts.
-        "ppsspp_run_script.input",
-    }
-)
-
-# ── Schema governance: tools whose return shape varies by branch ─────────
-# The SDK validates every returned dict against the derived output contract
-# (`func_metadata.convert_result`, see `views/_contract.py` docstring): a
-# missing required field is a hard tool error. A tool that returns a
-# *different view* per branch therefore cannot use a single-shape contract —
-# its contract must be derived with `partial=True`.
-#
-# Each entry is `<tool_name>` -> why it has more than one shape. The guard
-# test `test_multi_shape_tools_are_registered` walks every registered tool's
-# source with AST and fails when a tool constructs ≥2 `*Response` classes but
-# is absent here. Without that guard the failure mode is a runtime tool
-# error on one branch only — invisible to a test suite that does not call
-# that branch.
-MULTI_SHAPE_OUTPUT_TOOLS: dict[str, str] = {
-    "ppsspp_scan": (
-        "三模式分发：pattern 返回匹配表，value 四相返回会话视图，"
-        "strings 返回字符串表（partial=True 全字段可选）"
-    ),
-    "ppsspp_breakpoint": (
-        "wait/trace 动作返回命中形状（{hit, already_paused, ...}/"
-        "{hit, hits, bp_removed, resumed, ...}），管理动作返回"
-        "{action, address, enabled, breakpoints[]}"
-    ),
-    "ppsspp_diff_memory": (
-        "action 分发：snapshot/compare/drop/list 各返回不同视图（partial=True 全字段可选）"
-    ),
-    "ppsspp_batch_status": (
-        "batch_id 省略（survey/list 模式）返回 BatchListResponse"
-        "（{jobs, retention_jobs}），指定 batch_id 返回 BatchStatusResponse"
-        "（{batch_id, status, ...}）— v0.1.6 合并 ppsspp_batch_list"
-    ),
-    "ppsspp_session": (
-        "action='wait_ready' 返回 WaitReadyResponse（{action, ready, elapsed_s, "
-        "probe_addr, probe_value, note}），其余 action 返回 SessionResponse"
-    ),
-    "ppsspp_batch_step": (
-        "background=True 返回 BatchSubmitResponse（{action, batch_id, ...}），"
-        "前台分支返回 BatchStepResponse（{executed, succeeded, results, ...}）"
-    ),
-    "ppsspp_frame_snapshot": (
-        "无会话/不可暂停路径返回 StateObserverResponse，正常路径返回 FrameSnapshotResponse"
-    ),
-}
+# ── Re-export hub (governance registries + staleness state machine) ──────
+# The tool-surface governance registry now lives in `spec/tool_surface_policy.py`
+# and the stale-address suspicion state machine in `core/value_staleness.py`
+# (both imported above). They are re-exported here so every historical import
+# point — the tool modules, the guard tests and the gate script
+# `scripts/report_schema_surface.py` — keeps resolving them from this hub.
 
 # ── Frame-wait pacing (input.wait_frames + batch_step wait steps) ────────
 # DEFAULT_FRAME_INTERVAL_S / MAX_WAIT_FRAMES live in core.primitives
@@ -114,14 +76,9 @@ MAX_FRAME_INTERVAL_S = 1.0
 # service layer enforces the same budget. duplicating the literals is how
 # tool/client budgets drift. Import; do not copy.
 DEFAULT_STRING_CAP = 4096  # read_string default when max_len <= 0
-MIN_SCAN_CHUNK_BYTES = 64  # scan chunk lower clamp
-MAX_SCAN_RANGE_BYTES = 256 * 1024 * 1024  # scan range upper cap
-# Scan reads chunk + len(pattern)-1 bytes in ONE memory.read, so an
-# unbounded pattern silently exceeds the 64 KiB single-read budget the
-# tool layer documents (symptom: an "empty successful scan"). Real-PPSSPP
-# probes showed 44KiB reads succeed, so this is a contract-consistency
-# cap, not a hard server limit.
-MAX_SCAN_PATTERN_BYTES = 4096
+# The scan bounds (MIN_SCAN_CHUNK_BYTES / MAX_SCAN_RANGE_BYTES /
+# MAX_SCAN_PATTERN_BYTES) moved to `service/scan_engine.py` together with
+# the pattern-scan algorithm they bound (W19). Import them from there.
 
 # ── Log-analysis limits ──────────────────────────────────────────────────
 
@@ -145,7 +102,11 @@ async def wait_frames_chunked(
     check session liveness between chunks.
 
     Args:
-        frames: game frames to wait; 0..MAX_WAIT_FRAMES.
+        frames: game frames to wait; 0..MAX_WAIT_FRAMES. Note 0 is a
+            legitimate no-op for ``batch_step`` wait steps (R12 ratified),
+            so the ``>= 1`` rule for the ``wait_frames`` TOOL is enforced in
+            that tool's own body (G-10 / FR-010), not here — tightening the
+            shared waiter would reject batches that legitimately no-op.
         interval_s: per-frame seconds; None → DEFAULT_FRAME_INTERVAL_S;
             must be in [MIN_FRAME_INTERVAL_S, MAX_FRAME_INTERVAL_S].
         session_id: when given, the session is validated before sleeping
@@ -209,13 +170,23 @@ def require_int_not_bool(value: Any, name: str, *, exc: type[ToolError] = ArgsIn
 
 
 def require_session_id(session_id: str | None) -> str:
-    """Guard: raise the canonical ToolError when session_id is missing.
+    """Guard an explicitly-passed session_id for schema-required tools.
 
-    The message and code are the canonical error contract shared by all
-    tools — do not vary them per call site.
+    The counterpart of ``resolve_session_id`` (FR-001) for tools whose
+    ``session_id`` is schema-required: they cannot omit it, so omission
+    never reaches the resolver. An empty value means "no session named"
+    and raises the SAME ``SessionNotFound`` (``SESSION_NOT_FOUND``) every
+    session-aware tool returns — including the resolver's 0-session case —
+    so the whole surface answers "which session?" with one error code.
+
+    Existence of a non-empty id is enforced downstream by
+    ``session_client``, which raises ``SessionNotFound`` for an unknown id.
     """
     if not session_id:
-        raise ArgsInvalid("session_id is required")
+        raise SessionNotFound(
+            "session_id is required — start a session with "
+            'ppsspp_session(action="start", iso_path=...)'
+        )
     return session_id
 
 
@@ -240,8 +211,24 @@ def resolve_output_path(subdir: str, filename: str) -> Path:
     if not path.is_relative_to(root):
         # Defense in depth — unreachable after the name check on POSIX
         # and Windows, but keeps the invariant explicit.
-        raise ArgsInvalid(f"resolved path escapes output dir: {path}")
+        # Review-v4 W-6: no resolved (server-derived) path in the message.
+        raise ArgsInvalid(f"filename {filename!r} resolves outside the output directory")
     return path
+
+
+def _chmod_owner_only(path: Path) -> None:
+    """Best-effort POSIX 0o600 on a freshly written output file.
+
+    Raw memory dumps / screenshots / recordings land under
+    ``.ppsspp-dfx/output/`` and must be owner-only, matching the
+    ``sessions.json`` 0o600 standard. Windows ACLs are left untouched.
+    """
+    if os.name != "posix":
+        return
+    # Permission tightening is best-effort: a filesystem that rejects
+    # chmod must not fail an otherwise successful capture.
+    with contextlib.suppress(OSError):
+        os.chmod(path, 0o600)
 
 
 async def save_output_bytes(subdir: str, filename: str, data: bytes) -> str:
@@ -255,6 +242,7 @@ async def save_output_bytes(subdir: str, filename: str, data: bytes) -> str:
     path = resolve_output_path(subdir, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(path.write_bytes, data)
+    _chmod_owner_only(path)
     return str(path)
 
 
@@ -263,6 +251,7 @@ async def save_output_text(subdir: str, filename: str, text: str) -> str:
     path = resolve_output_path(subdir, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(path.write_text, text, encoding="utf-8")
+    _chmod_owner_only(path)
     return str(path)
 
 

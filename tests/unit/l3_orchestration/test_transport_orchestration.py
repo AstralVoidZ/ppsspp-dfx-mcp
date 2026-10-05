@@ -26,8 +26,9 @@ spec_current_v1.md §1):
   raises timeout, defaults, predicate-before-elapsed)
 - O1-I16..I20: _recv_loop() (continue on timeout, break on closed,
   set_exception on error, set_result on normal, route ticketless)
-- O1-I21..I26: send_version() (ticket path first, fallback to events,
-  5s total, put back non-version, raise on both fail, ~7s max)
+- O1-I21..I26: send_version() (ticket path first, fallback to the dedicated
+  version queue, 5s total, non-version broadcasts stay in `events`, raise on
+  both fail, ~7s max)
 
 B.2 spec invariants anchored here (analysis_ppsspp_dfx_orchestration_
 spec_redesign_v1.md §2.3):
@@ -528,10 +529,11 @@ class TestRecvLoop:
 
 
 class TestSendVersion:
-    """L3: send_version() tries ticket path first, falls back to events queue.
+    """L3: send_version() tries the ticket path first, falls back to `_version_queue`.
 
-    B.1 O1 §1.13 invariants I21-I26: ticket path first, fallback to events,
-    5s total budget, put back non-version, raise on both fail, ~7s max.
+    B.1 O1 §1.13 invariants I21-I26: ticket path first, fallback to the
+    dedicated version queue, 5s total budget, interleaved non-version
+    broadcasts stay in `events`, raise when both paths fail, ~7s max.
     """
 
     async def test_I21_tries_ticket_path_first(self, transport, mock_ws):
@@ -560,8 +562,8 @@ class TestSendVersion:
         assert result["event"] == "version"
         assert result["name"] == "PPSSPP"
 
-    async def test_I22_falls_back_to_events_queue(self, transport, mock_ws):
-        """O1-I22: call() times out → fallback to events queue polling."""
+    async def test_I22_falls_back_to_version_queue(self, transport, mock_ws):
+        """O1-I22: call() times out → fallback to `_version_queue` polling."""
         with _patch_connect(mock_ws):
             await transport.connect()
 
@@ -585,38 +587,72 @@ class TestSendVersion:
         assert result["event"] == "version"
         assert result["name"] == "PPSSPP"
 
-    async def test_I23_fallback_total_timeout_5s(self, transport, mock_ws):
-        """O1-I23: fallback path total budget is 5.0s."""
+    async def test_I23_I25_I26_ticket_slice_then_fallback_budget(self, mock_ws):
+        """O1-I23/I25/I26: the handshake split, then raise when both fail.
+
+        The budget is per-instance (D22 raised the default so a cold start is
+        recoverable), so pin it here: ``handshake_timeout_s=5.0`` splits into a
+        2.0s ticket slice (``min(2.0, budget/2)``) plus a 3.0s fallback
+        (``budget - ticket``). Three falsifiable checks:
+
+          * the ticket path is given exactly the 2.0s slice;
+          * the fallback deadline is the 3.0s remainder, NOT the whole
+            budget -- proven by a sentinel placed on ``_version_queue`` from
+            the ticket stub: if the loop polled at 4.0s elapsed it would
+            consume the sentinel, so a surviving sentinel pins the 3.0s
+            deadline;
+          * exhausting both paths raises ``RuntimeError`` naming the total.
+        """
+        transport = WsTransport("h", 1, handshake_timeout_s=5.0)
         with _patch_connect(mock_ws):
             await transport.connect()
 
+            call_timeouts: list[float] = []
+
             async def failing_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
                 if event == "version":
+                    call_timeouts.append(timeout)
+                    # Put AFTER send_version's pre-call drain so it survives;
+                    # the fallback loop consumes it only if it polls.
+                    transport._version_queue.put_nowait({"event": "not-version", "probe": True})
                     raise TimeoutError()
                 return {}
 
             transport.call = failing_call
 
-            # Patch time.monotonic so the 5.0 budget loop sees elapsed > 5.0
             import ppsspp_dfx_mcp.core.transport as transport_mod
 
-            fake_times = iter([0.0, 6.0, 6.0])
+            # start=0.0, then the first deadline check sees 4.0s elapsed --
+            # past the 3.0s remainder but short of the 5.0s budget.
+            fake_times = iter([0.0, 4.0, 1e9])
 
             def fake_monotonic() -> float:
                 try:
                     return next(fake_times)
                 except StopIteration:
-                    return 6.0
+                    return 1e9
 
             with (
                 patch.object(transport_mod.time, "monotonic", fake_monotonic),
-                pytest.raises(RuntimeError, match="version handshake timeout"),
+                pytest.raises(RuntimeError, match=r"version handshake timeout \(5s\)"),
             ):
                 await transport.send_version()
         await transport.close()
+        assert call_timeouts == [2.0], (
+            f"the ticket path should get the 2.0s slice, got {call_timeouts}"
+        )
+        assert transport._version_queue.qsize() == 1, (
+            "at 4.0s elapsed the fallback loop must already be past its 3.0s "
+            "deadline; the queue was polled, so the split is wrong"
+        )
 
-    async def test_I24_put_back_non_version_messages(self, transport, mock_ws):
-        """O1-I24: non-version messages in fallback are put back, not dropped."""
+    async def test_I24_non_version_broadcasts_stay_in_events(self, transport, mock_ws):
+        """O1-I24: an interleaved non-version broadcast is not consumed by the handshake.
+
+        W30 routing: the ticketless `cpu.stepping` frame lands in `events` and
+        stays there, while the ticketless `version` reply is routed to the
+        handshake's own queue.
+        """
         with _patch_connect(mock_ws):
             await transport.connect()
 
@@ -645,67 +681,6 @@ class TestSendVersion:
         # The non-version message should have been put back
         ev = transport.events.get_nowait()
         assert ev["event"] == "cpu.stepping"
-
-    async def test_I25_raises_when_both_paths_timeout(self, transport, mock_ws):
-        """O1-I25: both ticket path and fallback fail → RuntimeError."""
-        with _patch_connect(mock_ws):
-            await transport.connect()
-
-            async def failing_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
-                if event == "version":
-                    raise TimeoutError()
-                return {}
-
-            transport.call = failing_call
-
-            import ppsspp_dfx_mcp.core.transport as transport_mod
-
-            fake_times = iter([0.0, 6.0, 6.0])
-
-            def fake_monotonic() -> float:
-                try:
-                    return next(fake_times)
-                except StopIteration:
-                    return 6.0
-
-            with (
-                patch.object(transport_mod.time, "monotonic", fake_monotonic),
-                pytest.raises(RuntimeError, match="version handshake timeout"),
-            ):
-                await transport.send_version()
-        await transport.close()
-
-    async def test_I26_max_duration_about_7s(self, transport, mock_ws):
-        """O1-I26: ticket path 2.0s + fallback 5.0s = ~7.0s max."""
-        with _patch_connect(mock_ws):
-            await transport.connect()
-
-            async def failing_call(event: str, timeout: float = 5.0, **params: Any) -> dict:
-                if event == "version":
-                    raise TimeoutError()
-                return {}
-
-            transport.call = failing_call
-
-            import ppsspp_dfx_mcp.core.transport as transport_mod
-
-            fake_times = iter([0.0, 6.0, 6.0])
-
-            def fake_monotonic() -> float:
-                try:
-                    return next(fake_times)
-                except StopIteration:
-                    return 6.0
-
-            with (
-                patch.object(transport_mod.time, "monotonic", fake_monotonic),
-                pytest.raises(RuntimeError, match="version handshake timeout"),
-            ):
-                await transport.send_version()
-        await transport.close()
-        # The ~7s budget is verified by the code path: call(timeout=2.0) + 5.0s
-        # fallback loop. We don't wait real time; we verify the RuntimeError
-        # is raised (both paths exhausted).
 
 
 # ============================================================================

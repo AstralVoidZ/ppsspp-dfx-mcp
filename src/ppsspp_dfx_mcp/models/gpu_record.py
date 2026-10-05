@@ -8,6 +8,7 @@ the next frame's GE commands and returns them as a binary dump).
 from __future__ import annotations
 
 import base64
+import binascii
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,7 +32,7 @@ def _extract_bytes(raw: dict[str, Any]) -> bytes:
         return b""
     try:
         return base64.b64decode(b64)
-    except (TypeError, ValueError, base64.binascii.Error):
+    except (TypeError, ValueError, binascii.Error):
         return b""
 
 

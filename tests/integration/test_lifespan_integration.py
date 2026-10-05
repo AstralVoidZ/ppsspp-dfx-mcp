@@ -1,6 +1,8 @@
-"""test_lifespan_integration.py — integration: server._lifespan end-to-end.
+"""test_lifespan_integration.py — integration: registry._lifespan end-to-end.
 
-Anchor: server.py `_lifespan` async context manager.
+Anchor: registry.py `_lifespan` async context manager (T049 后的家；
+server.py 从 registry 再导出 `_lifespan`/`_load_manifest_and_register_exposed`
+/`_shutdown_sessions` 以保持 `ppsspp_dfx_mcp.server` 兼容面).
 
 Integration scope: verify the lifespan startup/shutdown wiring:
 - Startup: spawns idle_gc_loop + calls _load_manifest_and_register_exposed
@@ -12,16 +14,20 @@ behavior in detail (empty list, N sessions, timeout isolation, failure
 isolation). This file covers the higher-level lifespan contract: that
 _entering_ and _exiting_ the lifespan triggers the right side effects
 in the right order.
+
+T052/T053 补丁点纪律：`_lifespan` 读的是 **registry 模块命名空间**的
+绑定，patch `server` 的再导出别名不生效（T049 后实测 3 个集成测试
+假阴：mock 调用 0 次）——patch 目标 MUST 是 ppsspp_dfx_mcp.registry。
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import patch
 
-import pytest
-
-from ppsspp_dfx_mcp import server as server_mod
+from ppsspp_dfx_mcp import registry as registry_mod
+from ppsspp_dfx_mcp.session import session_manager as sm_singleton
 
 # ============================================================================
 # Lifespan startup contract
@@ -43,11 +49,11 @@ class TestLifespanStartup:
     async def test_lifespan_calls_load_manifest_on_startup(self):
         """Entering _lifespan must call _load_manifest_and_register_exposed."""
         with (
-            patch.object(server_mod.session_manager, "idle_gc_loop", self._gc_noop),
-            patch.object(server_mod, "_load_manifest_and_register_exposed") as manifest_mock,
-            patch.object(server_mod, "_shutdown_sessions"),
+            patch.object(sm_singleton, "idle_gc_loop", self._gc_noop),
+            patch.object(registry_mod, "_load_manifest_and_register_exposed") as manifest_mock,
+            patch.object(registry_mod, "_shutdown_sessions"),
         ):
-            async with server_mod._lifespan(server_mod.mcp):
+            async with registry_mod._lifespan(registry_mod.mcp):
                 pass
 
         manifest_mock.assert_called_once_with()
@@ -65,11 +71,11 @@ class TestLifespanStartup:
                 return
 
         with (
-            patch.object(server_mod.session_manager, "idle_gc_loop", _gc_signaling),
-            patch.object(server_mod, "_load_manifest_and_register_exposed"),
-            patch.object(server_mod, "_shutdown_sessions"),
+            patch.object(sm_singleton, "idle_gc_loop", _gc_signaling),
+            patch.object(registry_mod, "_load_manifest_and_register_exposed"),
+            patch.object(registry_mod, "_shutdown_sessions"),
         ):
-            async with server_mod._lifespan(server_mod.mcp):
+            async with registry_mod._lifespan(registry_mod.mcp):
                 # GC task should have started during lifespan startup.
                 await asyncio.wait_for(gc_started.wait(), timeout=1.0)
 
@@ -101,11 +107,11 @@ class TestLifespanShutdown:
             shutdown_calls += 1
 
         with (
-            patch.object(server_mod.session_manager, "idle_gc_loop", self._gc_noop),
-            patch.object(server_mod, "_load_manifest_and_register_exposed"),
-            patch.object(server_mod, "_shutdown_sessions", _fake_shutdown),
+            patch.object(sm_singleton, "idle_gc_loop", self._gc_noop),
+            patch.object(registry_mod, "_load_manifest_and_register_exposed"),
+            patch.object(registry_mod, "_shutdown_sessions", _fake_shutdown),
         ):
-            async with server_mod._lifespan(server_mod.mcp):
+            async with registry_mod._lifespan(registry_mod.mcp):
                 pass  # exit immediately (simulates Ctrl+C right after startup)
 
         assert shutdown_calls == 1, f"_shutdown_sessions called {shutdown_calls} times, expected 1"
@@ -133,11 +139,11 @@ class TestLifespanShutdown:
                 raise  # re-raise so task is marked cancelled
 
         with (
-            patch.object(server_mod.session_manager, "idle_gc_loop", _gc_tracks_cancellation),
-            patch.object(server_mod, "_load_manifest_and_register_exposed"),
-            patch.object(server_mod, "_shutdown_sessions"),
+            patch.object(sm_singleton, "idle_gc_loop", _gc_tracks_cancellation),
+            patch.object(registry_mod, "_load_manifest_and_register_exposed"),
+            patch.object(registry_mod, "_shutdown_sessions"),
         ):
-            async with server_mod._lifespan(server_mod.mcp):
+            async with registry_mod._lifespan(registry_mod.mcp):
                 # Yield control so the GC task can start and enter its
                 # try block before we exit the lifespan.
                 await asyncio.wait_for(gc_entered_try.wait(), timeout=1.0)
@@ -171,32 +177,33 @@ class TestLifespanManifestRobustness:
         except asyncio.CancelledError:
             return
 
-    async def test_lifespan_does_not_raise_on_manifest_error(self):
-        """If _load_manifest_and_register_exposed raises, lifespan must
-        NOT propagate the exception — it should log and continue."""
+    async def test_lifespan_does_not_raise_on_manifest_error(self, caplog):
+        """A non-`ManifestError` manifest failure must NOT abort startup.
+
+        `_lifespan` wraps the manifest call in `except Exception` so a
+        different failure type (e.g. UnicodeDecodeError from a non-UTF8
+        scripts.yaml) is logged and startup continues with the static
+        tools intact — instead of propagating and killing the server.
+        """
 
         def _failing_manifest_load():
             raise RuntimeError("malformed manifest YAML")
 
         with (
-            patch.object(server_mod.session_manager, "idle_gc_loop", self._gc_noop),
+            patch.object(sm_singleton, "idle_gc_loop", self._gc_noop),
             patch.object(
-                server_mod,
+                registry_mod,
                 "_load_manifest_and_register_exposed",
                 _failing_manifest_load,
             ),
-            patch.object(server_mod, "_shutdown_sessions"),
+            patch.object(registry_mod, "_shutdown_sessions"),
+            caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp"),
         ):
-            # Must not raise — manifest errors are best-effort.
-            # Note: the current implementation does NOT wrap
-            # _load_manifest_and_register_exposed in try/except, so a
-            # manifest error WILL propagate. This test documents the
-            # spec'd behavior; if it fails, the implementation needs
-            # a try/except wrapper (file as a regression test).
-            try:
-                async with server_mod._lifespan(server_mod.mcp):
-                    pass
-            except RuntimeError as e:
-                pytest.xfail(
-                    f"lifespan propagates manifest error (spec says it should be best-effort): {e}"
-                )
+            # Must not raise — a manifest failure is best-effort.
+            async with registry_mod._lifespan(registry_mod.mcp):
+                pass
+
+        warnings = [r.message for r in caplog.records]
+        assert any(
+            "manifest load/registration failed" in m and "RuntimeError" in m for m in warnings
+        ), f"expected a manifest-failure warning naming the exception type, got: {warnings}"

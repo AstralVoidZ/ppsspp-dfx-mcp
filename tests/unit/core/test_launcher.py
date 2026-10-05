@@ -43,7 +43,7 @@ from ppsspp_dfx_mcp.core.launcher import (
     _pick_free_port,
     _write_appendconfig_ini,
 )
-from ppsspp_dfx_mcp.errors import IsoNotFound, PpssppNotFound
+from ppsspp_dfx_mcp.errors import IsoNotFound, PpssppNotFound, WsConnectFailed
 
 # Platform gate for the exposure-warning tests below: they patch the
 # **Windows** bind probe, which is only consulted on win32 (POSIX goes
@@ -491,6 +491,57 @@ class TestStart:
 
         mock_wait.assert_not_called()
 
+    async def test_unc_iso_rejected(self, tmp_path):
+        """A12: UNC/SMB iso_path is rejected before resolve (credential leak)."""
+        exe = tmp_path / "PPSSPP.exe"
+        exe.write_bytes(b"\x00")
+        launcher = PpssppLauncher(exe_path=exe, ws_port=12345)
+        with pytest.raises(IsoNotFound, match="UNC"):
+            await launcher.start(Path("\\\\attacker\\share\\game.iso"))
+
+    async def test_iso_root_outside_rejected(self, tmp_path, monkeypatch):
+        """A12: PPSSPP_DFX_ISO_ROOT containment is enforced when set."""
+        root = tmp_path / "roms"
+        root.mkdir()
+        outside = tmp_path / "elsewhere" / "game.iso"
+        outside.parent.mkdir()
+        outside.write_bytes(b"\x00")
+        exe = tmp_path / "PPSSPP.exe"
+        exe.write_bytes(b"\x00")
+        monkeypatch.setenv("PPSSPP_DFX_ISO_ROOT", str(root))
+        launcher = PpssppLauncher(exe_path=exe, ws_port=12345)
+        with pytest.raises(IsoNotFound, match="PPSSPP_DFX_ISO_ROOT"):
+            await launcher.start(outside)
+
+    async def test_iso_root_inside_accepted(self, tmp_path, monkeypatch):
+        """A12: an ordinary local ISO inside the configured root is unchanged."""
+        root = tmp_path / "roms"
+        root.mkdir()
+        iso = root / "game.iso"
+        iso.write_bytes(b"\x00")
+        exe = tmp_path / "PPSSPP.exe"
+        exe.write_bytes(b"\x00")
+        monkeypatch.setenv("PPSSPP_DFX_ISO_ROOT", str(root))
+        launcher = PpssppLauncher(exe_path=exe, ws_port=12345)
+
+        fake_proc = MagicMock(spec=subprocess.Popen)
+        fake_proc.pid = 99999
+        fake_proc.poll.return_value = None
+        with (
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.subprocess.Popen",
+                return_value=fake_proc,
+            ),
+            patch.object(launcher, "_wait_for_port", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._write_appendconfig_ini",
+                return_value=tmp_path / "fake.ini",
+            ),
+        ):
+            result = await launcher.start(iso)
+
+        assert result is fake_proc
+
 
 # ============================================================================
 # PpssppLauncher._wait_for_port
@@ -515,10 +566,15 @@ class TestWaitForPort:
         # W9: the phase-1 hit now also runs the exposure check, which reads
         # ``_proc.pid`` — the spec'd mock has no such attribute, so pin it
         # (and keep the bind probe hermetic: no real netstat/ss/lsof).
+        # W15: ownership is verified before accepting; patch the probe too.
         launcher._proc.pid = 99999
         launcher._proc.poll.return_value = None
         with (
             patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=True,
+            ),
             patch(
                 "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_windows",
                 return_value=[],
@@ -530,18 +586,60 @@ class TestWaitForPort:
         ):
             assert launcher._wait_for_port(timeout=2.0) is True
 
-    def test_phase1_hit_still_warns_on_external_bind(self, caplog):
-        """W9 (review v3): the phase-1 fast path must run the
-        external-bind warning too — it used to ``return True`` before the
-        ``warn_if_debugger_exposed_externally`` call that only phase 2
-        performed, so the common case never warned."""
+    def test_phase1_hit_external_bind_raises_by_default(self, monkeypatch, caplog):
+        """W17: a non-loopback bind of OUR pid/port is now fatal by default
+        (the debugger is unauthenticated). The warning is still logged."""
+        monkeypatch.delenv("PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER", raising=False)
         launcher = PpssppLauncher(ws_port=12345)
         launcher._proc = MagicMock(spec=subprocess.Popen)
         launcher._proc.pid = 99999
         launcher._proc.poll.return_value = None
         with (
             patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=True,
+            ),
             # Bind probe reports a wildcard bind for the picked port.
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_windows",
+                return_value=[(12345, "0.0.0.0")],
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_posix",
+                return_value=[(12345, "0.0.0.0")],
+            ),
+            caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp.core.launcher"),
+            pytest.raises(WsConnectFailed, match="non-loopback") as excinfo,
+        ):
+            launcher._wait_for_port(timeout=2.0)
+
+        # The message the caller (session start) ultimately surfaces must name
+        # the cause and the REAL remediation paths. It must also warn that
+        # RemoteDebuggerLocal does not narrow the bind — the old message told
+        # operators to set it, which cannot work (PPSSPP binds the port to the
+        # wildcard address unconditionally; Common/Net/HTTPServer.cpp:221).
+        message = str(excinfo.value)
+        assert "wildcard" in message
+        assert "RemoteDebuggerLocal" in message
+        assert "PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1" in message
+        assert "Refusing to connect" in message
+        assert "WSDBG-EXPOSED" in caplog.text
+
+    def test_phase1_hit_env_escape_hatch_suppresses_raise(self, monkeypatch, caplog):
+        """W17: PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1 accepts the exposure —
+        no raise, but the warning is still emitted."""
+        monkeypatch.setenv("PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER", "1")
+        launcher = PpssppLauncher(ws_port=12345)
+        launcher._proc = MagicMock(spec=subprocess.Popen)
+        launcher._proc.pid = 99999
+        launcher._proc.poll.return_value = None
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=True,
+            ),
             patch(
                 "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_windows",
                 return_value=[(12345, "0.0.0.0")],
@@ -555,15 +653,78 @@ class TestWaitForPort:
             assert launcher._wait_for_port(timeout=2.0) is True
 
         assert "WSDBG-EXPOSED" in caplog.text
+        assert "PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER is set" in caplog.text
 
-    def test_phase1_hit_loopback_bind_does_not_warn(self, caplog):
-        """W9: a loopback bind stays silent (no false alarm)."""
+    def test_phase1_foreign_owner_not_accepted(self, caplog):
+        """W15: a listener owned by ANOTHER pid is refused (port squatting /
+        endpoint hijack) and never accepted as the emulator."""
         launcher = PpssppLauncher(ws_port=12345)
         launcher._proc = MagicMock(spec=subprocess.Popen)
         launcher._proc.pid = 99999
         launcher._proc.poll.return_value = None
         with (
             patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=False,
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.time.time",
+                side_effect=[0.0, 0.1, 2.0],
+            ),
+            patch("ppsspp_dfx_mcp.core.launcher.time.sleep"),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid",
+                return_value=None,
+            ),
+            caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp.core.launcher"),
+        ):
+            assert launcher._wait_for_port(timeout=2.0) is False
+
+        assert "WSDBG-SQUAT" in caplog.text
+        assert "NOT owned" in caplog.text
+
+    def test_phase1_ownership_probe_unavailable_accepted(self, caplog):
+        """W15 documented degradation: no netstat/ss/lsof ownership probe →
+        accept the port (unchanged), but log once that it was unverified."""
+        launcher = PpssppLauncher(ws_port=12345)
+        launcher._proc = MagicMock(spec=subprocess.Popen)
+        launcher._proc.pid = 99999
+        launcher._proc.poll.return_value = None
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=None,
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_windows",
+                return_value=[],
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_posix",
+                return_value=[],
+            ),
+            caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp.core.launcher"),
+        ):
+            assert launcher._wait_for_port(timeout=2.0) is True
+
+        assert "cannot verify" in caplog.text
+        assert "UNVERIFIED" in caplog.text
+
+    def test_phase1_hit_loopback_bind_does_not_warn(self, monkeypatch, caplog):
+        """W9: a loopback bind stays silent (no false alarm)."""
+        monkeypatch.delenv("PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER", raising=False)
+        launcher = PpssppLauncher(ws_port=12345)
+        launcher._proc = MagicMock(spec=subprocess.Popen)
+        launcher._proc.pid = 99999
+        launcher._proc.poll.return_value = None
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=True,
+            ),
             patch(
                 "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_windows",
                 return_value=[(12345, "127.0.0.1")],
@@ -581,6 +742,7 @@ class TestWaitForPort:
     def test_phase1_process_died_returns_false(self):
         launcher = PpssppLauncher(ws_port=12345)
         launcher._proc = MagicMock(spec=subprocess.Popen)
+        launcher._proc.pid = 99999  # read up-front now (ownership attribution)
         launcher._proc.poll.return_value = 0  # exited
         # Phase 1 loop runs once: _is_port_listening=False, then poll()=0 → return False.
         with (
@@ -604,6 +766,18 @@ class TestWaitForPort:
         with (
             patch.object(launcher, "_is_port_listening", return_value=True),
             patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=True,
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_windows",
+                return_value=[(54321, "127.0.0.1")],
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._get_listening_binds_for_pid_posix",
+                return_value=[(54321, "127.0.0.1")],
+            ),
+            patch(
                 "ppsspp_dfx_mcp.core.launcher.time.time",
                 side_effect=[0.0, 2.0],
             ),
@@ -615,6 +789,35 @@ class TestWaitForPort:
         ):
             assert launcher._wait_for_port(timeout=2.0) is True
         assert launcher.ws_port == 54321
+
+    def test_phase2_discovered_foreign_owner_rejected(self, caplog):
+        """W15: a discovered port whose known owner is NOT our pid is
+        rejected rather than accepted as the emulator."""
+        launcher = PpssppLauncher(ws_port=12345)
+        launcher._proc = MagicMock(spec=subprocess.Popen)
+        launcher._proc.pid = 99999
+        launcher._proc.poll.return_value = None
+        with (
+            patch.object(launcher, "_is_port_listening", return_value=True),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._port_owned_by_pid",
+                return_value=False,
+            ),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher.time.time",
+                side_effect=[0.0, 2.0],
+            ),
+            patch("ppsspp_dfx_mcp.core.launcher.time.sleep"),
+            patch(
+                "ppsspp_dfx_mcp.core.launcher._discover_listening_port_for_pid",
+                return_value=54321,
+            ),
+            caplog.at_level(logging.WARNING, logger="ppsspp_dfx_mcp.core.launcher"),
+        ):
+            assert launcher._wait_for_port(timeout=2.0) is False
+
+        assert "WSDBG-SQUAT" in caplog.text
+        assert "discovered port 54321" in caplog.text
 
     def test_phase2_discover_none_returns_false(self):
         launcher = PpssppLauncher(ws_port=12345)
@@ -741,11 +944,56 @@ class TestStop:
         fake_proc.wait.side_effect = [
             subprocess.TimeoutExpired(cmd="x", timeout=3),
             subprocess.TimeoutExpired(cmd="x", timeout=2),
+            None,  # W-8: the bounded post-force-kill reap
         ]
         launcher._proc = fake_proc
         with patch("ppsspp_dfx_mcp.core.launcher._force_kill_pid") as mock_force:
             launcher.stop()
         mock_force.assert_called_once_with(99999)
+        assert launcher._proc is None
+
+    def test_force_kill_reaps_the_process_afterwards(self):
+        """Review-v4 W-8: the force-kill branch must reap the child.
+
+        terminate(3s) and kill(2s) both timing out means the tree only
+        dies (if at all) AFTER _force_kill_pid returns — taskkill/SIGKILL
+        are asynchronous with respect to our reaper. Without a final
+        wait() a POSIX child lingers as a zombie until the next Popen
+        reaps it, and a Windows Popen is dropped while the tree may still
+        be dying (ResourceWarning; the debugger port can stay bound).
+        The reap is bounded and best-effort: it must never raise.
+        """
+        launcher = PpssppLauncher(ws_port=12345)
+        fake_proc = MagicMock(spec=subprocess.Popen)
+        fake_proc.poll.return_value = None
+        fake_proc.pid = 99999
+        fake_proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="x", timeout=3),
+            subprocess.TimeoutExpired(cmd="x", timeout=2),
+            None,  # the post-force-kill reap
+        ]
+        launcher._proc = fake_proc
+        with patch("ppsspp_dfx_mcp.core.launcher._force_kill_pid"):
+            launcher.stop()
+        waits = [c.kwargs.get("timeout") for c in fake_proc.wait.call_args_list]
+        assert len(waits) == 3, waits
+        assert waits[-1] is not None and waits[-1] > 2, waits
+        assert launcher._proc is None
+
+    def test_force_kill_reap_timeout_is_swallowed(self):
+        """The reap must never mask or replace the cleanup that follows."""
+        launcher = PpssppLauncher(ws_port=12345)
+        fake_proc = MagicMock(spec=subprocess.Popen)
+        fake_proc.poll.return_value = None
+        fake_proc.pid = 99999
+        fake_proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="x", timeout=3),
+            subprocess.TimeoutExpired(cmd="x", timeout=2),
+            subprocess.TimeoutExpired(cmd="x", timeout=5),
+        ]
+        launcher._proc = fake_proc
+        with patch("ppsspp_dfx_mcp.core.launcher._force_kill_pid"):
+            launcher.stop()  # must not raise
         assert launcher._proc is None
 
     def test_appendconfig_path_cleaned_up(self, tmp_path):
@@ -854,39 +1102,45 @@ class TestWarnDebuggerExposedExternally:
 
     @pytest.mark.skipif(not _WIN, reason="Windows-only test (patches the Windows bind probe)")
     def test_nonloopback_bind_logs_warning_without_raising(self, monkeypatch, caplog):
-        """0.0.0.0 bind → WSDBG-EXPOSED warning, no exception."""
+        """0.0.0.0 bind → WSDBG-EXPOSED warning + returns detection=True."""
         import logging
 
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
 
         self._patch_binds(monkeypatch, [(7777, "0.0.0.0")])
         with caplog.at_level(logging.WARNING):
-            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+            detected = launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert detected is True
         assert "WSDBG-EXPOSED" in caplog.text
+        # Names the setting that does NOT help (so operators stop trying it)
+        # and the one that does.
         assert "RemoteDebuggerLocal" in caplog.text
+        assert "PPSSPP_DFX_ALLOW_REMOTE_DEBUGGER=1" in caplog.text
 
     @pytest.mark.skipif(not _WIN, reason="Windows-only test (patches the Windows bind probe)")
     def test_loopback_bind_is_silent(self, monkeypatch, caplog):
-        """127.0.0.1 bind → no warning (healthy configuration)."""
+        """127.0.0.1 bind → no warning, detection=False."""
         import logging
 
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
 
         self._patch_binds(monkeypatch, [(7777, "127.0.0.1")])
         with caplog.at_level(logging.WARNING):
-            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+            detected = launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert detected is False
         assert "WSDBG-EXPOSED" not in caplog.text
 
     @pytest.mark.skipif(not _WIN, reason="Windows-only test (patches the Windows bind probe)")
     def test_port_mismatch_is_silent(self, monkeypatch, caplog):
-        """Debugger port different from the tracked one → no warning."""
+        """Debugger port different from the tracked one → no warning, False."""
         import logging
 
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
 
         self._patch_binds(monkeypatch, [(9999, "0.0.0.0")])
         with caplog.at_level(logging.WARNING):
-            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+            detected = launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert detected is False
         assert "WSDBG-EXPOSED" not in caplog.text
 
     # ── POSIX counterparts ──────────────────────────────────────────────
@@ -898,20 +1152,22 @@ class TestWarnDebuggerExposedExternally:
 
     @pytest.mark.skipif(_WIN, reason="POSIX-only test (patches the POSIX bind probe)")
     def test_posix_unavailable_probe_warns_conservatively(self, monkeypatch, caplog):
-        """Probe unavailable (None) → W7's explicit 'check unavailable' warning."""
+        """Probe unavailable (None) → 'check unavailable' warning + no
+        detection (False), so callers must NOT escalate to fatal."""
         import logging
 
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
 
         monkeypatch.setattr(launcher_mod, "_get_listening_binds_for_pid_posix", lambda pid: None)
         with caplog.at_level(logging.WARNING):
-            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+            detected = launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert detected is False
         assert "WSDBG-EXPOSED" in caplog.text
         assert "unavailable on this platform" in caplog.text
 
     @pytest.mark.skipif(_WIN, reason="POSIX-only test (patches the POSIX bind probe)")
     def test_posix_nonloopback_bind_warns(self, monkeypatch, caplog):
-        """Probe available + wildcard bind → same non-loopback warning as Windows."""
+        """Probe available + wildcard bind → warning + detection=True."""
         import logging
 
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
@@ -922,13 +1178,14 @@ class TestWarnDebuggerExposedExternally:
             lambda pid: [(7777, "0.0.0.0")],
         )
         with caplog.at_level(logging.WARNING):
-            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+            detected = launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert detected is True
         assert "WSDBG-EXPOSED" in caplog.text
         assert "not loopback" in caplog.text
 
     @pytest.mark.skipif(_WIN, reason="POSIX-only test (patches the POSIX bind probe)")
     def test_posix_loopback_bind_is_silent(self, monkeypatch, caplog):
-        """Probe available + loopback bind → silent (healthy configuration)."""
+        """Probe available + loopback bind → silent, detection=False."""
         import logging
 
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
@@ -939,11 +1196,12 @@ class TestWarnDebuggerExposedExternally:
             lambda pid: [(7777, "127.0.0.1")],
         )
         with caplog.at_level(logging.WARNING):
-            launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+            detected = launcher_mod.warn_if_debugger_exposed_externally(4242, 7777)
+        assert detected is False
         assert "WSDBG-EXPOSED" not in caplog.text
 
     def test_nonpositive_pid_short_circuits(self, monkeypatch):
-        """pid<=0 → no netstat call at all."""
+        """pid<=0 → no netstat call at all, detection=False."""
         from ppsspp_dfx_mcp.core import launcher as launcher_mod
 
         calls = []
@@ -952,5 +1210,5 @@ class TestWarnDebuggerExposedExternally:
             "_get_listening_binds_for_pid_windows",
             lambda pid: calls.append(pid),
         )
-        launcher_mod.warn_if_debugger_exposed_externally(0, 7777)
+        assert launcher_mod.warn_if_debugger_exposed_externally(0, 7777) is False
         assert calls == []

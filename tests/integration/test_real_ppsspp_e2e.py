@@ -279,13 +279,17 @@ class TestRealPpssppGpu:
     """GPU stats against the live PPSSPP (requires CPU running)."""
 
     async def test_gpu_stats_returns_non_negative_fps(self, real_transport):
-        """gpu_stats returns fps >= 0 (game may be paused)."""
+        """gpu_stats returns fps >= 0 (game may be paused).
+
+        Uses `gpu.stats.get`, the event PPSSPP actually registers
+        (GPUStatsSubscriber.cpp:95). It previously called `gpu.getStats`,
+        which no PPSSPP build has ever registered -- so the
+        `pytest.skip` on the error path fired on every run and the test
+        never asserted anything. That is the silent-failure shape this
+        feature set out to remove: a check that looks green because it
+        always skips.
+        """
         _client = PpssppDebugClient(real_transport)
-        try:
-            resp = await real_transport.call("gpu.getStats")
-        except Exception as e:
-            pytest.skip(f"gpu.getStats not supported on this PPSSPP build: {e}")
-        # The response may have a different shape depending on PPSSPP version.
-        # Just assert it's a dict and has at least one numeric field.
+        resp = await real_transport.call("gpu.stats.get", timeout=10.0)
         assert isinstance(resp, dict), f"gpu_stats should return dict: {resp!r}"
         assert len(resp) > 0, "gpu_stats returned empty dict"

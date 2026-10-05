@@ -45,12 +45,12 @@ disassembly calls before that point fail. Stop the session when you are done.
 
 ## session_id
 `ppsspp_read_memory`, `ppsspp_disassemble`, `ppsspp_step`,
-`ppsspp_screenshot`, `ppsspp_breakpoint` (wait/stats/trace), `ppsspp_diff_memory`,
-`ppsspp_context` and `ppsspp_scan` may omit
+`ppsspp_screenshot`, `ppsspp_breakpoint`, `ppsspp_diff_memory`,
+`ppsspp_context`, `ppsspp_scan` and `ppsspp_replay` may omit
 `session_id` when exactly ONE session is active
 (0 sessions → an error telling you to start one; 2+ → `SESSION_AMBIGUOUS`
 listing the ids). Every other tool requires it. Do not call
-`ppsspp_session(action="list")` merely to obtain an id or check state — those eight resolve
+`ppsspp_session(action="list")` merely to obtain an id or check state — those nine resolve
 it themselves, and CPU/game state come from `ppsspp_query` or
 `ppsspp_query(action="game_state")`.
 

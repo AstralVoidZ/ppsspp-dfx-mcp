@@ -12,6 +12,7 @@ RemoteISOPort = 12345
 
 # 必须开启：启动时自动启用 WebSocket 调试器
 RemoteDebuggerOnStartup = True
+# 注意：不能限制监听地址（PPSSPP 无条件绑通配）；保留仅为对齐上游配置
 RemoteDebuggerLocal = True
 
 # 建议：加载时显示调试器窗口（可选）

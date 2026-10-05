@@ -47,7 +47,7 @@ class FrozenModel(BaseModel):
         # If data is a dataclass, convert to dict via asdict().
         import dataclasses
 
-        if dataclasses.is_dataclass(data):
+        if dataclasses.is_dataclass(data) and not isinstance(data, type):
             from dataclasses import asdict
 
             return cls(**asdict(data))

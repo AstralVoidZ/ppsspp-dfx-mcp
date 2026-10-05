@@ -23,9 +23,9 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 import pytest
+from _support import state as state_seam  # T053 S-4：集中式测试支撑缝
 
 from ppsspp_dfx_mcp.errors import ToolError
-from ppsspp_dfx_mcp.tools import state_observer as so_module
 from ppsspp_dfx_mcp.tools.batch_step import batch_step
 
 
@@ -35,9 +35,14 @@ async def _async_noop(session_id: str) -> None:
 
 
 def _reset_registry() -> None:
-    """Clear state_observer module-level registry (test isolation)."""
-    so_module._REGISTRY.clear()
-    so_module._SEEDED = False
+    """Clear every state_observer registry (test isolation).
+
+    D17 keyed the registry by session id, so isolation is per session
+    rather than one process-wide dict; clear them all.
+
+    T053 S-4：直写收敛到集中式支撑缝（tests/_support/state.py）。
+    """
+    state_seam.clear_probe_sessions()
 
 
 def _patch_client(monkeypatch: pytest.MonkeyPatch, mock: AsyncMock) -> None:
@@ -180,11 +185,19 @@ class TestRecordingModeScreenshotSkip:
         mock = _make_mock_client(saving=False)
         _patch_client(monkeypatch, mock)
 
-        # Patch the screenshot tool to avoid real framebuffer capture.
-        async def fake_screenshot(**kwargs):
-            return ['{"mode":"render","size_bytes":100,"width":480,"height":272}']
+        # Patch the capture SERVICE the batch screenshot step delegates to
+        # (W19) to avoid real framebuffer capture / disk writes. Empty data
+        # means nothing is auto-saved.
+        from ppsspp_dfx_mcp.service.screenshot_service import FrameCapture
 
-        monkeypatch.setattr("ppsspp_dfx_mcp.tools.screenshot.screenshot", fake_screenshot)
+        async def fake_capture_frame(session_id, source, mode):
+            return FrameCapture(
+                data=b"", label="render", source=source, img_format="png", width=0, height=0
+            )
+
+        monkeypatch.setattr(
+            "ppsspp_dfx_mcp.service.screenshot_service.capture_frame", fake_capture_frame
+        )
         result = await batch_step(
             session_id="s",
             steps=[{"type": "screenshot"}],

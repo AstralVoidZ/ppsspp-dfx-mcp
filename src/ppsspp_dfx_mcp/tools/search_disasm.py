@@ -37,25 +37,30 @@ Output governance:
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.search_disasm import SearchDisasmResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.search_disasm import SearchDisasmResponse
 
-SearchDisasmOutput = derive_output_contract("SearchDisasmOutput", SearchDisasmResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    SearchDisasmOutput = dict[str, Any]
+else:
+    SearchDisasmOutput = derive_output_contract("SearchDisasmOutput", SearchDisasmResponse)
 
 logger = logging.getLogger(__name__)
 
-# S5 (review v2): hard ceiling for one search (see clamp in tool body).
+# Hard ceiling for one search (see clamp in tool body).
 _MAX_RESULTS_CAP = 1000
 
 __all__ = ["search_disasm"]
@@ -66,24 +71,10 @@ __all__ = ["search_disasm"]
 _DEFAULT_MAX_RESULTS = 100
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Search disassembly for instructions matching a substring.
-#
-# PPSSPP's ``memory.searchDisasm`` returns only the first
-# match per call. This tool loops: after finding a match at address M,
-# it searches again from M+4, collecting up to ``max_results`` matches.
-#
-# Returns:
-# SearchDisasmResponse dict: address + match + end + results +
-# text.
-#
-# Raises:
-# ToolError: on session lookup failure, empty session_id,
-# address <= 0, empty match, or WS failure.
 @mcp.tool(
     name="ppsspp_search_disasm",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -154,7 +145,7 @@ async def search_disasm(
     if max_results <= 0:
         raise ArgsInvalid("max_results must be > 0")
     if max_results > _MAX_RESULTS_CAP:
-        # S5 (review v2): each hit costs 2 WS round-trips (hit + 1-line
+        # Each hit costs 2 WS round-trips (hit + 1-line
         # disasm); an unbounded cap on a loop-search over a hot pattern
         # could pin the session lock for hours.
         raise ArgsInvalid(f"max_results {max_results} exceeds {_MAX_RESULTS_CAP}")
@@ -178,19 +169,14 @@ async def search_disasm(
         },
     )
 
-    try:
-        async with session_client(session_id) as client:
-            results = await _collect_matches(
-                client=client,
-                start_addr=address_int,
-                match=sanitized_match,
-                end=end_int,
-                max_results=max_results,
-            )
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        results = await _collect_matches(
+            client=client,
+            start_addr=address_int,
+            match=sanitized_match,
+            end=end_int,
+            max_results=max_results,
+        )
 
     result = SearchDisasmResult(address=address_int, match=match, end=end_int, results=results)
     return SearchDisasmResponse.from_result(result).model_dump(mode="json")

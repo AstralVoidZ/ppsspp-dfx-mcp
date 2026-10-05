@@ -1,4 +1,4 @@
-"""H1 composite breakpoint-wait implementations (2026-09-07).
+"""Composite breakpoint-wait implementations (2026-09-07).
 
 The tool surface moved to ppsspp_breakpoint(action="wait"/"trace")
 (see tools/breakpoint.py); the functions here remain as the delegated
@@ -9,7 +9,7 @@ implementations and are no longer registered as MCP tools:
   hit, capture pc/registers/backtrace, remove the breakpoint, and
   restore the CPU — all in one call
 
-Lock contract (R16 PARTIAL_HOLD): both tools acquire the per-session
+Lock contract: both tools acquire the per-session
 lock ONLY for their short locked sub-operations (arm / probe / capture /
 cleanup). The wait itself subscribes to the observer's cpu.stepping
 fan-out (see GameStateObserver.subscribe_stepping) and holds NO lock, so
@@ -25,7 +25,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -33,37 +33,46 @@ from pydantic import Field
 from ppsspp_dfx_mcp.address import format_address, parse_address
 from ppsspp_dfx_mcp.core import cond_filter
 from ppsspp_dfx_mcp.core.game_state_observer import SteppingSubscription
-from ppsspp_dfx_mcp.errors import ArgsInvalid, SessionNotFound, ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.value_expr import extract_value
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.workflow import (
     FrameSnapshotResult,
     TraceAccessResult,
     WaitBreakpointResult,
 )
-from ppsspp_dfx_mcp.server import mcp
-from ppsspp_dfx_mcp.session import session_manager
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.service.observer_lookup import get_live_observer
 from ppsspp_dfx_mcp.session.client_helper import (
     session_client,
     session_client_with_transport,
     validate_session_alive,
 )
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.tools._memcheck import find_mem_bp
 from ppsspp_dfx_mcp.views.workflow import (
     FrameSnapshotResponse,
     TraceAccessResponse,
     WaitBreakpointResponse,
 )
 
-WaitBreakpointOutput = derive_output_contract("WaitBreakpointOutput", WaitBreakpointResponse)
-FrameSnapshotOutput = derive_output_contract(
-    "FrameSnapshotOutput",
-    FrameSnapshotResponse,
-    # 多形态：不可暂停的路径返回 StateObserverResponse（见
-    # tools/_common.MULTI_SHAPE_OUTPUT_TOOLS）。SDK 会拿这个契约校验返回值，
-    # required 集合会在该分支上硬失败，故全字段可选。
-    partial=True,
-)
-TraceAccessOutput = derive_output_contract("TraceAccessOutput", TraceAccessResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    WaitBreakpointOutput = dict[str, Any]
+    FrameSnapshotOutput = dict[str, Any]
+    TraceAccessOutput = dict[str, Any]
+else:
+    WaitBreakpointOutput = derive_output_contract("WaitBreakpointOutput", WaitBreakpointResponse)
+    FrameSnapshotOutput = derive_output_contract(
+        "FrameSnapshotOutput",
+        FrameSnapshotResponse,
+        # 多形态：不可暂停的路径返回 StateObserverResponse（见
+        # tools/_common.MULTI_SHAPE_OUTPUT_TOOLS）。SDK 会拿这个契约校验返回值，
+        # required 集合会在该分支上硬失败，故全字段可选。
+        partial=True,
+    )
+    TraceAccessOutput = derive_output_contract("TraceAccessOutput", TraceAccessResponse)
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +89,7 @@ def _clamp_timeout(timeout_s: float) -> float:
     return min(max(float(timeout_s), _MIN_TIMEOUT_S), _MAX_TIMEOUT_S)
 
 
-# 🔴-1/D1 命中风暴熔断阈值：同一地址 ≥10 次命中且相邻间隔 <1s 视为风暴。
+# 命中风暴熔断阈值：同一地址 ≥10 次命中且相邻间隔 <1s 视为风暴。
 _STORM_HITS = 10
 _STORM_GAP_S = 1.0
 
@@ -114,15 +123,13 @@ async def _evaluate_condition(session_id: str, expression: str) -> bool | None:
     HIT, because a debugging session must never silently drop a real hit just
     because the evaluator was momentarily unavailable.
     """
-    from ppsspp_dfx_mcp.tools.evaluate import _extract_value  # local: avoid import cycle
-
     try:
         async with session_client(session_id) as client:
             resp = await client.evaluate(expression=expression)
     except Exception as e:  # noqa: BLE001 — evaluator failure is non-fatal
         logger.warning("cond_filter: evaluate(%r) failed: %s", expression, e)
         return None
-    value = _extract_value(resp if isinstance(resp, dict) else None)
+    value = extract_value(resp if isinstance(resp, dict) else None)
     if value is None:
         logger.warning("cond_filter: evaluate(%r) returned no numeric value: %r", expression, resp)
         return None
@@ -184,42 +191,14 @@ async def _storm_break(
     return out
 
 
-async def _get_live_observer(session_id: str) -> Any:
-    """Return the session's GameStateObserver (arming prerequisite).
-
-    Raises a ToolError (not SessionNotFound) when the session has no
-    live observer — fake-mode sessions and disk-loaded sessions have
-    none, and the message should say that instead of implying the
-    session is gone.
-    """
-    try:
-        return await session_manager.get_observer(session_id)
-    except SessionNotFound as e:
-        raise ArgsInvalid(
-            f"session {session_id} has no live broadcast observer — "
-            f"wait tools (ppsspp_trace_memory_access / "
-            f"ppsspp_wait_breakpoint / ppsspp_wait_frames) require a "
-            f"live PPSSPP WebSocket link; fake-mode and disk-loaded "
-            f"sessions have none. Recovery: check "
-            f"ppsspp_health(session_id=...) (ws_connected), then start a "
-            f"fresh session via "
-            f"ppsspp_session(action='start') and retry."
-        ) from e
-
-
 def _find_mem_bp_by_addr(listing: Any, address: int) -> dict[str, Any] | None:
     """Find a memory breakpoint by address in a mem_bp_list response.
 
-    Local copy of the tools/breakpoint.py finder (kept tiny on purpose):
-    PPSSPP matches memchecks by address+size, so removal must use the
-    memcheck's REAL size — removing with the caller's size alone
-    silently fails when it differs.
+    Delegates to the shared implementation (review-v4 A-17 — this was a
+    hand-maintained copy; PPSSPP matches memchecks by address+size, so
+    removal must use the memcheck's REAL size).
     """
-    bps = listing.get("breakpoints", []) if isinstance(listing, dict) else []
-    for bp in bps:
-        if isinstance(bp, dict) and int(bp.get("address", 0)) == address:
-            return bp
-    return None
+    return find_mem_bp(listing, address)
 
 
 async def _remove_mem_bp_quietly(session_id: str, address: int) -> bool:
@@ -267,20 +246,20 @@ async def wait_breakpoint(
 ) -> WaitBreakpointOutput:
     """PURPOSE: Block until a breakpoint hit (any kind) — replaces polling gpu_stats errors as a hit probe.
 
-    USAGE: session_id; timeout_s default 30. Arm a breakpoint first via ppsspp_breakpoint (set or mem_set). Use when you only need to know a hit happened; call ppsspp_trace_memory_access instead to capture the hit scene (registers/backtrace) in one step.
+    USAGE: session_id; timeout_s default 30. Arm a breakpoint first via ppsspp_breakpoint (set or mem_set). Use when you only need to know a hit happened; call ppsspp_breakpoint(action='trace') instead to capture the hit scene (registers/backtrace) in one step.
 
 
-    ROUTING: one-shot block-until-hit -> here; persistent breakpoint add/remove -> ppsspp_breakpoint; read/write access watch -> ppsspp_trace_memory_access.
+    ROUTING: one-shot block-until-hit -> here; persistent breakpoint add/remove -> ppsspp_breakpoint; read/write access watch -> ppsspp_breakpoint(action='trace').
     BEHAVIOR: READ-ONLY. Subscribes to the cpu.stepping broadcast and holds NO session lock — concurrent reads/observes keep working, but do NOT submit step/pause/resume during the wait. An already-paused CPU returns hit=true + already_paused=true with a high-trust pc (a manual pause is indistinguishable from a hit).
 
     RETURNS: {hit, already_paused, timeout_s, pc, reason, related_address, ticks} — timeout returns hit=false (pollable, not an error); reason/related_address may be null on some builds."""
     budget = _clamp_timeout(timeout_s)
     logger.info(
         "tool_call",
-        extra={"tool": "ppsspp_wait_breakpoint", "session_id": session_id},
+        extra={"tool": "ppsspp_breakpoint", "action": "wait", "session_id": session_id},
     )
     await validate_session_alive(session_id)
-    observer = await _get_live_observer(session_id)
+    observer = await get_live_observer(session_id)
     subscription: SteppingSubscription = observer.subscribe_stepping()
     try:
         # Arm-time CPU state probe (brief lock): a hit that already
@@ -311,6 +290,9 @@ async def wait_breakpoint(
             ).model_dump(mode="json")
             armed = cond_filter.get(session_id, pc_trusted) if pc_trusted is not None else None
             if armed is not None:
+                # armed 非空 ⇒ pc_trusted 非空（上面三元仅在 pc_trusted 非空时
+                # 取值）；此断言仅向类型检查器传达该不变式。
+                assert pc_trusted is not None
                 out["note"] = (
                     f"CPU was already paused at arm time; the condition "
                     f"{armed['condition']!r} registered for "
@@ -322,7 +304,7 @@ async def wait_breakpoint(
 
         # Lock-free wait: consume OUR subscription only.
         #
-        # 🔴-1/D1: PPSSPP IR 模式忽略寄存器条件，条件由 MCP 侧求值。带条件的
+        # PPSSPP IR 模式忽略寄存器条件，条件由 MCP 侧求值。带条件的
         # 地址命中后不再立即返回，而是 evaluate 表达式：假 → 自动 resume 继续
         # 等待（不跳出原 wait 语义，总预算仍受 timeout_s 约束）；真 → 正常返回。
         deadline = time.monotonic() + budget
@@ -355,6 +337,9 @@ async def wait_breakpoint(
                     mode="json"
                 )
 
+            # entry 非空 ⇒ addr 非空（addr=None 时 entry=None 已提前返回）；
+            # 此断言仅向类型检查器传达该不变式。
+            assert addr is not None
             # 命中风暴熔断：同一地址 ≥10 次命中且相邻间隔 <1s → 撤防。
             now = time.monotonic()
             stamps = hit_stamps.setdefault(addr, [])
@@ -410,13 +395,13 @@ async def wait_breakpoint(
         subscription.close()
 
 
-# ── ppsspp_frame_snapshot (P4, H2) ───────────────────────────────────────
+# ── ppsspp_frame_snapshot ───────────────────────────────────────────────
 
 
 @mcp.tool(
     name="ppsspp_frame_snapshot",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -451,65 +436,62 @@ async def frame_snapshot(
     ROUTING: pause+capture+resume in one call -> here; cheap PC-only check -> ppsspp_query(action='register', name='pc', safe=true); recurring sampled probes -> ppsspp_state_observer.
     BEHAVIOR: STATE-CHANGE. The session lock is held for the whole call (pause→capture→resume is short). A CPU we paused is resumed before returning; an already-paused CPU stays paused. A failing capture never leaves the game frozen.
 
-    RETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — F-8 nullable-key contract, 2026-09-08."""
+    RETURNS: {was_stepping, resumed, pc, trust_level, registers, probes} — registers/probes keys are ALWAYS present; they carry null when opted out (want_registers=false / probes omitted) — nullable-key contract, 2026-09-08."""
     logger.info(
         "tool_call",
         extra={"tool": "ppsspp_frame_snapshot", "session_id": session_id},
     )
-    try:
-        async with session_client_with_transport(session_id) as (
-            client,
-            transport,
-        ):
-            status = await transport.call("cpu.status")
-            was_stepping = bool(status.get("stepping"))
-            if not was_stepping:
-                await client.pause()
-            try:
-                pc, trust = await client.safe_get_pc()
-                result: dict[str, Any] = {
-                    "was_stepping": was_stepping,
-                    "resumed": False,
-                    "pc": pc,
-                    "trust_level": trust,
-                }
-                if want_registers:
-                    result["registers"] = await client.get_all_regs()
-                if probes:
-                    # Import locally to break the circular dependency (same
-                    # pattern as batch_step's state_probe step).
-                    from ppsspp_dfx_mcp.tools.state_observer import (
-                        _observe_probes,
-                        _resolve_target_probes,
-                        _seed_from_yaml,
-                    )
-                    from ppsspp_dfx_mcp.views.state_observer import (
-                        StateObserverResponse,
-                    )
+    async with session_client_with_transport(session_id) as (
+        client,
+        transport,
+    ):
+        status = await transport.call("cpu.status")
+        was_stepping = bool(status.get("stepping"))
+        if not was_stepping:
+            await client.pause()
+        try:
+            pc, trust = await client.safe_get_pc()
+            result: dict[str, Any] = {
+                "was_stepping": was_stepping,
+                "resumed": False,
+                "pc": pc,
+                "trust_level": trust,
+            }
+            if want_registers:
+                result["registers"] = await client.get_all_regs()
+            if probes:
+                # Import locally to break the circular dependency (same
+                # pattern as batch_step's state_probe step).
+                from ppsspp_dfx_mcp.service.probe_observer import (
+                    _observe_probes,
+                    _resolve_target_probes,
+                    _seed_from_yaml,
+                )
+                from ppsspp_dfx_mcp.views.state_observer import (
+                    StateObserverResponse,
+                )
 
-                    _seed_from_yaml()
-                    observation = await _observe_probes(client, _resolve_target_probes(probes), 1)
-                    result["probes"] = StateObserverResponse.from_observe(observation).model_dump(
-                        mode="json"
-                    )
-            except Exception:
-                # Never leave the game frozen when OUR pause started it.
-                if not was_stepping:
-                    try:
-                        await client.resume()
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("frame_snapshot: recovery resume failed: %s", e)
-                raise
+                _seed_from_yaml(session_id)
+                observation = await _observe_probes(
+                    client, _resolve_target_probes(probes, session_id), 1
+                )
+                result["probes"] = StateObserverResponse.from_observe(observation).model_dump(
+                    mode="json"
+                )
+        except Exception:
+            # Never leave the game frozen when OUR pause started it.
             if not was_stepping:
-                await client.resume()
-                result["resumed"] = True
-            return FrameSnapshotResponse.from_result(FrameSnapshotResult(**result)).model_dump(
-                mode="json"
-            )
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+                try:
+                    await client.resume()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("frame_snapshot: recovery resume failed: %s", e)
+            raise
+        if not was_stepping:
+            await client.resume()
+            result["resumed"] = True
+        return FrameSnapshotResponse.from_result(FrameSnapshotResult(**result)).model_dump(
+            mode="json"
+        )
 
 
 @translate_tool_errors
@@ -585,14 +567,15 @@ async def trace_memory_access(
     logger.info(
         "tool_call",
         extra={
-            "tool": "ppsspp_trace_memory_access",
+            "tool": "ppsspp_breakpoint",
+            "action": "trace",
             "session_id": session_id,
             "address": address,
             "access": access,
         },
     )
     await validate_session_alive(session_id)
-    observer = await _get_live_observer(session_id)
+    observer = await get_live_observer(session_id)
     subscription: SteppingSubscription = observer.subscribe_stepping()
     bp_armed = False
     needs_resume = False
@@ -681,7 +664,7 @@ async def trace_memory_access(
             listing = await client.mem_bp_list()
             existing = _find_mem_bp_by_addr(listing, addr)
             if existing is not None:
-                # S3 (2026-09-07): capture the hit counter BEFORE removal —
+                # Capture the hit counter BEFORE removal —
                 # independent attribution evidence that OUR breakpoint fired
                 # (the broadcast's reason/relatedAddress are absent on some
                 # PPSSPP builds; the counter only increments for this addr).
@@ -719,7 +702,7 @@ async def trace_memory_access(
         raise
     finally:
         if bp_armed:
-            # 🟡4: shielded — a cancelled caller must not leave the temp
+            # Shielded — a cancelled caller must not leave the temp
             # mem BP armed in PPSSPP (it would keep pausing the CPU on
             # every access long after this tool returned).
             import asyncio

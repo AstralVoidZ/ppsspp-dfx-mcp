@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from _support import state as state_seam  # T053 S-4：集中式测试支撑缝
 
 import ppsspp_dfx_mcp.tools.breakpoint as bp_mod
 import ppsspp_dfx_mcp.tools.workflows as wf
@@ -50,9 +51,9 @@ COND = "s1==0x711"
 @pytest.fixture(autouse=True)
 def _clean_registry() -> Any:
     """No filter leakage between tests (module-level dict)."""
-    cond_filter._filters.clear()
+    state_seam.clear_cond_filters()
     yield
-    cond_filter._filters.clear()
+    state_seam.clear_cond_filters()
 
 
 # ── stubs ────────────────────────────────────────────────────────────────
@@ -161,7 +162,9 @@ def _patch_workflows(monkeypatch, client: _StubClient, observer: GameStateObserv
     monkeypatch.setattr(wf, "session_client_with_transport", fake_swt)
     monkeypatch.setattr(wf, "session_client", fake_sc)
     monkeypatch.setattr(wf, "validate_session_alive", fake_alive)
-    monkeypatch.setattr(wf.session_manager, "get_observer", fake_get_observer)
+    # `_get_live_observer` moved to service/observer_lookup.py (W19); it reads
+    # `get_observer` from this session_manager module object (`sm`).
+    monkeypatch.setattr(sm, "get_observer", fake_get_observer)
 
 
 def _push_hit(transport: _ObserverTransport, address: int = ADDR) -> None:

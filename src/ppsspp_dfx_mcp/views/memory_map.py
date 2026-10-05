@@ -4,6 +4,12 @@ Wraps the `memory.mapping` PPSSPP WebSocket response. The `ranges`
 field exposes the region list extracted from the response, while
 `mapping` retains the raw response for clients that need the full
 PPSSPP payload.
+
+G-4 (FR-004): the per-call `ticket` PPSSPP stamps on every reply is a
+protocol pairing artifact, not business data — keeping it made the
+structured business fields differ on every call (t30→t39 across ten
+identical calls), so whole-payload idempotence comparison could never
+succeed. Volatile keys are stripped from `mapping`.
 """
 
 from __future__ import annotations
@@ -15,6 +21,11 @@ from pydantic import Field
 from ppsspp_dfx_mcp.address import format_address, format_address_fields
 from ppsspp_dfx_mcp.models.memory_map import MemoryMapResult
 from ppsspp_dfx_mcp.views._base import FrozenModel
+
+# Protocol fields PPSSPP injects per call that carry no business data.
+# See module docstring (G-4). Keep the set explicit so adding a field is
+# a deliberate act, not an oversight.
+_VOLATILE_MAPPING_KEYS: frozenset[str] = frozenset({"ticket"})
 
 
 def _extract_ranges(mapping: dict[str, Any]) -> list[dict[str, Any]]:
@@ -44,7 +55,11 @@ class MemoryMapResponse(FrozenModel):
     )
     mapping: dict[str, Any] = Field(
         default_factory=dict,
-        description="Raw `memory.mapping` response.",
+        description=(
+            "Raw `memory.mapping` response, minus the volatile per-call "
+            "protocol `ticket` (stripped so the business fields are "
+            "byte-stable across identical calls)."
+        ),
     )
     text: str = Field(
         default="",
@@ -78,7 +93,12 @@ class MemoryMapResponse(FrozenModel):
         # converts them to hex strings so the Agent never sees mixed formats
         # between the text rendering and the structured fields).
         normalized_ranges = format_address_fields(ranges)
-        normalized_mapping = format_address_fields(dict(result.mapping))
+        # G-4 (FR-004): strip the volatile ticket before normalization so
+        # the remaining mapping is byte-stable across calls.
+        stable_mapping = {
+            k: v for k, v in result.mapping.items() if k not in _VOLATILE_MAPPING_KEYS
+        }
+        normalized_mapping = format_address_fields(stable_mapping)
         return cls(
             ranges=normalized_ranges,
             mapping=normalized_mapping,

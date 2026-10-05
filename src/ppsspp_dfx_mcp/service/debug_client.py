@@ -43,14 +43,13 @@ from typing import TYPE_CHECKING, Any, Literal
 from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES, MAX_WRITE_BYTES
 from ppsspp_dfx_mcp.core.registers import normalize_reg_name
 from ppsspp_dfx_mcp.core.stepping import SteppingManager, ThreadSnapshot
-from ppsspp_dfx_mcp.core.transport import WsTransport
-from ppsspp_dfx_mcp.core.ws_contract import get_contract
+from ppsspp_dfx_mcp.core.transport import DEFAULT_CALL_TIMEOUT_S, WsTransport
 from ppsspp_dfx_mcp.errors import (
     ArgsInvalid,
-    CpuStateError,
     StepNoAdvanceError,
     StepOutError,
 )
+from ppsspp_dfx_mcp.service import gpu_service, scan_service, stepping_service
 
 if TYPE_CHECKING:
     # Forward reference: GameStateObserver is implemented in task group 5
@@ -60,7 +59,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# A2: PSP user-memory executable code range for step_out pc validation.
+# PSP user-memory executable code range for step_out pc validation.
 # top.prx loads at 0x08804000; HLE callbacks live in the same user-memory
 # range. 0x08000000 is PSP RAM base (non-executable sentinel); values
 # above 0x0C000000 are kernel/devkit memory (not reachable by step_out).
@@ -153,6 +152,18 @@ class PpssppDebugClient:
         """Delegate to SteppingManager.resume."""
         return await self._stepping.resume()
 
+    async def cpu_status(self) -> dict[str, Any]:
+        """Raw non-pausing CPU state read (stepping / paused / pc / ticks).
+
+        Unlike :meth:`safe_get_pc` (which pauses the CPU to guarantee a
+        HIGH-trust PC), this is a single plain ``cpu.status`` call — the
+        only viable location source right AFTER ``resume()``, where
+        pausing would defeat the resume. The ``pc`` field is PPSSPP's
+        "inaccurate unless stepping" value (CPUCoreSubscriber.cpp:105),
+        so callers must treat it as a LOW-trust running-CPU snapshot.
+        """
+        return await self._transport.call("cpu.status")
+
     # ======================================================================
     # Memory methods (task 3.2) — 9 methods
     # ======================================================================
@@ -175,7 +186,7 @@ class PpssppDebugClient:
     async def read_bytes(self, address: int, size: int, *, allow_large: bool = False) -> bytes:
         """Read memory, capped at MAX_SINGLE_READ_BYTES unless opted out.
 
-        W10 (review v2): the cap is now enforced HERE, not only at the
+        The cap is now enforced HERE, not only at the
         tool layer — PPSSPP's unbounded read is documented (see
         read_string) to produce multi-megabyte responses that kill the
         WebSocket, and every direct caller of debug_client deserves the
@@ -215,9 +226,12 @@ class PpssppDebugClient:
 
         Args:
             address: memory address to read from.
-            encoding: "utf-8" (default) or "base64" — "base64" here
-                still returns the decoded byte content as a latin-1
-                string for backwards compatibility with the tool view.
+            encoding: "utf-8" (default) or "base64" — "base64" returns
+                the NUL-truncated bytes as a base64-encoded ASCII string
+                (review-v4 A-12: the docstring used to claim a latin-1
+                decoded string, contradicting the implementation; no
+                production caller passes "base64" — it exists for
+                binary-safe transport).
             max_length: byte cap (default 4096; hard ceiling 65536 — the
                 same cap the tool layer advertises for ``max_len``).
 
@@ -226,8 +240,8 @@ class PpssppDebugClient:
         """
         # Honor the tool layer's 64 KiB cap — the
         # previous hard 4096 here silently truncated max_len=65536 reads.
-        # R9: ceiling imported from tools/_common — the W1 bug was this
-        # literal drifting from the tool layer's copy.
+        # Ceiling imported from tools/_common — this literal used to
+        # drift from the tool layer's copy.
         from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
 
         data = await self.read_bytes(address, max(1, min(max_length, MAX_SINGLE_READ_BYTES)))
@@ -254,7 +268,7 @@ class PpssppDebugClient:
     async def write_bytes(self, address: int, data: bytes) -> None:
         """Write bytes to address, capped at MAX_WRITE_BYTES.
 
-        W10 (review v2): the base64 payload travels the same WS frame as
+        The base64 payload travels the same WS frame as
         reads — an unbounded write hits the same transport limits and
         (bonus) does its 1.33× b64encode on the event loop thread.
         Callers chunk.
@@ -350,8 +364,8 @@ class PpssppDebugClient:
     # Stepping methods (task 3.5) — 5 methods
     # ======================================================================
     #
-    # B2 (fire-and-forget confirmation): each step method pairs its
-    # fire-and-forget call with a confirmation that the CPU re-entered
+    # Each step method pairs its fire-and-forget call with a
+    # confirmation that the CPU re-entered
     # stepping state. Two confirmation modes are supported:
     #
     # - Broadcast mode (default, V004 redesign §2.4): subscribes to the
@@ -482,7 +496,7 @@ class PpssppDebugClient:
                     "%dms — falling back to legacy wait_for_state poll",
                     timeout_ms,
                 )
-        # W5 (review v2): the broadcast window already burned its full
+        # The broadcast window already burned its full
         # timeout_ms; handing the legacy poll the FULL budget again made
         # the worst case 2×timeout with the per-session lock held the
         # whole time. The legacy poll inherits only what is left.
@@ -500,7 +514,7 @@ class PpssppDebugClient:
         pre_pc: int | None,
         pre_ticks: float | None,
     ) -> Callable[[dict[str, Any]], bool] | None:
-        """A1: build a stale-broadcast filter for step confirmation.
+        """Build a stale-broadcast filter for step confirmation.
 
         Returns None when neither pre_pc nor pre_ticks is available
         (caller didn't capture pre-step state) — disables filtering
@@ -515,7 +529,7 @@ class PpssppDebugClient:
         to "accept". This favors false negatives (TimeoutError when
         the CPU genuinely advanced but we couldn't tell) over false
         positives (fake success consuming a stale pause broadcast),
-        matching A1's design intent. So a broadcast whose only-known
+        matching the design intent. So a broadcast whose only-known
         field matches the pre-step value is rejected regardless of
         the other field.
 
@@ -526,21 +540,7 @@ class PpssppDebugClient:
         Returns:
             Filter callable or None.
         """
-        if pre_pc is None and pre_ticks is None:
-            return None
-
-        def _filter(msg: dict[str, Any]) -> bool:
-            pc = msg.get("pc")
-            ticks = msg.get("ticks")
-            # Each known field independently indicates change; unknown
-            # fields are excluded from the OR (treated as "no change"),
-            # so a stale broadcast whose only-known field matches the
-            # pre-step value is rejected.
-            pc_changed = pre_pc is not None and pc != pre_pc
-            ticks_changed = pre_ticks is not None and ticks != pre_ticks
-            return pc_changed or ticks_changed
-
-        return _filter
+        return stepping_service.build_step_filter(pre_pc, pre_ticks)
 
     async def _confirm_step_completed_legacy(
         self,
@@ -561,10 +561,8 @@ class PpssppDebugClient:
         Raises:
             TimeoutError: stepping=True not confirmed within timeout_ms.
         """
-        return await self._transport.wait_for_state(
-            lambda s: s.get("stepping") is True,
-            timeout_ms=timeout_ms,
-            interval_ms=interval_ms,
+        return await stepping_service.confirm_step_completed_legacy(
+            self._transport, timeout_ms=timeout_ms, interval_ms=interval_ms
         )
 
     async def _step_with_retry(
@@ -630,7 +628,7 @@ class PpssppDebugClient:
                 )
             await self._transport.fire_and_forget(event)
         if not saw_broadcast:
-            # W5 (review v2): inherit the remaining budget, not the full
+            # inherit the remaining budget, not the full
             # timeout again (the broadcast loop already consumed it).
             remaining_ms = max(250, int((deadline - time.monotonic()) * 1000))
             return await self._confirm_step_completed_legacy(
@@ -705,9 +703,9 @@ class PpssppDebugClient:
         """Step out of current function.
 
         Step with pre-state capture:
-        - A1: ensures CPU is stepping before issuing cpu.stepOut
+        - Ensures CPU is stepping before issuing cpu.stepOut
           (REQUIRED_STEPPING precondition).
-        - A2: post-validates the returned pc against the PSP executable
+        - Post-validates the returned pc against the PSP executable
           code range (``0x08800000``–``0x0C000000``). When step_out's
           stack walk returns an invalid caller frame (e.g.
           ``0x08000000`` PSP user-memory base address used as a
@@ -762,7 +760,7 @@ class PpssppDebugClient:
 
     @staticmethod
     def _validate_step_out_pc(result: dict[str, Any]) -> None:
-        """A2: post-validate step_out returned pc against PSP code range.
+        """Post-validate step_out returned pc against PSP code range.
 
         PSP user-memory executable range is 0x08800000–0x0C000000
         (top.prx loads at 0x08804000; HLE/kernel code lives above
@@ -807,7 +805,7 @@ class PpssppDebugClient:
         Raises TimeoutError if the address is not reached within timeout_ms
         (which is expected when the address is never hit).
 
-        A1 fix: captures pre_pc/pre_ticks before issuing the command to
+        Captures pre_pc/pre_ticks before issuing the command to
         filter stale cpu.stepping broadcasts (same pattern as step_into/
         step_over/step_out).
         """
@@ -831,7 +829,7 @@ class PpssppDebugClient:
         cpu.status until stepping=True (HLE callback reached). Raises
         TimeoutError if no HLE callback is hit within timeout_ms.
 
-        A1 fix: captures pre_pc/pre_ticks before issuing the command to
+        Captures pre_pc/pre_ticks before issuing the command to
         filter stale cpu.stepping broadcasts (same pattern as step_into/
         step_over/step_out).
         """
@@ -941,7 +939,7 @@ class PpssppDebugClient:
             "read": read,
             "write": write,
             "change": change,
-            # N-02: always send log (not false-omission). See
+            # Always send log (not false-omission). See
             # BreakpointSubscriber.cpp:L309-325 Result(bool) — when log
             # is omitted (hasLog=false), the `log` C++ variable is
             # uninitialized and Result(true) reads UB. Sending log
@@ -1278,9 +1276,9 @@ class PpssppDebugClient:
             alpha: include alpha channel for "uri" type. Default False.
             stackWidth: force width for "uri" type (0 = native). Default 0.
         """
-        return await self._transport.call(
-            "gpu.buffer.renderColor",
-            type=output_type,
+        return await gpu_service.render_color(
+            self._transport,
+            output_type=output_type,
             alpha=alpha,
             stackWidth=stackWidth,
         )
@@ -1305,13 +1303,12 @@ class PpssppDebugClient:
             alpha: include alpha channel for "uri" type. Default False.
             stackWidth: force width for "uri" type (0 = native). Default 0.
         """
-        return await self._transport.call(
-            "gpu.buffer.texture",
+        return await gpu_service.texture(
+            self._transport,
             level=level,
-            type=output_type,
+            output_type=output_type,
             alpha=alpha,
             stackWidth=stackWidth,
-            timeout=15.0,
         )
 
     async def render_depth(
@@ -1328,9 +1325,9 @@ class PpssppDebugClient:
         dump_buffer target". Contracts: gpu.buffer.renderDepth
         (REQUIRED_STEPPING_OR_GPU_STEPPING, ws_contract).
         """
-        return await self._transport.call(
-            "gpu.buffer.renderDepth",
-            type=output_type,
+        return await gpu_service.render_depth(
+            self._transport,
+            output_type=output_type,
             alpha=alpha,
             stackWidth=stackWidth,
         )
@@ -1342,9 +1339,9 @@ class PpssppDebugClient:
         stackWidth: int = 0,
     ) -> dict[str, Any]:
         """Capture the GPU stencil buffer. See render_depth."""
-        return await self._transport.call(
-            "gpu.buffer.renderStencil",
-            type=output_type,
+        return await gpu_service.render_stencil(
+            self._transport,
+            output_type=output_type,
             alpha=alpha,
             stackWidth=stackWidth,
         )
@@ -1367,18 +1364,18 @@ class PpssppDebugClient:
             alpha: include alpha channel for "uri" type. Default False.
             stackWidth: force width for "uri" type (0 = native). Default 0.
         """
-        return await self._transport.call(
-            "gpu.buffer.clut",
-            type=output_type,
+        return await gpu_service.clut(
+            self._transport,
+            output_type=output_type,
             alpha=alpha,
             stackWidth=stackWidth,
         )
 
     # ======================================================================
-    # GPU Stats methods (C-G1) — 1 method
+    # GPU Stats methods — 1 method
     # ======================================================================
     #
-    # D3 (gpu events): `gpu.stats.get` is an async ticketed event — PPSSPP
+    # `gpu.stats.get` is an async ticketed event — PPSSPP
     # pushes stats on the next GPU flip. Use `transport.call()` with a
     # ticket wait. Precondition: game must be running (CPU not stepping)
     # for a flip to occur within the timeout; if CPU is paused, the call
@@ -1432,62 +1429,7 @@ class PpssppDebugClient:
             CpuStateError: if CPU is currently stepping OR if ticks
                 unchanged after 50ms (breakpoint pause suspected).
         """
-        # First probe — record ticks0 + stepping0.
-        try:
-            status0 = await self._transport.call("cpu.status")
-        except (ConnectionRefusedError, OSError):
-            # Transport-level failure (WS disconnected / port unreachable):
-            # re-raise so to_tool_error can classify it as WsDisconnected
-            # immediately, rather than letting the ticketed call time out.
-            raise
-        except Exception:
-            # Other probe failures (e.g. PPSSPP internal error): fall
-            # through and let the ticketed call surface the underlying error.
-            return
-        stepping0 = status0.get("stepping") is True
-        ticks0 = status0.get("ticks")
-
-        # 50ms sleep — long enough for ticks to advance on a running
-        # CPU (60fps → ~16ms/frame → ~3 frames in 50ms), short enough
-        # to keep the pre-check cost negligible.
-        await asyncio.sleep(0.05)
-
-        # Second probe — record ticks1 + stepping1.
-        try:
-            status1 = await self._transport.call("cpu.status")
-        except (ConnectionRefusedError, OSError):
-            raise
-        except Exception:
-            return
-        stepping1 = status1.get("stepping") is True
-        ticks1 = status1.get("ticks")
-
-        # Decision matrix:
-        # 1. stepping=True at either probe → CpuStateError (existing
-        #    behavior: stepping field detected pause).
-        if stepping0 or stepping1:
-            contract = get_contract(event)
-            raise CpuStateError(
-                f"{event} requires CPU running (not stepping): "
-                f"{contract.diagnostic_hint} "
-                f"[stepping0={stepping0}, stepping1={stepping1}, "
-                f"ticks0={ticks0}, ticks1={ticks1}, 50ms probe]"
-            )
-        # 2. stepping=False at both probes AND ticks present AND
-        #    unchanged → CpuStateError (breakpoint pause suspected but
-        #    stepping field didn't report — ticks backup validation).
-        #    When ticks is None (not provided by transport, e.g.
-        #    FakeTransport in tests or older PPSSPP builds), skip the
-        #    ticks backup validation and rely on the stepping field only.
-        if ticks0 is not None and ticks1 is not None and ticks0 == ticks1:
-            raise CpuStateError(
-                f"{event} requires CPU running: ticks unchanged "
-                f"({ticks0} == {ticks1}) after 50ms, breakpoint pause "
-                f"suspected but stepping field didn't report "
-                f"[stepping0={stepping0}, stepping1={stepping1}]"
-            )
-        # 3. stepping=False at both probes AND ticks progressed →
-        #    CPU advancing normally. Allow the ticketed call to proceed.
+        await gpu_service.require_running(self._transport, event)
 
     async def gpu_stats(self, timeout: float = 5.0) -> dict[str, Any]:
         """Query GPU statistics (fps, vblanks, timing).
@@ -1501,6 +1443,14 @@ class PpssppDebugClient:
         CpuStateError immediately if stepping=True (instead of waiting
         `timeout` seconds for the silent timeout).
 
+        A timeout that still happens is recorded in the transport's
+        diagnostics, and the `ppsspp_gpu_stats` tool reports the attributed
+        cause (expected_stall / pairing_broken / no_producer /
+        transport_error) rather than just the symptom. That attribution was
+        misdiagnosed twice before it existed: "timed out" is compatible with a stalled
+        CPU, a broken ticket pairing, and an emulator blocked behind a modal
+        dialog, and nothing in the system hinted at the last one.
+
         Args:
             timeout: ticketed wait timeout in seconds (default 5.0).
 
@@ -1509,9 +1459,10 @@ class PpssppDebugClient:
 
         Raises:
             CpuStateError: if CPU is currently stepping.
+            WsTimeout: if no response arrives within `timeout`. The tool
+                layer attributes the cause; see core/call_attribution.py.
         """
-        await self._require_running("gpu.stats.get")
-        return await self._transport.call("gpu.stats.get", timeout=timeout)
+        return await gpu_service.gpu_stats(self._transport, timeout=timeout)
 
     async def gpu_record_dump(self, timeout: float = 5.0) -> dict[str, Any]:
         """Capture a GPU record dump (GE command stream for one frame).
@@ -1539,11 +1490,10 @@ class PpssppDebugClient:
         Raises:
             CpuStateError: if CPU is currently stepping.
         """
-        await self._require_running("gpu.record.dump")
-        return await self._transport.call("gpu.record.dump", timeout=timeout)
+        return await gpu_service.gpu_record_dump(self._transport, timeout=timeout)
 
     # ======================================================================
-    # Memory Info methods (C-M1) — 1 method
+    # Memory Info methods — 1 method
     # ======================================================================
     #
     # `memory.info.search` searches PPSSPP's memory tracking system for
@@ -1585,10 +1535,10 @@ class PpssppDebugClient:
         return await self._transport.call("memory.info.search", **params)
 
     # ======================================================================
-    # Memory Scan (C-M2) — 1 method (business orchestration)
+    # Memory Scan — 1 method (business orchestration)
     # ======================================================================
     #
-    # D2 (ppsspp-dfx-tool-enhancement design): scan_memory is a business
+    # scan_memory is a business
     # orchestration layer over `read_bytes`, NOT a WS event wrapper.
     # PPSSPP WS debugger has no `memory.scan` event; scanning is done
     # client-side by chunked reads + Python `bytes.find()`. Default
@@ -1625,95 +1575,14 @@ class PpssppDebugClient:
             hex-encoded pattern bytes at that address (uppercase, no
             separators). Empty list if no matches or invalid range.
         """
-        if not pattern:
-            return []
-        if end <= start:
-            return []
-
-        matches: list[dict[str, Any]] = []
-        overlap = len(pattern) - 1
-        # Per-chunk read timeout + consecutive-timeout abort (v0.1.7): a
-        # wedged PPSSPP must fail the scan cleanly instead of holding the
-        # session lock forever (plain exceptions = legitimately unmapped
-        # regions and are still skipped silently; only TIMEOUTS count).
-        from ppsspp_dfx_mcp.core.primitives import (
-            SCAN_MAX_CONSECUTIVE_READ_FAILURES,
-            SCAN_READ_TIMEOUT_S,
+        return await scan_service.scan_memory(
+            self.read_bytes,
+            pattern,
+            start,
+            end,
+            max_results=max_results,
+            chunk_size=chunk_size,
         )
-
-        consecutive_timeouts = 0
-        # Each iteration issues ONE memory.read of
-        # chunk + overlap bytes. The tool layer caps the pattern at 4096
-        # bytes, but direct client callers can pass any length — clamp the
-        # effective chunk so a single read stays within the documented
-        # 64 KiB budget (the W4 clamp of chunk_size alone did not cover
-        # the overlap tail).
-        from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
-
-        effective_chunk = max(1, min(chunk_size, MAX_SINGLE_READ_BYTES - overlap))
-        cursor = start
-
-        while cursor < end and len(matches) < max_results:
-            # Read effective_chunk bytes; reserve overlap for boundary-
-            # spanning patterns. The last chunk does not extend beyond `end`.
-            chunk_end = min(cursor + effective_chunk, end)
-            read_end = min(chunk_end + overlap, end) if chunk_end < end else chunk_end
-            read_size = read_end - cursor
-            if read_size <= 0:
-                break
-
-            try:
-                data = await asyncio.wait_for(
-                    self.read_bytes(address=cursor, size=read_size),
-                    timeout=SCAN_READ_TIMEOUT_S,
-                )
-            except TimeoutError as e:
-                consecutive_timeouts += 1
-                if consecutive_timeouts > SCAN_MAX_CONSECUTIVE_READ_FAILURES:
-                    raise RuntimeError(
-                        f"memory scan aborted: {consecutive_timeouts} consecutive "
-                        f"chunk reads timed out ({SCAN_READ_TIMEOUT_S}s each) at "
-                        f"0x{cursor:08X} — PPSSPP appears wedged; the session "
-                        f"lock is released"
-                    ) from e
-                cursor = chunk_end
-                continue
-            except Exception:
-                # Skip unreadable regions (e.g., unmapped, permission
-                # denied). The scan continues at the next chunk boundary.
-                cursor = chunk_end
-                continue
-
-            consecutive_timeouts = 0
-            # Search for all occurrences in this chunk, but only report
-            # matches within [cursor, chunk_end) to avoid duplicates in
-            # the overlap region (overlap bytes are re-read next iteration).
-            search_start = 0
-            while search_start < len(data):
-                idx = data.find(pattern, search_start)
-                if idx == -1:
-                    break
-                match_addr = cursor + idx
-                if match_addr >= chunk_end:
-                    break  # in overlap tail; next chunk will find it
-                if match_addr < end:
-                    context = data[idx : idx + len(pattern)].hex().upper()
-                    matches.append(
-                        {
-                            "address": match_addr,
-                            "context": context,
-                        }
-                    )
-                    if len(matches) >= max_results:
-                        break
-                search_start = idx + 1
-
-            # Advance to the next chunk boundary (overlap is re-read on
-            # the next iteration to catch boundary-spanning patterns).
-            # Use actual bytes read to avoid skipping memory on short reads.
-            cursor = cursor + len(data) if len(data) < read_size else chunk_end
-
-        return matches
 
     # ======================================================================
     # Replay methods — 8 methods
@@ -1808,11 +1677,34 @@ class PpssppDebugClient:
         iterations = 0
         while True:
             iterations += 1
-            last = await self._transport.call("replay.status")
-            if not bool(last.get("executing", False)):
+            # Clamp each poll to what is left of the total
+            # budget. An un-bounded `replay.status` call (default 5s) could
+            # make a declared 10s wait take 15s, and the deadline used to be
+            # examined only after a successful round-trip.
+            #
+            # The poll is CLAMPED, never skipped, so a status response that
+            # arrives just past the deadline still gets to end the wait (the
+            # same tolerance `WsTransport.wait_for_state` keeps for a
+            # satisfying poll); the deadline checks below stay authoritative.
+            remaining_s = timeout_s - (asyncio.get_running_loop().time() - start)
+            try:
+                last = await self._transport.call(
+                    "replay.status",
+                    timeout=max(0.1, min(DEFAULT_CALL_TIMEOUT_S, remaining_s)),
+                )
+            except TimeoutError as e:
+                raise TimeoutError(
+                    f"replay.wait_complete timeout ({timeout_ms}ms) — "
+                    f"executing still True after {iterations} polls (last poll: {e})"
+                ) from e
+            executing = last.get("executing")
+            if executing is not None and not bool(executing):
                 return {**last, "_wait_iterations": iterations}
-            elapsed = asyncio.get_running_loop().time() - start
-            if elapsed >= timeout_s:
+            # A-11 (review v4): a status response WITHOUT `executing` (a
+            # protocol surprise or an incomplete test double) used to read
+            # as "completed" via the default. Treat unknown as still-waiting;
+            # the deadline below ends the wait either way.
+            if asyncio.get_running_loop().time() - start >= timeout_s:
                 raise TimeoutError(
                     f"replay.wait_complete timeout ({timeout_ms}ms) — "
                     f"executing still True after {iterations} polls"

@@ -25,7 +25,7 @@ addresses: [game_mode]
 | `iso_loaded=false` | ISO 未被识别 | 检查 ISO 完整性；确认 mkisofs 用了 `-iso-level 4 -xa`（见 constraints C2） |
 | `ws_connected=false` | WS 调试器未连上 | 检查 `RemoteDebuggerOnStartup=True`；端口；防火墙（见 [../../../assets/ppsspp.ini.template](../../../assets/ppsspp.ini.template)） |
 | `cpu_running=false` | CPU 未运行 | 确认 PPSSPP 带窗口启动；等待加载完成再测 |
-| `game_mode=0` 持续 | 卡在标题/加载早期 | 增加等待；对照项目特定 smoke 项 |
+| `game_mode=0` 持续 | 卡在标题/加载早期；**或探针地址与当前构建脱节** | 先看 `value_status`：`stale_address_suspected` 则是地址问题（核对 addresses.yaml 的 `state_probes`），否则增加等待并对照项目特定 smoke 项 |
 | 日志含 "file does not exist" | ISO 重建问题（大小写） | mkisofs 必须带 `-iso-level 4 -xa` |
 | 日志含 "Bad Execution Address" / "Bad memory access" | 运行时崩溃 | 转 [crash_analysis.md](crash_analysis.md) |
 
@@ -33,11 +33,12 @@ addresses: [game_mode]
 
 ## 调用顺序
 
-1. **启动会话** — `ppsspp_health` → `ppsspp_session(action="start", iso_path=<绝对路径>)`，取回 `session_id`。会话启动自动完成：IR Interpreter 模式确认、WS `version` 握手。
-2. **等待加载** — `ppsspp_wait_frames(frames=600~1800)`（大 ISO 首次加载更久），期间 PPSSPP 完成启动动画进入可交互态。
+1. **启动会话并等就绪** — `ppsspp_health` 探活 → `ppsspp_session(action="start", iso_path=<绝对路径>, wait_ready=true, resilient=true)`，取回 `session_id`。`wait_ready=true` 在**同一次调用内**等到 CPU 就绪（`[BOOT_TIMEOUT]`=楔死嫌疑），等价于旧的两步 `start` → `wait_ready`；会话启动同时完成 IR Interpreter 模式确认与 WS `version` 握手。`resilient=true` 在楔死证据出现时自动执行 关闭→隔离 GPU 后端黑名单→同 id 重启（≤2 次）；响应 `recovered>0` 表示现场已重置，已设断点需重设。
+2. **推进过启动动画** — `ppsspp_wait_frames(frames=600~1800)`（大 ISO 首次加载更久），让 PPSSPP 播完启动动画进入可交互态。注意这是**推进动画**，不是等就绪——就绪已由 `wait_ready` 保证。
 3. **健康检查** — `ppsspp_health(session_id=...)` 返回四项：
-   - `session_checks`：`iso_loaded` / `cpu_running` / `ws_connected` / `game_mode_valid`
+   - `session_checks`：`iso_loaded` / `cpu_running` / `ws_connected` / `game_mode_valid`，**每项带 `value_status`**
    - `overall_session_status: fail` 时按判定信号表逐项路由
+   - `value_status=stale_address_suspected`（连续多次读零）表示探针地址疑似与当前构建脱节——**不要**把该读数当作游戏状态
 4. **游戏状态确认** — `ppsspp_read_memory(action="read_u32", address=<game_mode 地址>)`（地址 `ppsspp_list_addresses` 查询）；`0`=标题/加载，非零=已进游戏主循环。也可用预置探针：`ppsspp_state_observer(action="observe", names="game_mode")`。
 5. **日志扫描** — `ppsspp_analyze_log()`（默认读广播日志镜像 `.ppsspp-dfx/output/ppsspp.log`），过滤 ERROR/WARNING/CRASH；可加 `filter` 关键词（如 "does not exist"、"Bad"）。
 6. **FAIL 时留存现场** — `ppsspp_screenshot`（标题屏可能走 `render→vram_fallback`，正常现象）后转对应 playbook。

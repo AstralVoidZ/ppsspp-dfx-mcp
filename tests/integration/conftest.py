@@ -54,6 +54,24 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Tag every test under this directory with ``integration``.
+
+    Measured 2026-10-03: a ``pytestmark`` in this conftest is a no-op for the
+    test modules beside it, so the marker is applied during collection
+    instead. Without this, ``-m "not integration"`` deselected only 1 of the
+    117 tests in this directory.
+
+    The hook receives the whole session's items, so the path filter keeps the
+    marker scoped to ``tests/integration/``.
+    """
+    marker = pytest.mark.integration
+    for item in items:
+        if _HERE in item.path.resolve().parents:
+            item.add_marker(marker)
+
+
 # ── Phase 6: real-PPSSPP resource probes (skip-if-missing) ────────────────
 #
 # All three fixtures skip when the resource is missing rather than failing.
@@ -107,7 +125,8 @@ def ppsspp_exe_path() -> Path:
     p = Path(raw).expanduser().resolve() if raw else _DEFAULT_PPSSPP_EXE
     if p is None or not p.is_file():
         pytest.skip(
-            "PPSSPP executable not configured (set PPSSPP_DFX_TEST_EXE_PATH to your PPSSPP binary)",
+            "PPSSPP executable not configured (set PPSSPP_DFX_TEST_EXE_PATH to your PPSSPP binary) "
+            "— real-device gate: CI never sets this env, so this test does not run in the CI gate",
             allow_module_level=True,
         )
     return p
@@ -124,7 +143,8 @@ def iso_path() -> Path:
     p = Path(raw).expanduser().resolve() if raw else _DEFAULT_ISO_PATH
     if p is None or not p.is_file():
         pytest.skip(
-            "Game ISO not configured (set PPSSPP_DFX_TEST_ISO_PATH to your ISO path)",
+            "Game ISO not configured (set PPSSPP_DFX_TEST_ISO_PATH to your ISO path) "
+            "— real-device gate: CI never sets this env, so this test does not run in the CI gate",
             allow_module_level=True,
         )
     return p

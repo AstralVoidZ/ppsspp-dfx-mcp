@@ -61,14 +61,36 @@ class TestStartWaitReady:
         assert args[2] == 0x08804000  # default probe parsed
 
     async def test_wait_ready_false_skips_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Default (wait_ready=False) keeps the historical two-call flow."""
+        """Opting out (wait_ready=False) skips the readiness probe.
+
+        The DEFAULT is now True (D22: start() must return a usable
+        session, otherwise the first tool call fails with a version
+        handshake timeout). This test pins the opt-out path so the escape
+        hatch keeps working; the default itself is asserted in
+        tests/unit/l2_mcp_contract/test_session_start_readiness.py.
+        """
         monkeypatch.setattr("ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real")
         _patch_start(monkeypatch)
         mock_probe = _patch_probe(monkeypatch)
 
-        await session_tool(action="start", iso_path="game.iso")
+        await session_tool(action="start", iso_path="game.iso", wait_ready=False)
 
         mock_probe.assert_not_awaited()
+
+    async def test_default_waits_for_readiness(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """D22: start() with no wait_ready argument MUST wait.
+
+        Returning a session whose transport has not handshook makes every
+        subsequent call fail, so the default has to be True.
+        """
+        monkeypatch.setattr("ppsspp_dfx_mcp.tools.session.test_mode", lambda: "real")
+        _patch_start(monkeypatch)
+        mock_probe = _patch_probe(monkeypatch)
+
+        result = await session_tool(action="start", iso_path="game.iso")
+
+        assert result["session_id"] == "sess-g5"
+        mock_probe.assert_awaited_once()
 
     async def test_wait_ready_boot_timeout_propagates(
         self, monkeypatch: pytest.MonkeyPatch

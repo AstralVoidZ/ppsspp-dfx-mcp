@@ -67,7 +67,7 @@ class BatchStepResponse(FrozenModel):
 
 
 class BatchSubmitResponse(FrozenModel):
-    """Public response of ppsspp_batch_step with background=true (A1).
+    """Public response of ppsspp_batch_step with background=true.
 
     Returned immediately after submission — the batch keeps executing on a
     detached server task that survives the MCP client's tool-call timeout.
@@ -84,7 +84,7 @@ class BatchSubmitResponse(FrozenModel):
 
 
 class BatchStatusResponse(FrozenModel):
-    """Public response of the ppsspp_batch_status tool (A1).
+    """Public response of the ppsspp_batch_status tool.
 
     Lock-free by contract: polling never opens the session's WS transport
     and never waits for the per-session lock, so it is safe to call while a

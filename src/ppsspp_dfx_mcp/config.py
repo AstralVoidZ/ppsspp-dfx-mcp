@@ -17,6 +17,7 @@ Project root resolution (``project_root()``):
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
@@ -137,6 +138,13 @@ def rate_limit() -> int:
     try:
         return int(raw)
     except (TypeError, ValueError):
+        # A bad value used to fall back silently, so a typo looked like an
+        # enforced (or disabled) limit. Name the raw value and the fallback.
+        log.warning(
+            "PPSSPP_DFX_RATE_LIMIT=%r is not a valid integer; falling back to %s",
+            raw,
+            DEFAULT_RATE_LIMIT,
+        )
         return int(DEFAULT_RATE_LIMIT)
 
 
@@ -149,6 +157,13 @@ def ws_port() -> int:
     try:
         return int(raw)
     except (TypeError, ValueError):
+        # Same silent-fallback defect as rate_limit(): a typo (e.g. "12 45")
+        # used to connect to the default port with no trace.
+        log.warning(
+            "PPSSPP_DFX_WS_PORT=%r is not a valid integer; falling back to %s",
+            raw,
+            DEFAULT_WS_PORT,
+        )
         return int(DEFAULT_WS_PORT)
 
 
@@ -161,10 +176,34 @@ def sessions_path() -> Path:
 def output_dir() -> Path:
     """Return the output directory path (.ppsspp-dfx/output/).
 
-    Auto-creates the directory. Output is gitignored.
+    Pure getter — it does NOT create the directory. Use
+    :func:`ensure_output_dir` (called from startup) to create it before
+    tools write. Keeping creation out of the getter matters because this
+    getter is evaluated at import time by callers (e.g. tools/analyze.py);
+    an import-time mkdir made a bad ``PPSSPP_DFX_PROJECT_ROOT`` blow up
+    during module import instead of at a controlled startup step.
     """
-    path = project_root() / ".ppsspp-dfx" / "output"
+    return project_root() / ".ppsspp-dfx" / "output"
+
+
+def ensure_output_dir() -> Path:
+    """Create the output directory (explicit, idempotent).
+
+    Called from ``configure_logging()`` (startup) so every writer —
+    screenshots, raw memory dumps, hex dumps, .ppr recordings, the log
+    mirror — has a directory to write into.
+
+    On POSIX the directory is tightened to ``0o700`` (owner-only): session
+    state (sessions.json) is already written ``0o600``, but output
+    artifacts (raw memory dumps especially) were left world-readable.
+    Windows ACLs are deliberately NOT touched. Best-effort: an unsupported
+    chmod is suppressed rather than failing startup.
+    """
+    path = output_dir()
     path.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o700)
     return path
 
 
@@ -240,12 +279,34 @@ def fixture_dir() -> Path | None:
     return None
 
 
+_ADDRESSES_CACHE: tuple[str, int, int, dict[str, Any]] | None = None
+
+
 def addresses() -> dict[str, Any]:
-    """Return address constants from .ppsspp-dfx/config/addresses.yaml."""
+    """Return address constants from .ppsspp-dfx/config/addresses.yaml.
+
+    Cached on (resolved path, mtime_ns, size) — A-18 (review v4): the file
+    was re-read and re-parsed on every call while run_script/capture
+    resolve addresses on hot paths. The mtime+size key keeps tests and
+    operators honest: an edit (even a same-tick one) changes the key.
+    """
+    global _ADDRESSES_CACHE
+    path = config_dir() / "addresses.yaml"
+    if not path.exists():
+        return {}
+    try:
+        st = path.stat()
+        key = (str(path.resolve()), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {}
+    cached = _ADDRESSES_CACHE
+    if cached is not None and cached[:3] == key:
+        return cached[3]
     data = _load_yaml("addresses.yaml", default={})
     if not isinstance(data, dict):
         log.warning("addresses.yaml root is not a dict (got %r); using empty", type(data).__name__)
-        return {}
+        data = {}
+    _ADDRESSES_CACHE = (*key, data)
     return data
 
 
@@ -260,7 +321,7 @@ def _load_yaml(filename: str, default: Any = None) -> Any:
         with path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
             return data if data is not None else default
-    except (OSError, yaml.YAMLError) as e:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
         log.warning("yaml load failed for %s, using default: %s", filename, e)
         return default
 
@@ -278,7 +339,7 @@ def configure_logging() -> None:
     level_name = log_level().upper()
     level = getattr(logging, level_name, None)
     if not isinstance(level, int):
-        # S9 (review v2): a typo like INF0 used to fall back to INFO with
+        # A typo like INF0 used to fall back to INFO with
         # no trace — validate_config covers file fields, not this env var.
         logging.getLogger(__name__).warning(
             "PPSSPP_DFX_LOG_LEVEL=%r is not a valid level; falling back to INFO",
@@ -292,10 +353,20 @@ def configure_logging() -> None:
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    # Every emitted record carries request_id (from the ContextVar set by
+    # middleware.request_id_middleware); without this filter the id had no
+    # consumer. Attached to the handler so it also runs for records logged
+    # outside the request path (they get the "-" default).
+    from ppsspp_dfx_mcp.logging import RequestIdFilter
+
+    handler.addFilter(RequestIdFilter())
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(level)
+    # Create the output tree explicitly at startup (the getter no longer
+    # mkdirs). This must precede the log mirror below and any session start.
+    ensure_output_dir()
     # Mirror PPSSPP broadcast logs to
     # .ppsspp-dfx/output/ppsspp.log so ppsspp_analyze_log's default path
     # (log_path=None) reads a real file. Idempotent attachment.

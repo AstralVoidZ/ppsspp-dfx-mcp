@@ -27,34 +27,40 @@ wrapper indirection.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.registers import normalize_reg_name
+from ppsspp_dfx_mcp.errors import ArgsInvalid, FuncNotFound, PpssppProtocolError, to_tool_error
 from ppsspp_dfx_mcp.models.query import QueryResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
-from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
+from ppsspp_dfx_mcp.tools._common import require_int_not_bool, translate_tool_errors
 from ppsspp_dfx_mcp.views.query import QueryResponse
 
-QueryOutput = derive_output_contract(
-    "QueryOutput",
-    QueryResponse,
-    # `data` 在 view 里是 `Any`。**联合逐分支枚举**（本文件全部 `data=` 赋值点）：
-    #   game_state/registers/register/backtrace/modules/funcs/func_add/func_remove
-    #     → `debug_client` 对应方法均返回 `dict[str, Any]`
-    #   threads → `ThreadSnapshot.threads`，其类型标注为 `list[dict]`
-    # 用 `list[Any]` 会退化成空 `items`（违反 `tool-schema-contract` 的
-    # 「数组返回 SHALL 约束 items」），故写具体元素类型。
-    # 该联合会被 SDK 用于**运行时校验**，新增 action 时须同步扩这里。
-    overrides={
-        "data": dict[str, Any] | list[dict[str, Any]] | None,
-    },
-)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    QueryOutput = dict[str, Any]
+else:
+    QueryOutput = derive_output_contract(
+        "QueryOutput",
+        QueryResponse,
+        # `data` 在 view 里是 `Any`。**联合逐分支枚举**（本文件全部 `data=` 赋值点）：
+        #   game_state/registers/register/backtrace/modules/funcs/func_add/func_remove
+        #     → `debug_client` 对应方法均返回 `dict[str, Any]`
+        #   threads → `ThreadSnapshot.threads`，其类型标注为 `list[dict]`
+        # 用 `list[Any]` 会退化成空 `items`（违反 `tool-schema-contract` 的
+        # 「数组返回 SHALL 约束 items」），故写具体元素类型。
+        # 该联合会被 SDK 用于**运行时校验**，新增 action 时须同步扩这里。
+        overrides={
+            "data": dict[str, Any] | list[dict[str, Any]] | None,
+        },
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -74,24 +80,13 @@ _QUERY_ACTIONS: tuple[str, ...] = (
 )
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Aggregate query tool.
-#
-# Action → required params:
-# game_state → session_id
-# registers  → session_id
-# backtrace  → session_id (thread optional)
-# threads    → session_id
-# modules    → session_id
-# funcs      → session_id
-# func_scan  → session_id + address (scans 64KB range starting at address)
-# func_add   → session_id (name? and/or address)
-# func_remove→ session_id + address (PPSSPP protocol requires address;
-# name is not accepted by hle.func.remove)
+# LONG-TOOL: one tool aggregates game_state / registers / threads / backtrace
+# / HLE-function management and module listing behind a single action enum —
+# splitting it would multiply the tool surface the baseline and docs pin.
 @mcp.tool(
     name="ppsspp_query",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -159,9 +154,10 @@ async def query(
         Field(
             default=None,
             description=(
-                "Function name (func_add only; ignored by func_remove "
+                "Required for action='register' (the register name to "
+                "read) and for action='func_add'. Ignored by func_remove "
                 "because PPSSPP's hle.func.remove protocol does not "
-                "accept a name parameter)."
+                "accept a name parameter."
             ),
         ),
     ] = None,
@@ -170,8 +166,10 @@ async def query(
         Field(
             default="0x0",
             description=(
-                "Function address as a hex string (e.g. '0x08804000'). "
-                "Required for func_remove and func_scan."
+                "Required for func_remove and func_scan. Function address as a "
+                "hex string (e.g. '0x08804000'). Not used by the other "
+                "actions. The schema default of '0x0' exists for legacy "
+                "callers -- do NOT rely on it when the action is one of the above."
             ),
         ),
     ] = "0x0",
@@ -227,128 +225,151 @@ async def query(
         )
     if action == "func_scan" and address_int == 0:
         raise ArgsInvalid("action='func_scan' requires a non-zero address")
+    if top_n < 0:
+        # A-8 (review v4): negative values used to take the same "no limit"
+        # path as 0 and dump the 700+KB function table verbatim.
+        raise ArgsInvalid(f"top_n must be >= 0 (0 = no limit), got {top_n}")
 
     logger.info(
         "tool_call",
         extra={"tool": "ppsspp_query", "action": action, "session_id": session_id},
     )
 
-    try:
-        async with session_client(session_id) as client:
-            if action == "game_state":
-                data = await client.game_status()
-                result = QueryResult(action=action, data=data, trust_level=None)
-            elif action in ("registers", "register"):
-                # safe=true (default) walks the with_stepping pause dance —
-                # same semantics as the retired ppsspp_get_pc (trust HIGH).
-                # safe=false is a raw read: zero pause cost, racy while
-                # running (trust LOW) — the hot-path polling option.
-                if safe:
-                    async with client.with_stepping():
-                        if action == "registers":
-                            data = await client.get_all_regs()
-                        else:
-                            data = await client.get_reg(name=name, thread=thread)
-                    trust = "high"
-                else:
+    async with session_client(session_id) as client:
+        if action == "game_state":
+            data = await client.game_status()
+            result = QueryResult(action=action, data=data, trust_level=None)
+        elif action in ("registers", "register"):
+            # safe=true (default) walks the with_stepping pause dance —
+            # same semantics as the retired ppsspp_get_pc (trust HIGH).
+            # safe=false is a raw read: zero pause cost, racy while
+            # running (trust LOW) — the hot-path polling option.
+            if safe:
+                async with client.with_stepping():
                     if action == "registers":
                         data = await client.get_all_regs()
                     else:
+                        # action='register' 的 name 非空由上面的早拒保证；
+                        # 此断言仅向类型检查器传达该不变式。
+                        assert name is not None
                         data = await client.get_reg(name=name, thread=thread)
-                    trust = "low"
-                result = QueryResult(action=action, data=data, trust_level=trust)
-            elif action == "backtrace":
-                data = await client.backtrace(thread=thread)
-                result = QueryResult(action=action, data=data, trust_level=None)
-            elif action == "threads":
-                snapshot = await client.safe_get_threads()
-                result = QueryResult(
-                    action=action,
-                    data=snapshot.threads,
-                    trust_level=snapshot.trust_level,
+                trust = "high"
+            else:
+                if action == "registers":
+                    data = await client.get_all_regs()
+                else:
+                    # 同上：早拒保证 action='register' 必有 name。
+                    assert name is not None
+                    data = await client.get_reg(name=name, thread=thread)
+                trust = "low"
+            if action == "register":
+                # G-3 (FR-003): cpu.getReg replies carry only the numeric
+                # index (register=32), never the name. Echo the normalized
+                # name — what PPSSPP actually looked up — so the caller can
+                # self-verify that e.g. 'r8' was interpreted as 't0'.
+                assert name is not None  # early reject above; typing only.
+                data["name"] = normalize_reg_name(name)
+            result = QueryResult(action=action, data=data, trust_level=trust)
+        elif action == "backtrace":
+            data = await client.backtrace(thread=thread)
+            result = QueryResult(action=action, data=data, trust_level=None)
+        elif action == "threads":
+            snapshot = await client.safe_get_threads()
+            result = QueryResult(
+                action=action,
+                data=snapshot.threads,
+                trust_level=snapshot.trust_level,
+            )
+        elif action == "modules":
+            data = await client.module_list()
+            result = QueryResult(action=action, data=data, trust_level=None)
+        elif action == "funcs":
+            data = await client.func_list()
+            # Truncate large function lists.
+            if top_n > 0:
+                data = _apply_top_n(data, top_n)
+            result = QueryResult(action=action, data=data, trust_level=None)
+        elif action == "func_scan":
+            # Default scan size: 64 KB. PPSSPP's hle.func.scan is
+            # fire-and-forget (triggers scan, no business data returned).
+            # Follow-up func_list to retrieve the scan results.
+            scan_size = 65536
+            await client.func_scan(address=address_int, size=scan_size)
+            data = await client.func_list()
+            # ISS-008: PPSSPP returns the WHOLE symbol table regardless
+            # of the requested range — filter to [address, address+size)
+            # client-side so the requested window is what the caller
+            # sees. total_before records the pre-filter size.
+            if isinstance(data, dict) and isinstance(data.get("functions"), list):
+                before = len(data["functions"])
+                lo, hi = address_int, address_int + scan_size
+                data["functions"] = [
+                    f for f in data["functions"] if lo <= int(f.get("address", 0)) < hi
+                ]
+                data["filtered_to"] = f"0x{lo:08X}-0x{hi:08X}"
+                data["total_before_filter"] = before
+            # Truncate large function lists.
+            if top_n > 0:
+                data = _apply_top_n(data, top_n)
+            result = QueryResult(action=action, data=data, trust_level=None)
+        elif action == "func_add":
+            addr = address_int if address_int != 0 else None
+            # Always send an explicit size (default 4): omitting it
+            # hits a zero-size underflow on PPSSPP builds up to
+            # v1.20.4-1845 and yields an invisible, unremovable
+            # function. Verify after the ack and surface the result.
+            size_v = require_int_not_bool(size if size is not None else 4, "size")
+            if size_v < 1:
+                # A-3 (review v4): zero/negative sizes reproduce the
+                # invisible, unremovable-function bug documented above.
+                raise ArgsInvalid(
+                    f"size must be >= 1 (got {size_v}) — a zero-size function "
+                    f"is invisible and unremovable on PPSSPP <= v1.20.4-1845"
                 )
-            elif action == "modules":
-                data = await client.module_list()
-                result = QueryResult(action=action, data=data, trust_level=None)
-            elif action == "funcs":
-                data = await client.func_list()
-                # Truncate large function lists.
-                if top_n > 0:
-                    data = _apply_top_n(data, top_n)
-                result = QueryResult(action=action, data=data, trust_level=None)
-            elif action == "func_scan":
-                # Default scan size: 64 KB. PPSSPP's hle.func.scan is
-                # fire-and-forget (triggers scan, no business data returned).
-                # Follow-up func_list to retrieve the scan results.
-                scan_size = 65536
-                await client.func_scan(address=address_int, size=scan_size)
-                data = await client.func_list()
-                # ISS-008: PPSSPP returns the WHOLE symbol table regardless
-                # of the requested range — filter to [address, address+size)
-                # client-side so the requested window is what the caller
-                # sees. total_before records the pre-filter size.
-                if isinstance(data, dict) and isinstance(data.get("functions"), list):
-                    before = len(data["functions"])
-                    lo, hi = address_int, address_int + scan_size
-                    data["functions"] = [
-                        f for f in data["functions"] if lo <= int(f.get("address", 0)) < hi
-                    ]
-                    data["filtered_to"] = f"0x{lo:08X}-0x{hi:08X}"
-                    data["total_before_filter"] = before
-                # Truncate large function lists.
-                if top_n > 0:
-                    data = _apply_top_n(data, top_n)
-                result = QueryResult(action=action, data=data, trust_level=None)
-            elif action == "func_add":
-                addr = address_int if address_int != 0 else None
-                # Always send an explicit size (default 4): omitting it
-                # hits a zero-size underflow on PPSSPP builds up to
-                # v1.20.4-1845 and yields an invisible, unremovable
-                # function. Verify after the ack and surface the result.
-                data = await client.func_add(
-                    name=name, address=addr, size=size if size is not None else 4
-                )
-                try:
-                    listing = await client.func_list()
-                    entries = listing.get("functions", []) if isinstance(listing, dict) else []
-                    if addr is None:
-                        # W4 (review v3): a name-only func_add has no address to
-                        # compare; `f.get("address") == (addr or 0)` actually
-                        # asked "is there an address-0 entry?" — a false negative
-                        # normally and a false positive if such an entry exists.
-                        data["verified"] = any(f.get("name") == name for f in entries)
-                    else:
-                        data["verified"] = any(f.get("address") == addr for f in entries)
-                    if not data["verified"]:
-                        data["verified_note"] = (
-                            "added function not visible in hle.func.list — "
-                            "symbol map may not have accepted it"
-                        )
-                except Exception as verify_err:  # verification is best-effort
-                    data["verified"] = None
-                    data["verified_note"] = f"verify skipped: {verify_err}"
-                result = QueryResult(action=action, data=data, trust_level=None)
-            else:  # func_remove — address is guaranteed non-zero by the
-                # validator above; name is not accepted by the protocol.
+            data = await client.func_add(name=name, address=addr, size=size_v)
+            try:
+                listing = await client.func_list()
+                entries = listing.get("functions", []) if isinstance(listing, dict) else []
+                if addr is None:
+                    # A name-only func_add has no address to
+                    # compare; `f.get("address") == (addr or 0)` actually
+                    # asked "is there an address-0 entry?" — a false negative
+                    # normally and a false positive if such an entry exists.
+                    data["verified"] = any(f.get("name") == name for f in entries)
+                else:
+                    data["verified"] = any(f.get("address") == addr for f in entries)
+                if not data["verified"]:
+                    data["verified_note"] = (
+                        "added function not visible in hle.func.list — "
+                        "symbol map may not have accepted it"
+                    )
+            except Exception as verify_err:  # verification is best-effort
+                data["verified"] = None
+                data["verified_note"] = f"verify skipped: {verify_err}"
+            result = QueryResult(action=action, data=data, trust_level=None)
+        else:  # func_remove — address is guaranteed non-zero by the
+            # validator above; name is not accepted by the protocol.
+            try:
                 data = await client.func_remove(address=address_int)
-                result = QueryResult(action=action, data=data, trust_level=None)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+            except Exception as exc:
+                # PPSSPP answers a remove for an unknown target with
+                # "No function found at 'address'" — the parameter NAME is
+                # printed in place of its value, and the event arrives as a
+                # bare protocol error. Domain-ise it (FR-009) so the caller
+                # can tell "no such tracked function" from a transport
+                # failure, and gets the value that was actually attempted.
+                translated = to_tool_error(exc)
+                if isinstance(translated, PpssppProtocolError) and (
+                    "no function found" in str(translated).lower()
+                ):
+                    raise FuncNotFound(
+                        f"no tracked HLE function at 0x{address_int:08X} — "
+                        f"run ppsspp_query(action='funcs') to list the tracked "
+                        f"functions and retry with one of them"
+                    ) from exc
+                raise
+            result = QueryResult(action=action, data=data, trust_level=None)
     return QueryResponse.from_result(result).model_dump(mode="json")
-
-
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Safely read the current PC (stepping → query → resume).
-#
-# Returns:
-# GetPcResponse dict: pc + trust_level.
-#
-# Raises:
-# ToolError: on session lookup failure or WS failure.
-# ppsspp_get_pc was absorbed into ppsspp_query:
-# query(action='register', name='pc', safe=true) is the same read.
 
 
 def _apply_top_n(data: Any, top_n: int) -> Any:

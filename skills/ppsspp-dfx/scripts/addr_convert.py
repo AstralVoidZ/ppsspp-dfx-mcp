@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Convert between IDA offsets and PPSSPP runtime addresses (offline).
 
-runtime address = IDA offset + load base. The MCP tool
-The `ppsspp_convert_address` tool was retired (pure arithmetic); this
-script works without a running session and accepts any base, including one
-read from `.ppsspp-dfx/config/addresses.yaml` (top_base.ppsspp).
+runtime address = IDA offset + load base.
+
+Address conversion is pure arithmetic, so it is not an MCP tool. This script
+works without a running session and accepts any base, including one read from
+`.ppsspp-dfx/config/addresses.yaml` (top_base.ppsspp).
 
 Usage:
   python addr_convert.py 0x126DBC                    # IDA offset -> runtime (base auto-discovered)

@@ -10,39 +10,34 @@ READ-ONLY: does not modify memory or CPU state.
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.errors import ToolError, to_tool_error
 from ppsspp_dfx_mcp.models.memory_map import MemoryMapResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.memory_map import MemoryMapResponse
 
-MemoryMapOutput = derive_output_contract("MemoryMapOutput", MemoryMapResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    MemoryMapOutput = dict[str, Any]
+else:
+    MemoryMapOutput = derive_output_contract("MemoryMapOutput", MemoryMapResponse)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["memory_map"]
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Get the PPSSPP memory region map.
-#
-# Returns:
-# MemoryMapResponse dict: ranges + mapping + text.
-#
-# Raises:
-# ToolError: on session lookup failure, empty session_id, or WS
-# failure.
 @mcp.tool(
     name="ppsspp_memory_map",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -69,13 +64,8 @@ async def memory_map(
         },
     )
 
-    try:
-        async with session_client(session_id) as client:
-            response = await client.memory_map()
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        response = await client.memory_map()
 
     mapping = response if isinstance(response, dict) else {}
 

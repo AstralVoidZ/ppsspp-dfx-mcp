@@ -46,6 +46,7 @@ import os
 import sys
 import tempfile
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -89,13 +90,14 @@ def _is_cancel_scope_teardown_error(exc: BaseException) -> bool:
     return False
 
 
-@pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def mcp_inspector() -> AsyncIterator[ClientSession]:
-    """Launch a fake-mode MCP server subprocess and return a ClientSession.
+@asynccontextmanager
+async def _inspector() -> AsyncIterator[ClientSession]:
+    """Launch a fake-mode MCP server subprocess and yield a ClientSession.
 
-    Session-scoped: the server subprocess is reused across all tests
-    that request this fixture. The ClientSession is initialized
-    (handshake complete) before being yielded to the test.
+    The ClientSession is initialized (handshake complete) before being
+    yielded. Each call spawns a FRESH subprocess with its own isolated
+    ``sessions.json`` tempdir, so the returned session starts with ZERO
+    active sessions regardless of what other servers in the test run did.
 
     The server runs with PPSSPP_DFX_TEST_MODE=fake so tool calls that
     need a session will use a FakeTransport + recorded fixtures instead
@@ -196,6 +198,32 @@ async def mcp_inspector() -> AsyncIterator[ClientSession]:
         except BaseException as exc:  # noqa: BLE001
             if not _is_cancel_scope_teardown_error(exc):
                 raise
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def mcp_inspector() -> AsyncIterator[ClientSession]:
+    """Shared server subprocess for the whole test session.
+
+    Session-scoped so the (expensive) subprocess is spawned once and
+    reused. Tests that mutate server state (e.g. start a session) share
+    this instance — use ``mcp_inspector_isolated`` when a test needs a
+    guaranteed-empty server.
+    """
+    async with _inspector() as session:
+        yield session
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def mcp_inspector_isolated() -> AsyncIterator[ClientSession]:
+    """A second, independent server subprocess (own empty sessions.json).
+
+    Needed for assertions about the ZERO-session state: the shared
+    ``mcp_inspector`` accumulates sessions started by other tests, so its
+    active-session count is order-dependent. This instance has its own
+    tempdir and is only ever touched by the test that requests it.
+    """
+    async with _inspector() as session:
+        yield session
 
 
 @pytest.fixture

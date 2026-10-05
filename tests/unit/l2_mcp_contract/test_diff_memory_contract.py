@@ -48,7 +48,7 @@ def fake_diff(monkeypatch: pytest.MonkeyPatch):
     client = FakeClient()
     monkeypatch.setattr(diff_mod, "session_client", lambda session_id: FakeSessionClient(client))
     monkeypatch.setattr(diff_mod, "resolve_session_id", _resolve)
-    diff_mod._reset_registry_for_tests()
+    diff_mod.reset_snapshots()
     return client
 
 

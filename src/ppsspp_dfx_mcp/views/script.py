@@ -99,7 +99,7 @@ class ScriptListOutput(FrozenModel):
         provided, each exposed entry's `exposed_registered` reflects
         reality — so a declared-but-unregistered (or registered-but-
         removed-from-manifest) exposed script is visible to agents
-        instead of silently diverging (F5, review-r3).
+        instead of silently diverging.
         """
         names = exposed_registered_names
         return cls(
@@ -151,7 +151,7 @@ class ReloadScriptsOutput(FrozenModel):
         default=0,
         description=(
             "Number of exposed scripts ACTUALLY registered as dynamic "
-            "tools after the reload sync (F4/F5: declared != registered "
+            "tools after the reload sync (declared != registered "
             "is now surfaced instead of silently diverging)."
         ),
     )

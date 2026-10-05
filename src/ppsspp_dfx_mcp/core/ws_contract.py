@@ -194,8 +194,8 @@ class WsEventContract:
             ticketed response — completion is signalled by a separate
             broadcast (e.g., cpu.stepInto → cpu.stepping broadcast).
             Such events have NO immediate response payload.
-        params: Parameter names the MCP client sends for this event
-            (R10). A trailing '?' marks an optional parameter. The L1
+        params: Parameter names the MCP client sends for this event.
+            A trailing '?' marks an optional parameter. The L1
             param-shape sweep test diffs these declarations against
             what PpssppDebugClient actually puts on the wire.
     """

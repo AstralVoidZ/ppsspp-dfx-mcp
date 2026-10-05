@@ -18,7 +18,8 @@ import pytest
 
 import ppsspp_dfx_mcp.tools.workflows as wf
 from ppsspp_dfx_mcp.core.game_state_observer import GameStateObserver
-from ppsspp_dfx_mcp.errors import ToolError
+from ppsspp_dfx_mcp.errors import SessionNotFound, ToolError
+from ppsspp_dfx_mcp.service import observer_lookup
 
 TRACE_ADDR = "0x08A0D000"
 
@@ -115,7 +116,9 @@ def _patch(monkeypatch, client: _StubClient, observer: GameStateObserver):
     monkeypatch.setattr(wf, "session_client_with_transport", fake_swt)
     monkeypatch.setattr(wf, "session_client", fake_sc)
     monkeypatch.setattr(wf, "validate_session_alive", fake_alive)
-    monkeypatch.setattr(wf.session_manager, "get_observer", fake_get_observer)
+    # `_get_live_observer` moved to `service/observer_lookup.py` (W19); the
+    # lookup reads session_manager from that module.
+    monkeypatch.setattr(observer_lookup.session_manager, "get_observer", fake_get_observer)
 
 
 def _push_hit(transport: _ObserverTransport) -> None:
@@ -368,6 +371,33 @@ async def test_trace_rejects_bad_size_and_address(
         assert client.ops == []
     finally:
         await observer.stop()
+
+
+# ── observer-lookup guidance must name the REAL tool surface ─────────────
+
+
+@pytest.mark.asyncio
+async def test_no_observer_message_names_real_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 'no live broadcast observer' hint must name tools that exist:
+    wait/trace live on ppsspp_breakpoint(action=...) since v0.1.6 absorbed
+    the former ppsspp_wait_breakpoint / ppsspp_trace_memory_access tools.
+    A hint naming vanished tools sends the agent down a dead end — this is
+    the same defect class the prompts.py trace wizard had.
+    """
+
+    async def _raise(session_id: str):
+        raise SessionNotFound(f"no such session: {session_id}")
+
+    monkeypatch.setattr(observer_lookup.session_manager, "get_observer", _raise)
+    with pytest.raises(ToolError) as exc:
+        await observer_lookup.get_live_observer("s1")
+    msg = str(exc.value)
+    assert "ppsspp_breakpoint(action='wait'" in msg
+    assert "ppsspp_breakpoint(action='trace'" in msg
+    assert "ppsspp_trace_memory_access" not in msg
+    assert "ppsspp_wait_breakpoint" not in msg
 
 
 # ── ppsspp_frame_snapshot (P4) ───────────────────────────────────────────

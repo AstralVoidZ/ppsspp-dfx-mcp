@@ -25,11 +25,21 @@ from ppsspp_dfx_mcp.errors import ToolError
 from ppsspp_dfx_mcp.tools import state_observer as so_module
 from ppsspp_dfx_mcp.tools.state_observer import state_observer
 
+# Session id used by the tests below; the registry is keyed by session
+# since D17 (it used to be one process-wide dict).
+_SID = "s"
+
 
 def _reset_registry() -> None:
-    """Clear the module-level registry + reset seed flag (test isolation)."""
-    so_module._REGISTRY.clear()
-    so_module._SEEDED = False
+    """Clear the session's registry + re-arm seeding (test isolation).
+
+    D17 made the registry per-session, so isolation is per session id
+    rather than one global dict.
+
+    T053 S-4：pop registry + discard latch == 生产语义化回收 API
+    drop_session（no-op 容忍未知会话），不再直写生产私有容器。
+    """
+    so_module.drop_session(_SID)
 
 
 def _patch_client(monkeypatch: pytest.MonkeyPatch, mock: AsyncMock) -> None:

@@ -59,7 +59,7 @@ def is_pid_alive(pid: int | None) -> bool:
         except ProcessLookupError:
             return False
         except PermissionError:
-            # S7 (review v2): EPERM means the process EXISTS but belongs
+            # EPERM means the process EXISTS but belongs
             # to another user — treating it as dead misclassified a frozen
             # (alive) PPSSPP as a disconnected one in the pause timeout
             # error taxonomy.

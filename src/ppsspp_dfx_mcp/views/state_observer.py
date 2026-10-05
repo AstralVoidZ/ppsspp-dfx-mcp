@@ -26,6 +26,15 @@ class ProbeObservationView(FrozenModel):
         default="0x00000000", description="Raw unsigned value read, hex string (e.g. '0x00000001')"
     )
     error: str = Field(default="", description="Empty on success; error message on failure")
+    value_status: str = Field(
+        default="ok",
+        description=(
+            "'ok' or 'stale_address_suspected'. The latter means this address "
+            "has read zero on several consecutive readings, so the probe "
+            "address may have drifted -- a suspicion, not a verdict"
+        ),
+    )
+    note: str = Field(default="", description="Empty unless value_status is suspicious")
 
     @classmethod
     def from_result(cls, obs: ProbeObservation) -> ProbeObservationView:
@@ -35,6 +44,8 @@ class ProbeObservationView(FrozenModel):
             size=obs.size,
             value=format_address(obs.value),
             error=obs.error,
+            value_status=obs.value_status,
+            note=obs.note,
         )
 
 

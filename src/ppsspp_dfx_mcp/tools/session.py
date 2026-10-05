@@ -5,7 +5,7 @@ exceptions to ToolError. No business logic here.
 
 2 tools exposed:
 - ppsspp_session(action=start/stop/get/wait_ready, ...) — aggregate
-  session lifecycle; 'wait_ready' (H0, 2026-09-07) polls a CPU-start
+  session lifecycle; 'wait_ready' (2026-09-07) polls a CPU-start
   probe read until the emulated CPU is up (see BootTimeout)
 - ppsspp_session_list() — list active sessions (with idle GC side effect)
 """
@@ -13,28 +13,28 @@ exceptions to ToolError. No business logic here.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
 from ppsspp_dfx_mcp.config import test_mode
-from ppsspp_dfx_mcp.errors import ArgsInvalid, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.session import WaitReadyResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session import session_manager
 from ppsspp_dfx_mcp.session.client_helper import validate_session_alive
 from ppsspp_dfx_mcp.session.safe_boot import probe_cpu_ready
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.session import (
     SessionListResponse,
     SessionResponse,
     WaitReadyResponse,
 )
 
-# 🔴-1 联合契约：SDK 的 convert_result 会把契约未声明的键从
+# 联合契约：SDK 的 convert_result 会把契约未声明的键从
 # structuredContent 中剥掉（partial=True 只是"校验通过"，键仍会丢）。
 # 因此把每个分支的形状（各自 partial 派生 = 全可选）合并成一个 union
 # TypedDict，键集为三者的并集。
@@ -43,7 +43,14 @@ _WaitReadyOut = derive_output_contract("WaitReadyOut", WaitReadyResponse, partia
 _SessionListOut = derive_output_contract("SessionListOut", SessionListResponse, partial=True)
 
 
-SessionOutput = flatten_union("SessionOutput", _SessionResponseOut, _WaitReadyOut, _SessionListOut)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    SessionOutput = dict[str, Any]
+else:
+    SessionOutput = flatten_union(
+        "SessionOutput", _SessionResponseOut, _WaitReadyOut, _SessionListOut
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +59,7 @@ __all__ = ["session"]
 
 _VALID_ACTIONS = ("list", "start", "stop", "get", "wait_ready")
 
-# H0: probe address polled by wait_ready. 0x08804000 is the project's
+# Probe address polled by wait_ready. 0x08804000 is the project's
 # top.prx load base (addresses.yaml top_base) — the same probe the test
 # harness and integration conftest have validated on real boots.
 _DEFAULT_PROBE_ADDR = "0x08804000"
@@ -62,7 +69,7 @@ _WAIT_READY_POLL_INTERVAL_S = 1.0
 
 
 async def _wait_ready_cpu(session_id: str, timeout_s: float, probe_addr: int) -> WaitReadyResult:
-    """Poll a probe read until the emulated CPU is up (H0 helper).
+    """Poll a probe read until the emulated CPU is up.
 
     Delegates to the SINGLE shared probe implementation
     (session/safe_boot.probe_cpu_ready — sunk out of this tool so
@@ -97,20 +104,10 @@ async def _wait_ready_cpu(session_id: str, timeout_s: float, probe_addr: int) ->
     )
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Aggregate tool for PPSSPP session lifecycle.
-#
-# Action mapping:
-# action=start → start_session(iso_path)  [async]
-# action=stop  → stop_session(session_id)
-# action=get   → get_session_state(session_id)
-#
-# Raises:
-# ToolError: on invalid action, missing required param, or business error.
 @mcp.tool(
     name="ppsspp_session",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True
     ),
 )
 @translate_tool_errors
@@ -172,16 +169,19 @@ async def session(
     wait_ready: Annotated[
         bool,
         Field(
-            default=False,
+            default=True,
             description=(
                 "action=start only: block until the emulated CPU is "
                 "ready before returning (same probe/budget as "
                 "action=wait_ready; raises [BOOT_TIMEOUT] on wedge "
                 "suspicion). Fake test mode is ready immediately. "
-                "Default false keeps the historical two-call flow."
+                "Default true: start() returns a session that is ready "
+                "to use, so the first tool call does not fail with a "
+                "version-handshake timeout. Pass false only when you "
+                "want the raw launch without waiting."
             ),
         ),
-    ] = False,
+    ] = True,
     resilient: Annotated[
         bool,
         Field(
@@ -211,58 +211,55 @@ async def session(
 
     logger.info("tool_call", extra={"tool": "ppsspp_session", "action": action})
     clamped_timeout = min(max(float(timeout_s), 1.0), 300.0)
-    try:
-        if action == "list":
-            sessions = await session_manager.list_sessions()
-            return SessionListResponse.from_sessions(sessions).model_dump(mode="json")
-        if action == "start":
-            if not iso_path:
-                raise ArgsInvalid("iso_path is required when action=start")
-            # S10 (review v2): the start branch used to be the one path
-            # that skipped the zero check — resilient mode's readiness
-            # gate would then probe address 0 (the NUL page) instead of
-            # a real CPU-liveness signal.
-            probe_int_start = parse_address(probe_addr)
-            if probe_int_start == 0:
-                raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
-            sess = await session_manager.start_session(
-                iso_path,
-                resilient=resilient,
-                ready_timeout_s=clamped_timeout,
-                probe_addr=probe_int_start,
-            )
-            if wait_ready and test_mode() != "fake":
-                # G5: one-call boot — same probe/budget semantics as
-                # action=wait_ready, inlined after a successful start.
-                probe_int = parse_address(probe_addr)
-                if probe_int == 0:
-                    raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
-                await _wait_ready_cpu(sess.session_id, clamped_timeout, probe_int)
-        elif action == "stop":
-            if not session_id:
-                raise ArgsInvalid("session_id is required when action=stop")
-            sess = await session_manager.stop_session(session_id)
-        elif action == "wait_ready":
-            if not session_id:
-                raise ArgsInvalid("session_id is required when action=wait_ready")
+    if action == "list":
+        sessions = await session_manager.list_sessions()
+        return SessionListResponse.from_sessions(sessions).model_dump(mode="json")
+    if action == "start":
+        if not iso_path:
+            raise ArgsInvalid("iso_path is required when action=start")
+        # The start branch used to be the one path
+        # that skipped the zero check — resilient mode's readiness
+        # gate would then probe address 0 (the NUL page) instead of
+        # a real CPU-liveness signal.
+        probe_int_start = parse_address(probe_addr)
+        if probe_int_start == 0:
+            raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
+        sess = await session_manager.start_session(
+            iso_path,
+            resilient=resilient,
+            ready_timeout_s=clamped_timeout,
+            probe_addr=probe_int_start,
+        )
+        if wait_ready and test_mode() != "fake":
+            # G5: one-call boot — same probe/budget semantics as
+            # action=wait_ready, inlined after a successful start.
             probe_int = parse_address(probe_addr)
             if probe_int == 0:
                 raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
-            if test_mode() == "fake":
-                result = WaitReadyResult(
-                    ready=True,
-                    elapsed_s=0.0,
-                    probe_addr=probe_int,
-                    probe_value=None,
-                    note="fake test mode has no boot concept — ready immediately",
-                )
-            else:
-                result = await _wait_ready_cpu(session_id, clamped_timeout, probe_int)
-            return WaitReadyResponse.from_result(result).model_dump(mode="json")
-        else:  # action == "get"
-            if not session_id:
-                raise ArgsInvalid("session_id is required when action=get")
-            sess = await session_manager.get_session_state(session_id)
-    except Exception as e:
-        raise to_tool_error(e) from e
+            await _wait_ready_cpu(sess.session_id, clamped_timeout, probe_int)
+    elif action == "stop":
+        if not session_id:
+            raise ArgsInvalid("session_id is required when action=stop")
+        sess = await session_manager.stop_session(session_id)
+    elif action == "wait_ready":
+        if not session_id:
+            raise ArgsInvalid("session_id is required when action=wait_ready")
+        probe_int = parse_address(probe_addr)
+        if probe_int == 0:
+            raise ArgsInvalid(f"probe_addr must be a valid hex address, got {probe_addr!r}")
+        if test_mode() == "fake":
+            result = WaitReadyResult(
+                ready=True,
+                elapsed_s=0.0,
+                probe_addr=probe_int,
+                probe_value=None,
+                note="fake test mode has no boot concept — ready immediately",
+            )
+        else:
+            result = await _wait_ready_cpu(session_id, clamped_timeout, probe_int)
+        return WaitReadyResponse.from_result(result).model_dump(mode="json")
+    else:  # action == "get"
+        if not session_id:
+            raise ArgsInvalid("session_id is required when action=get")
+        sess = await session_manager.get_session_state(session_id)
     return SessionResponse.from_session(sess).model_dump(mode="json")

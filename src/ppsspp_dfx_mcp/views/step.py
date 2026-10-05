@@ -31,13 +31,17 @@ class StepResponse(FrozenModel):
         description=(
             "Program counter after step, hex string. For into/over/out/run_until/next_hle "
             "this comes from the cpu.stepping broadcast. For pause, extracted "
-            "via safe_get_pc after CPU enters stepping. '0x00000000' for resume/reset "
-            "(no trustworthy PC available)."
+            "via safe_get_pc after CPU enters stepping. For resume, a best-effort "
+            "LOW-trust cpu.status snapshot of the running CPU (inaccurate unless "
+            "stepping — CPUCoreSubscriber.cpp:105). '0x00000000' for reset."
         ),
     )
     ticks: float = Field(
         default=0.0,
-        description="CPU ticks at step completion (0.0 for pause/resume/reset).",
+        description=(
+            "CPU ticks at step completion (from cpu.stepping broadcast). For resume, "
+            "a best-effort LOW-trust cpu.status snapshot. 0.0 for pause/reset."
+        ),
     )
     reason: str = Field(
         default="",

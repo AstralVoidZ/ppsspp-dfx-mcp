@@ -1,4 +1,4 @@
-"""ppsspp_watch_value — value-change polling watch (D2 方案B-3).
+"""ppsspp_watch_value — value-change polling watch.
 
 热读地址的观察点替代：纯读轮询，零暂停成本。值变化才记录
 （旧值/新值/帧序号/相对时间）。
@@ -16,7 +16,7 @@ from pydantic import Field
 
 from ppsspp_dfx_mcp.address import format_address, parse_address
 from ppsspp_dfx_mcp.errors import ArgsInvalid
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import (
     session_client,
     validate_session_alive,
@@ -46,10 +46,10 @@ class WatchValueOutput(TypedDict):
 @mcp.tool(
     name="ppsspp_watch_value",
     annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
     ),
 )
 @translate_tool_errors
@@ -61,7 +61,14 @@ async def watch_value(
     ],
     mode: Annotated[
         Literal["u8", "u16", "u32"],
-        Field(default="u32", description="Value interpretation for change detection."),
+        Field(
+            default="u32",
+            description=(
+                "Read width for change detection: 'u8', 'u16' or 'u32' "
+                "(default u32). Must match how the watched value is meant to "
+                "be read."
+            ),
+        ),
     ] = "u32",
     interval_frames: Annotated[
         int,
@@ -71,7 +78,12 @@ async def watch_value(
         int,
         Field(
             default=600,
-            description="Total watch window in frames (cap 18000 ~ 5 min at 60fps).",
+            description=(
+                "Total watch window in frames (cap 18000 ~ 5 min at 60fps). "
+                "A-19: holds the per-session lock for the WHOLE window — "
+                "concurrent tool calls on this session get SESSION_BUSY "
+                "after ~5s; use short windows or poll repeatedly instead."
+            ),
         ),
     ] = 600,
 ) -> WatchValueOutput:
@@ -79,7 +91,7 @@ async def watch_value(
 
     USAGE: session_id + address + mode + interval. Polls the value every
     interval_frames and records changes (old/new/frame/time). Pure reads:
-    the CPU is never paused, so hot addresses are safe (D2 storm-free).
+    the CPU is never paused, so hot addresses are safe (storm-free).
 
     BEHAVIOR: READ-ONLY. Polling loop; never mutates state; blocks ~duration_frames/60 seconds
     (cap 18000 frames).
@@ -94,7 +106,7 @@ async def watch_value(
     if interval_frames < 1:
         raise ArgsInvalid(f"interval_frames must be >= 1 (got {interval_frames})")
     if interval_frames > duration_frames:
-        # W2 (review v3): the interval had no upper bound, so a huge value
+        # The interval had no upper bound, so a huge value
         # kept the polling loop — and the session lock — alive for hours
         # (10**6 frames ≈ 4.6 h) while the tool advertised a frame cap.
         raise ArgsInvalid(
@@ -118,6 +130,12 @@ async def watch_value(
     async with session_client(session_id) as client:
         while frame < duration_frames:
             raw = await client.read_bytes(address=addr_int, size=size)
+            if len(raw) != size:
+                # A shorter payload decoded at the declared width would
+                # silently report a narrower value (u32 watch reading a u16)
+                # and poison the change timeline — fail loudly instead
+                # (review-v4 W-3; sibling readers already guard this).
+                raise ArgsInvalid(f"short read at 0x{addr_int:08X}: got {len(raw)} of {size} bytes")
             value = int.from_bytes(raw[:size], "little", signed=False)
             if first_value is None:
                 first_value = value
@@ -134,7 +152,7 @@ async def watch_value(
                     break
             last_value = value
             samples += 1
-            # W2 (review v3): bound the inner wait by the frames left in the
+            # Bound the inner wait by the frames left in the
             # window — otherwise the last interval can overshoot duration_frames.
             for _ in range(min(interval_frames, duration_frames - frame)):
                 await asyncio.sleep(1 / 60)

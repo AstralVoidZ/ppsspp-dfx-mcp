@@ -26,7 +26,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-# ── Replay blob parsing (R3, analysis_replay_u7_and_rtc_root_cause_v1) ──
+# ── Replay blob parsing ──
 #
 # `replay.flush` returns a HEADERLESS event table (ReplayFlushBlob —
 # "No header is flushed with this operation"): a packed sequence of
@@ -106,6 +106,9 @@ def parse_replay_blob_b64(base64_data: str) -> ReplayBlobSpan:
         raise ValueError(
             f"corrupt replay blob: sidedata walk ended at {off} != {len(blob)} (bad payload length)"
         )
+    # 空 blob 已在入口被拒，且循环至少执行一次 ⇒ 两个时间戳必然已赋值；
+    # 断言向类型检查器传达该不变式（不是运行时校验）。
+    assert first is not None and last is not None
     return ReplayBlobSpan(event_count=count, t0_s=first / 1e6, end_s=last / 1e6)
 
 

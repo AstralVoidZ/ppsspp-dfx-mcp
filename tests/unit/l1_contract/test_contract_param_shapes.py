@@ -50,6 +50,10 @@ class _TicksAdvancingFake(FakeTransport):
 def fake() -> FakeTransport:
     t = _TicksAdvancingFake()
     t.set_state({"stepping": False, "pc": 0x08804000, "ticks": 100.0})
+    # A-11 (review v4): a replay.status reply without `executing` is
+    # "unknown, keep waiting" — the scripted response must carry the real
+    # wire shape instead of relying on the old missing-field default.
+    t.set_response("replay.status", {"executing": False, "saving": False})
 
     def _stepping_true(t: FakeTransport, **params: Any) -> None:
         t.set_state({**t.state, "stepping": True})

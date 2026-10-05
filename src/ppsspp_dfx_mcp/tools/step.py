@@ -27,21 +27,26 @@ next_hle) directly; no orchestration wrapper indirection.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.step import StepResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.step import StepResponse
 
-StepOutput = derive_output_contract("StepOutput", StepResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    StepOutput = dict[str, Any]
+else:
+    StepOutput = derive_output_contract("StepOutput", StepResponse)
 
 logger = logging.getLogger(__name__)
 
@@ -78,22 +83,10 @@ def _extract_broadcast_fields(resp: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Aggregate CPU step / run-state tool.
-#
-# Action → required params:
-# into      → session_id
-# over      → session_id
-# out       → session_id
-# pause     → session_id
-# resume    → session_id
-# reset     → session_id
-# run_until → session_id + address
-# next_hle  → session_id
 @mcp.tool(
     name="ppsspp_step",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -110,7 +103,10 @@ async def step(
             description=(
                 "CPU step / run-state operation. Valid values:\n"
                 "- 'pause': pause CPU (enter stepping mode).\n"
-                "- 'resume': resume CPU (exit stepping mode).\n"
+                "- 'resume': resume CPU (exit stepping mode); the response "
+                "pc/ticks are a LOW-trust snapshot of the running CPU "
+                "(inaccurate unless stepping), not a precise resume "
+                "location.\n"
                 "- 'reset': reset the game (reboot).\n"
                 "- 'run_until': run until the specified address is reached "
                 "(requires address).\n"
@@ -128,9 +124,10 @@ async def step(
         Field(
             default="0x0",
             description=(
-                "Target address, as a hex string (e.g. '0x08804000'). "
-                "Required for action='run_until'; "
-                "ignored for all other actions. run_until is "
+                "Required for action='run_until'. Target address, as a hex "
+                "string (e.g. '0x08804000'). Not used by the other actions. "
+                "The schema default of '0x0' exists for legacy callers -- do "
+                "NOT rely on it when the action is 'run_until'. run_until is "
                 "fire-and-forget: it returns immediately with no hit "
                 "confirmation — poll PC or set a breakpoint to observe "
                 "arrival."
@@ -157,7 +154,7 @@ async def step(
     ROUTING: single run-state operations -> here (run_until for run-to-address); multi-step press/wait/probe sequences and cpu_step -> ppsspp_batch_step.
     BEHAVIOR: STATE-CHANGE. Advances or changes CPU run state. 'reset' reboots the game (lost in-memory state). 'run_until' sets a temp breakpoint and resumes.
 
-    RETURNS: {action, address}.
+    RETURNS: {action, address, pc, ticks, reason, related_address}. pc is stepping-verified (HIGH trust) for 'pause'; for 'resume' pc/ticks are a best-effort LOW-trust cpu.status snapshot of the running CPU (0/0.0 if that read failed); 'reset' reports 0.
     """
     session_id = await resolve_session_id(session_id)
     if action not in _STEP_ACTIONS:
@@ -171,32 +168,46 @@ async def step(
         extra={"tool": "ppsspp_step", "action": action, "session_id": session_id},
     )
 
-    try:
-        async with session_client(session_id) as client:
-            if action == "pause":
-                await client.pause()
-                # After pause, CPU is stepping → PC is trustworthy.
-                # Use safe_get_pc which guarantees stepping state during
-                # the query (handles VBlank race where CPU auto-resumes
-                # between pause() and get_pc()).
-                pc, _trust = await client.safe_get_pc()
-                result = StepResult(action=action, pc=pc)
-            elif action == "resume":
-                await client.resume()
-                result = StepResult(action=action)
-            elif action == "reset":
-                await client.reset()
-                result = StepResult(action=action)
-            elif action == "run_until":
-                resp = await client.run_until(address=address_int)
-                result = StepResult(
-                    action=action, address=address_int, **_extract_broadcast_fields(resp)
+    async with session_client(session_id) as client:
+        if action == "pause":
+            await client.pause()
+            # After pause, CPU is stepping → PC is trustworthy.
+            # Use safe_get_pc which guarantees stepping state during
+            # the query (handles VBlank race where CPU auto-resumes
+            # between pause() and get_pc()).
+            pc, _trust = await client.safe_get_pc()
+            result = StepResult(action=action, pc=pc)
+        elif action == "resume":
+            await client.resume()
+            # G-12: resume itself carries no location data, so callers had
+            # to issue a follow-up query to learn where the CPU went. Read
+            # cpu.status once here. The CPU is RUNNING at this point, so
+            # PPSSPP marks pc "inaccurate unless stepping"
+            # (CPUCoreSubscriber.cpp:105) — this is a LOW-trust snapshot,
+            # strictly weaker than the pause branch's stepping-verified PC
+            # (and NOT a substitute for it). Best-effort: a status read
+            # failure must not fail an already-successful resume.
+            pc, ticks = 0, 0.0
+            try:
+                status = await client.cpu_status()
+                pc = int(status.get("pc", 0))
+                ticks = float(status.get("ticks", 0.0))
+            except Exception as exc:
+                logger.warning(
+                    "ppsspp_step resume: cpu.status read failed (best-effort, "
+                    "pc/ticks fall back to 0): %s",
+                    exc,
                 )
-            else:  # next_hle
-                resp = await client.next_hle()
-                result = StepResult(action=action, **_extract_broadcast_fields(resp))
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+            result = StepResult(action=action, pc=pc, ticks=ticks)
+        elif action == "reset":
+            await client.reset()
+            result = StepResult(action=action)
+        elif action == "run_until":
+            resp = await client.run_until(address=address_int)
+            result = StepResult(
+                action=action, address=address_int, **_extract_broadcast_fields(resp)
+            )
+        else:  # next_hle
+            resp = await client.next_hle()
+            result = StepResult(action=action, **_extract_broadcast_fields(resp))
     return StepResponse.from_result(result).model_dump(mode="json")

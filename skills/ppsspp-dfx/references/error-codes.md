@@ -7,6 +7,8 @@ category: errors
 # 错误码恢复全表
 
 > Server 侧全部错误码（errors.py 异常分类 + `PROTECTED_ADDRESS` + `INTERNAL`）的语义与恢复路径。本表是 SKILL §5 高频症状矩阵的补全：矩阵收"出现频率高/易误判"的条目，本表收全部。恢复动词均可在工具描述与错误 message 中得到印证；若 message 与本表冲突，以 `tools/list` 描述与实际 message 为准并上报 drift。
+>
+> **覆盖口径**（守门测试 `test_skill_surface_consistency` 按此断言）：收 `spec.error_codes.ERROR_CODE_TO_CLASS` 的全部业务码 + `INTERNAL`（`ToolError` 兜底码，非业务类别）。唯一不单列的是 `PPSSPP_ERROR`——它是该族的抽象基类、从不直接抛出（登记于 `RESERVED_CODES`），调用方实际收到的是其具体成员 `PPSSPP_NOT_FOUND` / `ISO_NOT_FOUND` / `WS_CONNECT_FAILED`。
 
 ## 会话生命周期
 
@@ -15,7 +17,6 @@ category: errors
 | `SESSION_NOT_FOUND` | 会话 ID 不在活跃表 | `ppsspp_session(action="list")` 查看；不存在则 `session(action="start")` 重建 |
 | `SESSION_EXPIRED` | 会话进程已死 | `session(action="start")` 重建（勿复用旧 session_id） |
 | `SESSION_BUSY` | 另一工具调用正占会话锁（>5s 报出） | 等当前长操作完成再调；`wait_breakpoint`/`trace_memory_access` 等待期不占锁，可并发读/观察 |
-| `SESSION_ALREADY_EXISTS` | 同资源已有活跃会话 | `ppsspp_session(action="list")` 找到现有会话直接复用，或先 `session(action="stop")` 再建 |
 | `SESSION_AMBIGUOUS` | 省略 `session_id` 时有多个活跃会话（高频五工具自动解析的歧义保护） | 按 message 列出的 id 显式传入目标会话，或 stop 多余会话 |
 | `BOOT_TIMEOUT` | CPU 未在启动预算内就绪（楔死嫌疑） | `ppsspp_analyze_log` 查启动错误（GPU backend 失败是已知根因）→ `session(stop)` → `start(resilient=true)` 重试 |
 
@@ -56,11 +57,21 @@ category: errors
 
 | 错误码 | 语义 | 恢复路径 |
 |---|---|---|
-| `PROTECTED_ADDRESS` | 写入受保护区（kernel <0x08800000、top.prx 代码段） | 确认意图后加 `force=True`；误写会崩溃，先核对 IDA↔运行时换算（offset = `top_base.ppsspp - top_base.ida`）|
+| `PROTECTED_ADDRESS` | 写入受保护区（内核区 / 游戏模块代码段） | 确认意图后加 `force=True`；误写会崩溃，先核对 IDA↔运行时换算（offset = `top_base.ppsspp - top_base.ida`）。范围判定见 [ppsspp-constraints.md](ppsspp-constraints.md) C9（代码段上界取自运行时模块表）|
 | `BREAKPOINT_ERROR` | 断点操作失败 | 确认 CPUCore=2 与地址可执行；`mem_remove` 前先 `mem_list` 解析真实 size（按 address+size 匹配） |
 | `ADDR_INVALID` | 地址格式或范围非法 | 用 `"0x"` 前缀 hex 字符串重试；范围常量查 `ppsspp_list_addresses`，区域查 `ppsspp_memory_map` |
-| `SCAN_NO_MATCH` | 内存扫描无命中 | 放宽 pattern、扩大 start_addr/end_addr、核对字节序；可用 `read_bytes` 抽查目标区域佐证 |
-| `VERIFY_MISMATCH` | 反汇编结果与预期指令不符 | 按 offset 公式核对 IDA↔运行时换算（`ppsspp_list_addresses` 描述内有公式）；确认补丁/hook 是否真正生效 |
+
+## HLE 函数跟踪
+
+| 错误码 | 语义 | 恢复路径 |
+|---|---|---|
+| `FUNC_NOT_FOUND` | `func_remove` 的目标地址没有已跟踪的 HLE 函数（PPSSPP 侧原话为参数名占位的 `No function found at 'address'`） | `ppsspp_query(action="funcs")` 列出当前跟踪的函数，用其中出现的地址重试 |
+
+## 截图与捕获
+
+| 错误码 | 语义 | 恢复路径 |
+|---|---|---|
+| `CAPTURE_EMPTY` | 纹理/CLUT 捕获为空（调用时无可用绑定对象） | 推进到该纹理/CLUT **正被使用**的画面再抓；捕获类工具只能取"当前绑定"，不支持按 VRAM 地址定向取 |
 
 ## 脚本系统与其它
 
@@ -71,7 +82,6 @@ category: errors
 | `MANIFEST_ERROR` | scripts.manifest.yaml 损坏或缺引用 | 修复 YAML 后 `ppsspp_reload_scripts`（无需重启 server） |
 | `ARGS_INVALID` | 工具参数未通过 schema 之外的校验（范围/跨字段/文件内容约束） | 按 message 修正参数后重试；涉及地址先 `ppsspp_list_addresses` 核对 |
 | `STEP_INVALID` | batch_step 的 step 结构非法（type/button/frames 越界） | 按 message 定位 `step[index]` 修正后重试 |
-| `NOT_IMPLEMENTED` | 请求动作未实现（skeleton 脚本等） | `list_scripts` 确认 status；不要把 skeleton 当可用能力 |
 | `INTERNAL` | 服务器内部故障（兜底码；参数校验已由 `ARGS_INVALID` 承担） | 重试一次；持续复现按 §7 逃生舱走一次性 WS 客户端取证 |
 
 ## 关联资源

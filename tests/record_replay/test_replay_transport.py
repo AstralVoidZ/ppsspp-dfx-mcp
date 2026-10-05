@@ -384,13 +384,29 @@ class TestFakeTransportInterfaceCompat:
         replay = _build_replay([])
         assert isinstance(replay.events, asyncio.Queue)
 
-    def test_calls_attribute_records_invocations(self):
-        """calls attribute records call() invocations (FakeTransport compat)."""
-        replay = _build_replay([])
-        # Note: actual call would raise CassetteExhausted since no records.
-        # Just verify the attribute exists and is a list.
-        assert hasattr(replay, "calls")
-        assert isinstance(replay.calls, list)
+    @pytest.mark.asyncio
+    async def test_calls_attribute_records_invocations(self):
+        """calls attribute records call() invocations (FakeTransport compat).
+
+        Falsifiable: an implementation that returns responses but stops
+        appending to `calls` (or appends the wrong params) fails here. The
+        previous version asserted only `isinstance(replay.calls, list)` and
+        never issued a call, so that regression stayed green.
+        """
+        records = [
+            CassetteRecord(
+                type="call",
+                event="memory.read_u32",
+                params={"address": 0x08804000},
+                response={"value": 0xDEADBEEF},
+                timestamp=1.0,
+            ),
+        ]
+        replay = _build_replay(records)
+
+        await replay.call("memory.read_u32", address=0x08804000)
+
+        assert replay.calls == [("memory.read_u32", {"address": 0x08804000})]
 
 
 # ---------- from_cassette end-to-end ----------

@@ -35,7 +35,9 @@ class TestCapabilitiesOnTheWire:
     (Inspector included) reads off the handshake.
     """
 
-    async def test_completions_declared(self, mcp_inspector):
+    async def test_completions_declared_on_wire(self, mcp_inspector):
+        """Wire-visible capability (vs. the in-process check in
+        tests/unit/l2_mcp_contract/test_completion_contract.py)."""
         caps = mcp_inspector.server_capabilities
         assert caps.completions is not None
 

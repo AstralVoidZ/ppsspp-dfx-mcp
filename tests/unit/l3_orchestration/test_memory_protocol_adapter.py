@@ -277,7 +277,7 @@ class TestScanPatternType:
             yield mock_client
 
         monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.scan.session_client",
+            "ppsspp_dfx_mcp.service.scan_engine.session_client",
             fake_session_client,
         )
 
@@ -310,7 +310,7 @@ class TestScanPatternType:
             yield mock_client
 
         monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.scan.session_client",
+            "ppsspp_dfx_mcp.service.scan_engine.session_client",
             fake_session_client,
         )
 
@@ -343,7 +343,7 @@ class TestScanPatternType:
             yield mock_client
 
         monkeypatch.setattr(
-            "ppsspp_dfx_mcp.tools.scan.session_client",
+            "ppsspp_dfx_mcp.service.scan_engine.session_client",
             fake_session_client,
         )
 

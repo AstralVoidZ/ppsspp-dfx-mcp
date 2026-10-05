@@ -71,7 +71,7 @@ class ScanResponse(FrozenModel):
             address=format_address(start),
             value=value,
             size=len(matches),
-            # M13: `count` used to stay 0 in pattern mode (it was
+            # `count` used to stay 0 in pattern mode (it was
             # strings-only), which read as "no matches" to callers
             # keying on count. Populate it for both modes.
             count=len(matches),

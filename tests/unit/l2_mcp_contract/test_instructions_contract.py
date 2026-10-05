@@ -45,6 +45,7 @@ _AUTO_SESSION_ID_TOOLS = (
     "ppsspp_diff_memory",
     "ppsspp_context",
     "ppsspp_scan",
+    "ppsspp_replay",
 )
 
 
@@ -92,8 +93,10 @@ class TestLoadBearingFacts:
     def test_auto_resolving_tool_set_matches_the_code(self):
         """点名的 5 个工具必须真的是自动解析的那 5 个。
 
-        `resolve_session_id` 是唯一的自动解析入口；若某工具新增/移除了它，
-        本断言变红——instructions 里的名单随之必须更新。
+        自动解析入口是 `resolve_session_id`（工具体内直接调用），或被委托到
+        service 的工具（W19 起 `ppsspp_screenshot` 经 `capture_frame` 解析）。
+        若某工具新增/移除了自动解析，本断言变红——instructions 里的名单随之
+        必须更新。
         """
         import ast
         from pathlib import Path
@@ -111,7 +114,11 @@ class TestLoadBearingFacts:
                     for d in node.decorator_list
                 ):
                     continue
-                if "resolve_session_id" not in ast.dump(node):
+                dumped = ast.dump(node)
+                # `capture_frame` is the delegated auto-resolving entry point
+                # for ppsspp_screenshot (W19: resolution moved into
+                # service/screenshot_service.py).
+                if "resolve_session_id" not in dumped and "capture_frame" not in dumped:
                     continue
                 name = node.name
                 for d in node.decorator_list:

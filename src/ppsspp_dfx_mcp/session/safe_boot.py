@@ -103,7 +103,18 @@ async def probe_cpu_ready(
             except Exception:  # noqa: BLE001 — liveness probe is best-effort
                 pass
         try:
-            resp = await transport.call("memory.read_u32", address=probe_addr)
+            # Clamp each probe read to what is left of the
+            # boot budget. The probe `call` carries its own default timeout,
+            # so an unresponsive PPSSPP used to add that timeout on top of
+            # every deadline check (a 75s budget could take 80s+ to report);
+            # the deadline is now the only authority, and a clamped read that
+            # times out just counts as "not ready yet" below.
+            remaining_s = deadline - time.monotonic()
+            resp = await transport.call(
+                "memory.read_u32",
+                timeout=max(0.1, remaining_s),
+                address=probe_addr,
+            )
             return {
                 "ready": True,
                 "elapsed_s": round(time.monotonic() - started, 3),

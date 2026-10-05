@@ -1,4 +1,4 @@
-"""Workflow view — public JSON contract for the H1 breakpoint-wait tools."""
+"""Workflow view — public JSON contract for the breakpoint-wait tools."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ class WaitBreakpointResponse(FrozenModel):
     )
     condition: str | None = Field(
         default=None,
-        description="🔴-1: MCP-enforced condition expression that held at "
+        description="MCP-enforced condition expression that held at "
         "the hit (register conditions are enforced by the server because "
         "PPSSPP IR-mode drops them).",
     )

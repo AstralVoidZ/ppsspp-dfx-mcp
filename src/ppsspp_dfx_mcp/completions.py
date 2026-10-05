@@ -28,7 +28,7 @@ from mcp.types import Completion, PromptReference
 
 from ppsspp_dfx_mcp import config
 from ppsspp_dfx_mcp.address import format_address
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 
 logger = logging.getLogger(__name__)
 

@@ -25,7 +25,9 @@ def _write_log(tmp_path: Path, n_lines: int) -> Path:
 
 @pytest.fixture()
 def allow_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    monkeypatch.setattr(analyze_mod, "_LOG_ALLOWED_ROOTS", (tmp_path.resolve(),))
+    # The whitelist roots are now computed lazily by `_log_allowed_roots()`
+    # (not an import-time `_LOG_ALLOWED_ROOTS` tuple), so patch the callable.
+    monkeypatch.setattr(analyze_mod, "_log_allowed_roots", lambda: (tmp_path.resolve(),))
     return tmp_path
 
 

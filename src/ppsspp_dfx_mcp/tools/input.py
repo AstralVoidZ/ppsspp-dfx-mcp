@@ -16,13 +16,13 @@ does not open a WebSocket connection.
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.core.primitives import MAX_PRESS_DURATION_FRAMES
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.input import PPSSPP_ALL_BUTTONS as _PPSSPP_ALL_BUTTONS
 from ppsspp_dfx_mcp.models.input import (
     ButtonPressResult,
@@ -30,14 +30,14 @@ from ppsspp_dfx_mcp.models.input import (
     SendAnalogResult,
     WaitFramesResult,
 )
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import (
     require_int_not_bool,
     translate_tool_errors,
     wait_frames_chunked,
 )
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.input import (
     ButtonPressResponse,
     HoldButtonsResponse,
@@ -45,10 +45,18 @@ from ppsspp_dfx_mcp.views.input import (
     WaitFramesResponse,
 )
 
-ButtonPressOutput = derive_output_contract("ButtonPressOutput", ButtonPressResponse)
-HoldButtonsOutput = derive_output_contract("HoldButtonsOutput", HoldButtonsResponse)
-SendAnalogOutput = derive_output_contract("SendAnalogOutput", SendAnalogResponse)
-WaitFramesOutput = derive_output_contract("WaitFramesOutput", WaitFramesResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    ButtonPressOutput = dict[str, Any]
+    HoldButtonsOutput = dict[str, Any]
+    SendAnalogOutput = dict[str, Any]
+    WaitFramesOutput = dict[str, Any]
+else:
+    ButtonPressOutput = derive_output_contract("ButtonPressOutput", ButtonPressResponse)
+    HoldButtonsOutput = derive_output_contract("HoldButtonsOutput", HoldButtonsResponse)
+    SendAnalogOutput = derive_output_contract("SendAnalogOutput", SendAnalogResponse)
+    WaitFramesOutput = derive_output_contract("WaitFramesOutput", WaitFramesResponse)
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +90,10 @@ def _validate_buttons_combo(buttons: str) -> None:
         raise ArgsInvalid(f"invalid button(s) {invalid!r}; expected each in {_VALID_BUTTONS}")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Simulate a PSP button press.
-#
-# Returns:
-# ButtonPressResponse dict: button + duration.
-#
-# Raises:
-# ToolError: on session lookup failure, WS failure, or invalid button.
 @mcp.tool(
     name="ppsspp_press_button",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -117,7 +117,9 @@ async def press_button(
             default=1,
             description=(
                 "Press duration in frames (default 1; 60fps wall-clock, "
-                "cap 18000 ≈ 300s — values above are rejected). The call "
+                "cap 18000 ≈ 300s — values above are rejected). "
+                "duration=0 is accepted and is a no-op (the button is "
+                "pressed and released in the same frame). The call "
                 "blocks for the duration."
             ),
         ),
@@ -133,7 +135,7 @@ async def press_button(
     """
     if button not in _VALID_BUTTONS:
         raise ArgsInvalid(f"invalid button={button!r}; expected one of {_VALID_BUTTONS}")
-    # S11/A8: `duration=True` used to pass as 1 frame.
+    # `duration=True` used to pass as 1 frame.
     duration = require_int_not_bool(duration, "duration")
     if duration < 0:
         raise ArgsInvalid(f"duration must be >= 0; got {duration}")
@@ -153,32 +155,16 @@ async def press_button(
             "duration": duration,
         },
     )
-    try:
-        async with session_client(session_id) as client:
-            await client.press_button(button=button, duration=duration)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        await client.press_button(button=button, duration=duration)
     result = ButtonPressResult(button=button, duration=duration)
     return ButtonPressResponse.from_result(result).model_dump(mode="json")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Hold a combination of PSP buttons.
-#
-# STATE-CHANGE: changes the persistent button state. The buttons remain
-# held until a subsequent call changes the state.
-#
-# Returns:
-# HoldButtonsResponse dict: buttons.
-#
-# Raises:
-# ToolError: on session lookup failure, WS failure, or invalid button.
 @mcp.tool(
     name="ppsspp_hold_buttons",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -204,7 +190,11 @@ async def hold_buttons(
 
     USAGE: session_id + buttons required (pipe-separated combination, e.g. 'cross|circle'). Valid names: cross / circle / triangle / square / up / down / left / right / start / select / ltrigger / rtrigger.
 
-    BEHAVIOR: STATE-CHANGE. Sets button-held state in PPSSPP; persists until next hold_buttons / send_analog call.
+    BEHAVIOR: STATE-CHANGE. Sets the button-held state in PPSSPP;
+    it persists until the next hold_buttons call. To release, call
+    hold_buttons with buttons='' (every button is then sent as
+    released). Note: send_analog does NOT release buttons -- it
+    drives the analog axes on a separate PPSSPP event.
 
     RETURNS: {buttons}.
     """
@@ -232,32 +222,16 @@ async def hold_buttons(
         buttons_dict = {t: True for t in tokens}
     else:
         buttons_dict = {name: False for name in _PPSSPP_ALL_BUTTONS}
-    try:
-        async with session_client(session_id) as client:
-            await client.hold_buttons(buttons=buttons_dict)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        await client.hold_buttons(buttons=buttons_dict)
     result = HoldButtonsResult(buttons=buttons)
     return HoldButtonsResponse.from_result(result).model_dump(mode="json")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Send an analog stick position.
-#
-# STATE-CHANGE: changes the persistent analog stick state. The stick
-# remains at the specified position until a subsequent call changes it.
-#
-# Returns:
-# SendAnalogResponse dict: x + y.
-#
-# Raises:
-# ToolError: on session lookup failure, WS failure, or out-of-range.
 @mcp.tool(
     name="ppsspp_send_analog",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -291,7 +265,7 @@ async def send_analog(
 
     RETURNS: {x, y}.
     """
-    # S11/A8: `x=True` / `y=True` used to pass as coordinate 1.
+    # `x=True` / `y=True` used to pass as coordinate 1.
     x = require_int_not_bool(x, "x")
     y = require_int_not_bool(y, "y")
     if not 0 <= x <= 255:
@@ -311,36 +285,16 @@ async def send_analog(
     # Convert PSP-native [0, 255] (128 = center) → normalized [-1.0, 1.0].
     x_norm = (x - 128) / 128.0
     y_norm = (y - 128) / 128.0
-    try:
-        async with session_client(session_id) as client:
-            await client.send_analog(x=x_norm, y=y_norm)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        await client.send_analog(x=x_norm, y=y_norm)
     result = SendAnalogResult(x=x, y=y)
     return SendAnalogResponse.from_result(result).model_dump(mode="json")
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Wait for N frames (wall-clock sleep; no PPSSPP interaction beyond liveness check).
-#
-# Implementation: validates the session is alive via validate_session_alive,
-# then sleeps for `frames * interval` seconds. The session_id parameter
-# exists so callers explicitly scope the wait to a session (and fail fast
-# if the session died). For long waits the sleep is chunked (~1s) and the
-# session is re-validated between chunks so a session death mid-wait is
-# surfaced promptly.
-#
-# Returns:
-# WaitFramesResponse dict: frames + elapsed_s.
-#
-# Raises:
-# ToolError: on session lookup failure.
 @mcp.tool(
     name="ppsspp_wait_frames",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -351,7 +305,13 @@ async def wait_frames(
     ],
     frames: Annotated[
         int,
-        Field(description="Number of frames to wait (at 60 FPS, frames/60 seconds)."),
+        Field(
+            description=(
+                "Number of frames to wait (at 60 FPS, frames/60 seconds). "
+                "MUST be >= 1 — frames=0 is rejected (it would be a silent "
+                "no-op returning elapsed_s=0 without advancing the emulator)."
+            )
+        ),
     ],
     interval: Annotated[
         float | None,
@@ -383,11 +343,18 @@ async def wait_frames(
     # Shared chunked waiter — validates frames/interval
     # (interval <= 0 used to become a hot loop hammering sessions.json),
     # caps frames, and validates session liveness before/between chunks.
-    try:
-        elapsed = await wait_frames_chunked(frames, interval, session_id)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    # G-10 (FR-010): frames=0 is rejected HERE, not in the shared waiter —
+    # batch_step wait steps legitimately accept frames=0 (R12 ratified:
+    # verify_real_mcp B.wait_frames.zero, probe P1.bs.zero_frame_120), so
+    # tightening wait_frames_chunked would desync batch_step's submit-time
+    # validation from its execution. wait_frames, whose contract says "wait
+    # N frames", has no meaningful 0.
+    frames = require_int_not_bool(frames, "frames")
+    if frames < 1:
+        raise ArgsInvalid(
+            f"frames must be >= 1; got {frames} (0 would be a no-op that "
+            "does not advance the emulator — omit the call instead)"
+        )
+    elapsed = await wait_frames_chunked(frames, interval, session_id)
     result = WaitFramesResult(frames=frames, elapsed_s=elapsed)
     return WaitFramesResponse.from_result(result).model_dump(mode="json")

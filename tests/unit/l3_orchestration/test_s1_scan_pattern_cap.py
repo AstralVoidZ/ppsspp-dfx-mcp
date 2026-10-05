@@ -19,7 +19,7 @@ from fake_transport import FakeTransport
 
 from ppsspp_dfx_mcp.errors import ToolError
 from ppsspp_dfx_mcp.service.debug_client import PpssppDebugClient
-from ppsspp_dfx_mcp.tools._common import MAX_SCAN_PATTERN_BYTES
+from ppsspp_dfx_mcp.service.scan_engine import MAX_SCAN_PATTERN_BYTES
 from ppsspp_dfx_mcp.tools.scan import scan
 
 # ── Tool layer: pattern cap ──────────────────────────────────────────────
@@ -41,7 +41,7 @@ async def test_tool_rejects_oversized_pattern(
         yield mock_client
 
     monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.resolve_session_id", fake_resolve)
-    monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.session_client", fake_session_client)
+    monkeypatch.setattr("ppsspp_dfx_mcp.service.scan_engine.session_client", fake_session_client)
 
     oversized = "41" * (MAX_SCAN_PATTERN_BYTES + 1)  # hex → cap+1 bytes
     with pytest.raises(ToolError, match="scan cap"):
@@ -69,7 +69,7 @@ async def test_tool_allows_pattern_at_cap(
     async def fake_session_client(session_id: str):
         yield mock_client
 
-    monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.session_client", fake_session_client)
+    monkeypatch.setattr("ppsspp_dfx_mcp.service.scan_engine.session_client", fake_session_client)
     monkeypatch.setattr("ppsspp_dfx_mcp.tools.scan.resolve_session_id", fake_resolve)
 
     at_cap = "41" * MAX_SCAN_PATTERN_BYTES

@@ -115,6 +115,17 @@ def _load_sessions() -> dict[str, Session]:
         )
         return {}
     result: dict[str, Session] = {}
+    # Lazily imported: client_helper imports this module at module scope
+    # (circular), so the shared ws-url allowlist predicate is fetched at call
+    # time — the same pattern _drop_session_side_tables uses. One predicate,
+    # two enforcement points (here + the fallback connect path).
+    from ppsspp_dfx_mcp.session import client_helper
+
+    configured_ws_host = ws_host()
+    # Sessions accepted ONLY because their host is the configured (non-loopback)
+    # ws_host — collected so we can log the reason once per load.
+    accepted_via_configured_host: list[str] = []
+
     for sid, sess_dict in data.items():
         if isinstance(sess_dict, dict):
             try:
@@ -125,6 +136,33 @@ def _load_sessions() -> dict[str, Session]:
                 filtered["created_at"] = _parse_dt(sess_dict.get("created_at"))
                 filtered["last_active_at"] = _parse_dt(sess_dict.get("last_active_at"))
                 sess = Session(**filtered)
+                # W18: ws_url drives OUTBOUND connections (memory / input /
+                # register / state traffic), and sessions.json is writable by
+                # any process that can reach the state dir (the path is
+                # env-overridable). The allowlist is loopback ∪ the host
+                # configured by PPSSPP_DFX_WS_HOST (a documented env var, so an
+                # operator may legitimately target a LAN host); anything else is
+                # DROPPED (loudly) instead of being kept and later dialed. The
+                # fake-mode sentinel is exempt ONLY in fake mode: fake mode never
+                # dials out (its branch substitutes a FakeTransport before the
+                # fallback connect), while a real-mode "fake://test" entry is
+                # still untrusted and dropped.
+                allowed = client_helper.is_allowed_ws_url(sess.ws_url)
+                if not allowed and not (test_mode() == "fake" and sess.ws_url == "fake://test"):
+                    log.warning(
+                        "sessions.json: dropping entry %r — ws_url %r is not a "
+                        "loopback ws:// URL and does not match the configured "
+                        "PPSSPP_DFX_WS_HOST=%r; outbound debugger traffic must "
+                        "not target an arbitrary host. Recreate the session.",
+                        sid,
+                        sess.ws_url,
+                        configured_ws_host,
+                    )
+                    continue
+                if allowed and not client_helper.is_loopback_ws_url(sess.ws_url):
+                    # Accepted because it matches the configured non-loopback
+                    # host — noted here, logged once below.
+                    accepted_via_configured_host.append(sid)
                 # Runtime provenance — this Session was materialized from
                 # sessions.json, NOT created by start_session in this
                 # process. Resources/tools surface the flag so agents can
@@ -132,7 +170,7 @@ def _load_sessions() -> dict[str, Session]:
                 sess = dataclasses.replace(sess, extra={**sess.extra, "restored": True})
                 result[sid] = sess
             except TypeError as e:
-                # W21 (review v2): a silent `continue` makes the entry
+                # A silent `continue` makes the entry
                 # vanish with zero diagnostics — the operator cannot tell
                 # corruption from a successful load. Log and drop.
                 log.warning(
@@ -141,6 +179,16 @@ def _load_sessions() -> dict[str, Session]:
                     e,
                 )
                 continue
+    if accepted_via_configured_host:
+        # Log the reason once per load (not per entry) so operators can see why
+        # a non-loopback entry was allowed.
+        log.info(
+            "sessions.json: accepted %d entry(ies) whose ws_url host matches the "
+            "configured PPSSPP_DFX_WS_HOST=%r (non-loopback): %s",
+            len(accepted_via_configured_host),
+            configured_ws_host,
+            ", ".join(sorted(accepted_via_configured_host)),
+        )
     return result
 
 
@@ -155,18 +203,24 @@ def _save_sessions(sessions: dict[str, Session]) -> None:
     path = sessions_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {sid: _session_to_dict(s) for sid, s in sessions.items()}
-    # W21 (review v2): a fixed tmp name is a cross-process clobber point
+    # A fixed tmp name is a cross-process clobber point
     # (two server processes on one state dir would eat each other's
     # write). The pid keeps concurrent writers from colliding.
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False)
-    # Restrict the tmp file to the owner before the atomic move. POSIX: the
-    # mode is preserved by os.replace, so the persisted sessions.json is not
-    # world-readable. Windows: os.chmod only toggles the read-only bit and
-    # 0o600 leaves the file writable — harmless.
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    # A-14 (review v4): owner-only mode applies at CREATION (no window
+    # where the file is world-readable before a later chmod), and a failed
+    # dump/replace no longer strands a *.tmp file in the state dir — a
+    # replace can fail transiently on Windows when the target is held by
+    # an editor/scanner.
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+        raise
 
 
 async def _load_sessions_async() -> dict[str, Session]:
@@ -204,7 +258,7 @@ def _session_to_dict(sess: Session) -> dict[str, Any]:
         "last_active_at": sess.last_active_at.isoformat(),
         "exec_count": sess.exec_count,
         "ws_connected": sess.ws_connected,
-        # W4 (review v2): `restored` is stamped onto every entry by
+        # `restored` is stamped onto every entry by
         # _load_sessions (runtime provenance) and cleared for sessions
         # started in THIS process. Persisting it would write the stamp
         # back onto still-running in-process sessions via any
@@ -287,6 +341,29 @@ def _idle_seconds(sess: Session) -> float:
         return float("inf")
 
 
+def _drop_session_side_tables(session_id: str) -> None:
+    """Drop every module-level per-session table for a reclaimed session.
+
+    The MCP-side registries are process-global and keyed by
+    the session's ``uuid4()`` id, so a long-lived server kept one probe table,
+    one seed marker, one zero-streak history and one fake transport alive for
+    every session it had ever seen. ``cond_filter.drop_session()`` was already
+    wired at both reclamation points; these are the same class of state and
+    belong in the same place, otherwise the containers drift apart again.
+
+    The imports are local because ``session.client_helper`` imports this
+    module (circular at module scope).
+    """
+    from ppsspp_dfx_mcp.core.value_staleness import reset_probe_streaks
+    from ppsspp_dfx_mcp.service import probe_observer
+    from ppsspp_dfx_mcp.session import client_helper
+
+    cond_filter.drop_session(session_id)
+    probe_observer.drop_session(session_id)
+    reset_probe_streaks(session_id)
+    client_helper.drop_session(session_id)
+
+
 class _BootWedge(Exception):
     """Internal: a resilient-start launch attempt showed wedge evidence.
 
@@ -321,7 +398,7 @@ class _ReentrantSessionLock:
     embedded screenshot step opens session_client again in the SAME
     task. With a plain asyncio.Lock that nested acquire deadlocked
     against itself and failed with SESSION_BUSY after the 5s wait —
-    the documented step type was unconditionally unusable (D3).
+    the documented step type was unconditionally unusable.
     Same-task reentry preserves every exclusion guarantee while
     letting nested tool calls through.
 
@@ -361,7 +438,7 @@ class _ReentrantSessionLock:
 
 
 class _ClosingLock(_ReentrantSessionLock):
-    """Permanently-held sentinel lock for sessions being stopped (W3).
+    """Permanently-held sentinel lock for sessions being stopped.
 
     Installed by stop_session phase 1 under the session id. Its
     acquire() waits until cancelled — with SESSION_BUSY_TIMEOUT_S the
@@ -374,9 +451,10 @@ class _ClosingLock(_ReentrantSessionLock):
         super().__init__()
         self._closed = asyncio.Event()
 
-    async def acquire(self) -> bool:
+    async def acquire(self) -> None:
+        # 永不返回：`_closed` 从不被 set，等待中的调用方由 wait_for 超时取消
+        # （调用点转成 SessionBusy，见类 docstring）。
         await self._closed.wait()
-        return False  # pragma: no cover — _closed is never set
 
 
 _CLOSING_LOCK = _ClosingLock()
@@ -549,14 +627,25 @@ class SessionManager:
             return sess
 
         if not resilient:
-            return await self._start_once(
-                session_id,
-                iso,
-                gate=False,
-                ready_timeout_s=0.0,
-                probe_addr=probe_addr,
-                attempt=0,
-            )
+            try:
+                return await self._start_once(
+                    session_id,
+                    iso,
+                    gate=False,
+                    ready_timeout_s=0.0,
+                    probe_addr=probe_addr,
+                    attempt=0,
+                )
+            except BaseException:
+                # This path had no cleanup guard at all, so a
+                # cancellation or failure landing after the process was spawned
+                # left a PPSSPP with no reachable owner — stop_session needs the
+                # sessions.json entry and gc_idle_sessions only scans that file.
+                # _start_once self-cleans the pre-spawn and PortConflict cases,
+                # for which this is an idempotent no-op.
+                await self._abandon_launcher(session_id)
+                await self._discard_session_entry_best_effort(session_id)
+                raise
 
         # ── Resilient boot: heal-and-relaunch, stable session id ──
         attempts = max(0, int(max_restarts)) + 1
@@ -587,7 +676,7 @@ class SessionManager:
                 if attempt + 1 < attempts:
                     await asyncio.to_thread(wedge_cooldown)
             except BaseException as e:
-                # W2 (review v2): any failure escaping _start_once AFTER
+                # Any failure escaping _start_once AFTER
                 # the process launched (e.g. SessionNotFound from a
                 # concurrent stop racing the CPU-ready gate, caller
                 # cancellation mid-boot) must not leak the live process.
@@ -614,6 +703,11 @@ class SessionManager:
                         "be orphaned",
                         session_id,
                     )
+                # The teardown removes the in-memory owner and
+                # kills the process; the sessions.json record this attempt wrote
+                # must go as well, otherwise an aborted start leaves a phantom
+                # session behind.
+                await self._discard_session_entry_best_effort(session_id)
                 raise
         await self._discard_session_entry(session_id)
         raise BootTimeout(
@@ -642,15 +736,41 @@ class SessionManager:
         the caller can heal and relaunch with the same session_id.
         """
         # ── Production mode: launch real PPSSPP ──
-        launcher = PpssppLauncher()
+        # Opt-in evidence capture + backend pinning. The no-argument
+        # form is kept whenever neither knob is active -- which is the
+        # default, and what every existing caller (and the zero-arg test
+        # doubles that patch this symbol) relies on. Arguments are only
+        # supplied when the operator has explicitly opted in.
+        _diag = _diag_enabled()
+        _backend = _env_backend()
+        _log = _diag_log_path()
+        if _diag or _backend is not None or _log is not None:
+            launcher = PpssppLauncher(
+                diagnostic_mode=_diag,
+                graphics_backend=_backend,
+                log_path=_log,
+            )
+        else:
+            launcher = PpssppLauncher()
         try:
-            proc = await launcher.start(iso)
+            proc = await _start_with_env_args(launcher, iso)
         except Exception:
             # Clean up any partially-started process before propagating.
             await asyncio.to_thread(launcher.stop)
             raise
 
-        # Use the launcher's actual chosen port (random or fixed).
+        # Register the launcher IMMEDIATELY after the process
+        # exists, before the first await that can be cancelled. Every await
+        # below (session-file load/save, WS probe, transport establishment) is a
+        # cancellation point; the client cancels a start after ~30s and an
+        # unpinned boot was measured at 31.9s, so the window is reachable. With
+        # the old order (register only after the persist) a cancel landing in
+        # that window left the process with no in-memory owner at all:
+        # _teardown_wedged_attempt and stop_session both popped None, and
+        # gc_idle_sessions only scans sessions.json, which this attempt had not
+        # reached — a permanently orphaned PPSSPP. Every failure path below pops
+        # the entry again before re-raising.
+        self._launchers[session_id] = launcher
         # Falls back to config ws_port() if launcher didn't pick one
         # (defensive — should not happen in normal flow).
         port = launcher.ws_port
@@ -668,36 +788,50 @@ class SessionManager:
         # launcher's actual port is only known after start() (random
         # port selection). If PortConflict is raised, the already-
         # launched process is cleaned up before re-raising.
-        async with self._lock:
-            sessions = await _load_sessions_async()
-            try:
-                _check_port_conflict(sessions, session_id, port)
-            except PortConflict:
-                # Clean up the orphaned process before propagating.
-                await asyncio.to_thread(launcher.stop)
-                raise
+        try:
+            async with self._lock:
+                sessions = await _load_sessions_async()
+                try:
+                    _check_port_conflict(sessions, session_id, port)
+                except PortConflict:
+                    # Decide inside the lock, clean up OUTSIDE it:
+                    # launcher.stop can take ~5s (terminate 3s + kill 2s;
+                    # `taskkill /F /T` up to 10s on Windows) and holding this
+                    # shared load-modify-save lock across it blocked every other
+                    # session's list_sessions / get_session_state / saves. The
+                    # launcher is already registered, so drop the in-memory owner
+                    # HERE (under the lock) before exiting — otherwise a failed
+                    # attempt leaves an entry in _launchers for a session that
+                    # was never persisted. The stop itself runs after the
+                    # `async with` releases the lock, mirroring stop_session /
+                    # gc_idle_sessions ("keep the slow stop out of the lock").
+                    self._launchers.pop(session_id, None)
+                    raise
 
-            sess = Session(
-                session_id=session_id,
-                iso_path=str(iso),
-                pid=proc.pid,
-                ws_url=ws_url,
-            )
+                sess = Session(
+                    session_id=session_id,
+                    iso_path=str(iso),
+                    pid=proc.pid,
+                    ws_url=ws_url,
+                )
 
-            # Persist first, then track the launcher. If _save_sessions
-            # fails, the launcher is NOT stored in _launchers, so it
-            # won't leak — the process is still running but the session
-            # is not on disk, and the caller gets the error. A future GC
-            # cycle will reap the orphaned process via _force_kill_pid.
-            sessions[session_id] = sess
-            await _save_sessions_async(sessions)
+                # Persist the record. The launcher is registered already (see
+                # above), so a failure here is cleaned up by the callers'
+                # exception guards (stop the process, drop the entry) instead
+                # of leaking.
+                sessions[session_id] = sess
+                await _save_sessions_async(sessions)
+        except PortConflict:
+            # The `async with` above has released self._lock, so this (slow)
+            # stop no longer blocks other sessions. Bare `raise` re-raises the
+            # ORIGINAL PortConflict — exactly one stop call, no wrapping.
+            await asyncio.to_thread(launcher.stop)
+            raise
 
-        # Track the launcher in-memory so stop_session can find it later.
-        # _save_sessions() does not persist the launcher (it is not
-        # JSON-serializable), so _load_sessions() returns sessions without
-        # a launcher. The in-memory dict is the single source of truth
-        # for "which launcher belongs to this session_id in this process".
-        self._launchers[session_id] = launcher
+        # The launcher was registered right after the spawn so that every
+        # abort path can still find it. _launchers remains the single source of
+        # truth for "which launcher belongs to this session_id in this process";
+        # _save_sessions() cannot persist it (not JSON-serializable).
 
         # Proactively probe the WS connection so the
         # session returned to the caller reflects the real ws_connected
@@ -715,7 +849,7 @@ class SessionManager:
         try:
             ws_connected = await _probe_ws_connection(ws_url)
         except Exception as e:
-            log.warning("N-07 probe: unexpected exception (best-effort, swallowed): %s", e)
+            log.warning("session WS probe: unexpected exception (best-effort, swallowed): %s", e)
             ws_connected = False
         if ws_connected:
             async with self._lock:
@@ -755,28 +889,51 @@ class SessionManager:
                 await transport.send_version()
                 observer = GameStateObserver(transport)
                 await observer.start()
-                self._transports[session_id] = transport
-                self._observers[session_id] = observer
-                # Fold the version fingerprint in for
+                # A concurrent stop_session pops
+                # _transports/_observers and deletes the sessions.json record
+                # without holding the session lock, so the window between the WS
+                # probe above and these two writes is real. Writing
+                # unconditionally resurrects the entries of a session that
+                # stop_session just removed: the live WS (with its _recv_loop)
+                # and the observer's background tasks then have no owner left —
+                # stop_session would raise SessionNotFound and gc_idle_sessions
+                # only scans sessions.json — so they leak for the lifetime of the
+                # process. Re-check liveness inside the same lock stop_session
+                # uses, and abort the establishment when the session is gone.
+                #
+                # The version fingerprint fold happens in the same critical
+                # section (it was a second lock acquisition before): fold it for
                 # EVERY bound session (not only resilient starts) —
-                # reason/relatedAddress presence differs across PPSSPP
-                # builds, so this is the wire-evidence key.
+                # reason/relatedAddress presence differs across PPSSPP builds, so
+                # this is the wire-evidence key.
                 async with self._lock:
                     sessions = await _load_sessions_async()
                     cur = sessions.get(session_id)
-                    if cur is not None:
-                        extra = dict(cur.extra)
-                        extra["ppsspp_version"] = _version_fingerprint(transport)
-                        # _load_sessions() stamps restored=True on every
-                        # record it reads — including the one this call just
-                        # created and persisted (D11). This session was born
-                        # in-process, so it is not a restored session.
-                        extra["restored"] = False
-                        sess = dataclasses.replace(cur, extra=extra)
-                        sessions[session_id] = sess
-                        await _save_sessions_async(sessions)
+                    if cur is None:
+                        raise SessionNotFound(
+                            f"session {session_id} was stopped while its "
+                            "session-level transport was being established"
+                        )
+                    self._transports[session_id] = transport
+                    self._observers[session_id] = observer
+                    extra = dict(cur.extra)
+                    extra["ppsspp_version"] = _version_fingerprint(transport)
+                    # _load_sessions() stamps restored=True on every
+                    # record it reads — including the one this call just
+                    # created and persisted. This session was born
+                    # in-process, so it is not a restored session.
+                    extra["restored"] = False
+                    sess = dataclasses.replace(cur, extra=extra)
+                    sessions[session_id] = sess
+                    await _save_sessions_async(sessions)
                 transport = None  # ownership transferred; do not close on exit
                 observer = None
+            except SessionNotFound:
+                # The session was stopped while we were establishing its
+                # transport. Close the local handles and let the caller see the
+                # truth instead of a session that no longer exists.
+                await self._close_transport_and_observer(session_id, transport, observer)
+                raise
             except Exception as e:
                 log.warning(
                     "session-level transport establishment failed for "
@@ -785,24 +942,9 @@ class SessionManager:
                     e,
                 )
                 # Clean up partially-established state using the local
-                # variables: if connect() failed
-                # before `self._transports[session_id] = transport`,
+                # variables: if connect() failed before the registration above,
                 # the local `transport` is still set and needs close.
-                if observer is not None:
-                    with contextlib.suppress(Exception):
-                        await observer.stop()
-                # Pop from dict if assigned (idempotent if never set).
-                obs = self._observers.pop(session_id, None)
-                if obs is not None and obs is not observer:
-                    with contextlib.suppress(Exception):
-                        await obs.stop()
-                if transport is not None:
-                    with contextlib.suppress(Exception):
-                        await transport.close()
-                transp = self._transports.pop(session_id, None)
-                if transp is not None and transp is not transport:
-                    with contextlib.suppress(Exception):
-                        await transp.close()
+                await self._close_transport_and_observer(session_id, transport, observer)
 
         if gate:
             # Resilient-start readiness gate: wedge evidence here raises
@@ -844,7 +986,7 @@ class SessionManager:
                 transport,
                 probe_addr=probe_addr,
                 budget_s=ready_timeout_s,
-                alive_check=(lambda s=sess: s.pid is None or proc.is_pid_alive(s.pid)),
+                alive_check=(lambda: sess.pid is None or proc.is_pid_alive(sess.pid)),
             )
         except BootTimeout as e:
             raise _BootWedge(str(e)) from e
@@ -857,7 +999,7 @@ class SessionManager:
                 extra = dict(cur.extra)
                 extra["recovered"] = attempt
                 extra["ppsspp_version"] = _version_fingerprint(transport)
-                # Same D11 rationale: the relaunch is in-process, so the
+                # Same rationale: the relaunch is in-process, so the
                 # reloaded record's restored=True stamp is cleared.
                 extra["restored"] = False
                 updated = dataclasses.replace(cur, extra=extra)
@@ -871,6 +1013,60 @@ class SessionManager:
             attempt,
         )
         return updated
+
+    async def _abandon_launcher(self, session_id: str) -> None:
+        """Stop and forget a launcher whose start attempt is being aborted.
+
+        An abort between "process spawned" and "record usable"
+        must not leave the process behind. The pop happens first, so a
+        cancellation arriving during the (slow) stop still leaves no stale
+        entry — and the offloaded ``launcher.stop`` keeps running in its own
+        thread even when this coroutine is cancelled at that await.
+        """
+        launcher = self._launchers.pop(session_id, None)
+        if launcher is None:
+            return
+        try:
+            await asyncio.to_thread(launcher.stop)
+        except (Exception, asyncio.CancelledError) as e:
+            # Never let cleanup mask the failure being propagated.
+            log.warning("abandon: launcher.stop failed for %s: %s", session_id, e)
+
+    async def _discard_session_entry_best_effort(self, session_id: str) -> None:
+        """Drop the sessions.json record of an aborted start.
+
+        Best-effort by design: the caller is already propagating an exception, so
+        a failure to rewrite the session file must not replace it.
+        """
+        try:
+            await self._discard_session_entry(session_id)
+        except (Exception, asyncio.CancelledError) as e:
+            log.warning("abandon: could not discard session entry %s: %s", session_id, e)
+
+    async def _close_transport_and_observer(
+        self,
+        session_id: str,
+        transport: WsTransport | None,
+        observer: GameStateObserver | None,
+    ) -> None:
+        """Best-effort close of both ownership cases of a session's handles.
+
+        Covers handles registered under ``session_id`` in
+        ``_transports``/``_observers`` and local handles that were never
+        registered (the failed-establishment case). Idempotent, and never lets a
+        close failure escape — the caller is already handling an exception.
+        """
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            if observer is not None:
+                await observer.stop()
+            obs = self._observers.pop(session_id, None)
+            if obs is not None and obs is not observer:
+                await obs.stop()
+            if transport is not None:
+                await transport.close()
+            transp = self._transports.pop(session_id, None)
+            if transp is not None and transp is not transport:
+                await transp.close()
 
     async def _teardown_wedged_attempt(self, session_id: str) -> Path | None:
         """Tear down a wedged launch attempt (stop_session minus the
@@ -955,11 +1151,13 @@ class SessionManager:
             launcher = self._launchers.pop(session_id, None)
             transport = self._transports.pop(session_id, None)
             observer = self._observers.pop(session_id, None)
-            # 🔴-1/D1: 会话结束即回收 MCP 侧条件过滤器，避免注册表随已停会话
-            # 泄漏（同 transport/observer 的回收位置）。
-            cond_filter.drop_session(session_id)
-            # Install the permanently-held closing sentinel (W3, review
-            # v2). In-flight tool calls still hold the OLD lock and fail
+            # 会话结束即回收 MCP 侧条件过滤器，避免注册表随已停会话
+            # 泄漏（同 transport/observer 的回收位置）。同一
+            # 落点统一回收其余模块级会话表（probe 注册表、seed 闩、零值连击、
+            # fake transport），避免「只有 cond_filter 被回收」的漂移。
+            _drop_session_side_tables(session_id)
+            # Install the permanently-held closing sentinel.
+            # In-flight tool calls still hold the OLD lock and fail
             # fast on the closed transport; a NEW caller arriving between
             # phase 1 and phase 3 would otherwise get a brand-new,
             # uncontended lock via session_lock()'s setdefault and race
@@ -1155,10 +1353,14 @@ class SessionManager:
         Three-phase locking protocol (mirrors stop_session) to avoid
         blocking other sessions during potentially slow launcher.stop:
 
-        1. **Acquire lock briefly** to scan for expired sessions and pop
-           their in-memory launchers. Release lock.
+        1. **Acquire lock briefly** to scan for expired sessions and
+           snapshot their in-memory launchers/transports/observers.
+           Release lock. (Each entry is dropped as its own session
+           is reclaimed in phase 2, not in a wholesale sweep here.)
         2. **Outside the lock**, offload all launcher.stop / _force_kill_pid
-           calls to threads. Other sessions can start/stop concurrently.
+           calls to threads, then re-acquire the lock briefly per
+           reclaimed session to drop its entries and side tables. Other
+           sessions can start/stop concurrently.
         3. **Re-acquire lock briefly** to remove stopped sessions from
            sessions.json and persist.
 
@@ -1180,28 +1382,55 @@ class SessionManager:
                     continue
             if not expired:
                 return stopped_ids
-            # Pop launchers/transports/observers while holding the lock
-            # (dicts are protected). Transports/observers MUST be popped
-            # here — a GC'd session would otherwise leak its WsTransport
+            # Snapshot (do NOT pop) launchers/transports/observers while
+            # holding the lock (dicts are protected). Transports/observers MUST
+            # be reclaimed — a GC'd session would otherwise leak its WsTransport
             # (dead WS object + events queue + pending map) and
             # GameStateObserver for the remaining server lifetime.
+            #
+            # The pop now happens per session as that session
+            # is fully reclaimed (phase 2), not as one wholesale sweep here.
+            # The lifespan cancels this task (`server.py` gc_task.cancel());
+            # a wholesale pop then stranded every transport/observer still
+            # unprocessed inside phase 2's local dicts, and the next scan found
+            # only `None` in the tables — unretryable. Popping per session keeps
+            # the unprocessed ones visible for the next cycle, matching the
+            # kill_failed retention policy below.
             expired_launchers: dict[str, PpssppLauncher | None] = {}
             expired_transports: dict[str, Any] = {}
             expired_observers: dict[str, Any] = {}
             expired_pids: dict[str, int | None] = {}
             for sid in expired:
-                expired_launchers[sid] = self._launchers.pop(sid, None)
-                expired_transports[sid] = self._transports.pop(sid, None)
-                expired_observers[sid] = self._observers.pop(sid, None)
-                sess = sessions.get(sid)
-                expired_pids[sid] = sess.pid if sess else None
+                expired_launchers[sid] = self._launchers.get(sid)
+                expired_transports[sid] = self._transports.get(sid)
+                expired_observers[sid] = self._observers.get(sid)
+                record = sessions.get(sid)
+                expired_pids[sid] = record.pid if record else None
 
         # Phase 2: outside the lock — stop processes concurrently.
         # Each launcher.stop / _force_kill_pid can take 5+ seconds for
         # a hung process; running them outside the lock prevents blocking
         # all other session operations.
         kill_failed: dict[str, str] = {}
+        # A-15 (review v4): the phase-1 snapshot ages while phase 2 runs;
+        # a session touched in that window used to get its process killed
+        # underneath an in-flight tool call. Re-check the decision against
+        # a fresh load (sessions.json is small) before killing.
+        fresh_sessions = await _load_sessions_async()
+        skipped_active: set[str] = set()
         for sid in expired:
+            cur = fresh_sessions.get(sid)
+            if (
+                cur is not None
+                and (cur.pid is None or proc.is_pid_alive(cur.pid))
+                and _idle_seconds(cur) <= IDLE_GC_THRESHOLD_S
+            ):
+                log.info(
+                    "gc: session %s became active again during reclaim — skipping kill",
+                    sid,
+                )
+                skipped_active.add(sid)
+                continue
             # Close observer then transport first (same order as
             # stop_session phase 1.5) — best-effort, outside the lock.
             observer = expired_observers.get(sid)
@@ -1212,7 +1441,7 @@ class SessionManager:
             if transport is not None:
                 with contextlib.suppress(Exception):
                     await transport.close()
-            # W1 (review v2): a FAILED kill must NOT advance to entry
+            # A FAILED kill must NOT advance to entry
             # deletion — suppress-and-continue here produced an orphan
             # process that GC can never see again (its sessions.json
             # entry is what makes the next scan retry possible). Keep
@@ -1232,16 +1461,29 @@ class SessionManager:
                     sid,
                     e,
                 )
-        stopped_ids = [sid for sid in expired if sid not in kill_failed]
+                continue
+            # Reclaimed: drop this session's per-session entries (tables +
+            # module-level side tables) before moving on, so a cancellation
+            # mid-loop cannot strand them.
+            async with self._lock:
+                if self._launchers.get(sid) is launcher:
+                    self._launchers.pop(sid, None)
+                if self._transports.get(sid) is transport:
+                    self._transports.pop(sid, None)
+                if self._observers.get(sid) is observer:
+                    self._observers.pop(sid, None)
+            _drop_session_side_tables(sid)
+        stopped_ids = [
+            sid for sid in expired if sid not in kill_failed and sid not in skipped_active
+        ]
 
-        # Phase 3: brief lock to update sessions.json.
+        # Phase 3: brief lock to update sessions.json. Per-session state was
+        # already reclaimed in phase 2, so only the persisted entries
+        # are removed here.
         async with self._lock:
             sessions = await _load_sessions_async()
             for sid in stopped_ids:
                 sessions.pop(sid, None)
-                # 🔴-1/D1: 仅对“确实已回收”的会话丢弃条件过滤器——W1 下
-                # kill 失败的会话仍需保留条目与过滤器等待下一轮重试。
-                cond_filter.drop_session(sid)
             await _save_sessions_async(sessions)
 
         return stopped_ids
@@ -1263,6 +1505,91 @@ class SessionManager:
 # Module-level singleton.
 
 _default_manager: SessionManager | None = None
+
+
+# The backend pin is applied by DEFAULT. Unpinned, PPSSPP auto-detects
+# and can select a backend that fails, popping a modal "Graphics Error"
+# dialog that blocks boot until a human clicks it (measured 31.9s startup,
+# ws_connected=false, every ticketed call timing out). Pinned to Vulkan the
+# same binary starts in 1.3s and connects. --appendconfig cannot express
+# this on Windows desktop builds (it is silently ignored there), so the
+# command line is the only route. Override with PPSSPP_DFX_GPU_ARGS, or set
+# it to "none" to opt out on a host without a Vulkan driver.
+DEFAULT_GPU_ARGS = "--graphics=vulkan"
+
+_DIAG_FALSEY = ("", "0", "false", "False")
+
+
+def _env_gpu_args() -> list[str]:
+    """Extra argv that pins the GPU backend. [] means "add nothing".
+
+    Pinning is the DEFAULT, not an opt-in. Unpinned, PPSSPP
+    auto-detects, can pick a backend that fails, and blocks boot behind a
+    modal "Graphics Error" dialog (measured: 31.9s startup,
+    ws_connected=false, every ticketed call timing out); pinned, 1.3s and
+    connected.
+
+    --appendconfig cannot do this job: Windows desktop builds silently
+    ignore it (see the launcher's own docstring), so GraphicsBackend in the
+    appended ini never reaches the config. The command line (Core/CmdLine.cpp
+    ApplyToConfig) does.
+
+    PPSSPP_DFX_GPU_ARGS overrides the value; the literal "none" opts out,
+    which a host without a Vulkan driver needs -- ApplyToConfig() assigns
+    iGPUBackend unconditionally, so forcing Vulkan there would stop PPSSPP
+    starting at all.
+    """
+    raw = os.environ.get("PPSSPP_DFX_GPU_ARGS", "").strip()
+    if not raw:
+        raw = DEFAULT_GPU_ARGS
+    if raw.lower() == "none":
+        return []
+    return [raw]
+
+
+async def _start_with_env_args(launcher: Any, iso: Any) -> Any:
+    """launcher.start(iso) plus the backend pin.
+
+    A helper rather than an inline conditional because the call sits in a
+    single-line try/except that existing test doubles depend on.
+    """
+    extra = _env_gpu_args()
+    if not extra:
+        return await launcher.start(iso)
+    return await launcher.start(iso, extra_args=extra)
+
+
+def _diag_enabled() -> bool:
+    """Whether PPSSPP_DFX_DIAG opts into capturing PPSSPP's own output."""
+    return os.environ.get("PPSSPP_DFX_DIAG", "").strip() not in _DIAG_FALSEY
+
+
+def _env_backend() -> int | None:
+    """Parse PPSSPP_DFX_GRAPHICS_BACKEND; None (unset) keeps auto-detection.
+
+    PPSSPP's GraphicsBackend enum: 0=D3D9, 1=D3D11, 2=OpenGL, 3=VULKAN.
+    An unparseable value is ignored rather than raising -- a typo in a
+    diagnostic env var must not break session startup.
+    """
+    raw = os.environ.get("PPSSPP_DFX_GRAPHICS_BACKEND", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _diag_log_path() -> Path | None:
+    """Where captured PPSSPP output should land (None = do not capture)."""
+    override = os.environ.get("PPSSPP_DFX_LOG_FILE", "").strip()
+    if override:
+        return Path(override)
+    if not _diag_enabled():
+        return None
+    from ppsspp_dfx_mcp.config import output_dir
+
+    return output_dir() / "ppsspp_diag.log"
 
 
 def get_session_manager() -> SessionManager:
@@ -1424,7 +1751,7 @@ async def _probe_ws_connection(ws_url: str) -> bool:
     # fields, which would fall through to the default host/port and
     # attempt a real connection instead of being treated as malformed.
     if not isinstance(ws_url, str):
-        log.warning("N-07 probe: malformed ws_url %r", ws_url)
+        log.warning("session WS probe: malformed ws_url %r", ws_url)
         return False
 
     try:
@@ -1432,7 +1759,7 @@ async def _probe_ws_connection(ws_url: str) -> bool:
         host = url.hostname or "127.0.0.1"
         port = url.port or 12345
     except (ValueError, AttributeError):
-        log.warning("N-07 probe: malformed ws_url %r", ws_url)
+        log.warning("session WS probe: malformed ws_url %r", ws_url)
         return False
 
     transport = WsTransport(host, port)
@@ -1444,7 +1771,7 @@ async def _probe_ws_connection(ws_url: str) -> bool:
         # connections / subprotocol negotiation not ready. Swallow and
         # let the first tool call's session_client_with_transport retry.
         log.debug(
-            "N-07 probe: WS not ready for %s (host=%s port=%s): %s",
+            "session WS probe: WS not ready for %s (host=%s port=%s): %s",
             ws_url,
             host,
             port,

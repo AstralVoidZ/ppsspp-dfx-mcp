@@ -238,6 +238,7 @@ class TestScreenshotRenderFallback:
     @pytest.mark.asyncio
     async def test_render_empty_triggers_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """render returns empty → safe_screenshot called → non-empty result."""
+        from ppsspp_dfx_mcp.service import screenshot_service
         from ppsspp_dfx_mcp.tools import screenshot as sc
 
         mock_capture = AsyncMock()
@@ -250,7 +251,9 @@ class TestScreenshotRenderFallback:
         async def fake_session_capture(session_id: str):
             yield AsyncMock(), mock_capture
 
-        monkeypatch.setattr(sc, "session_capture", fake_session_capture)
+        # The tool captures through the service (W19), which opens
+        # session_capture from its own module globals.
+        monkeypatch.setattr(screenshot_service, "session_capture", fake_session_capture)
 
         result = await sc.screenshot(session_id="sess-1", source="render")
 

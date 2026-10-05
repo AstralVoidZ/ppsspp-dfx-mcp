@@ -12,63 +12,39 @@ by the DebugClient; only the expression result is returned.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.core.value_expr import extract_value as _extract_value
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.evaluate import EvaluateResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.evaluate import EvaluateResponse
 
-EvaluateOutput = derive_output_contract("EvaluateOutput", EvaluateResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    EvaluateOutput = dict[str, Any]
+else:
+    EvaluateOutput = derive_output_contract("EvaluateOutput", EvaluateResponse)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["evaluate"]
 
-
-def _extract_value(response: dict[str, Any] | None) -> int | None:
-    """Best-effort numeric extraction from a cpu.evaluate response.
-
-    PPSSPP's response shape varies; tolerate 'value' / 'result' / 'int' /
-    'uintValue' keys, each as int or numeric str. Return None if no
-    numeric value is found.
-    """
-    if not isinstance(response, dict):
-        return None
-    for key in ("value", "result", "int", "uintValue"):
-        raw = response.get(key)
-        if isinstance(raw, bool):
-            # bool is a subclass of int; skip to avoid surprises.
-            continue
-        if isinstance(raw, int):
-            return raw
-        if isinstance(raw, str):
-            try:
-                return int(raw, 0) if raw.startswith(("0x", "0X")) else int(raw)
-            except ValueError:
-                continue
-    return None
+# `_extract_value` is imported from `core/value_expr.py` (where the algorithm
+# now lives, W19) and re-exported here for historical callers/tests.
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Evaluate a debugger expression.
-#
-# Returns:
-# EvaluateResponse dict: expression + value + response + text.
-#
-# Raises:
-# ToolError: on session lookup failure, empty expression, or WS
-# failure.
 @mcp.tool(
     name="ppsspp_evaluate",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -111,13 +87,8 @@ async def evaluate(
         },
     )
 
-    try:
-        async with session_client(session_id) as client:
-            response = await client.evaluate(expression=expression)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        response = await client.evaluate(expression=expression)
 
     result = EvaluateResult(
         expression=expression,

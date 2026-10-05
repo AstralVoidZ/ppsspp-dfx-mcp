@@ -8,27 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 语法/JSON 预检，单独成 job 而不是塞进 lint：文件一旦解析不了，ruff 对该
-  # 文件只报 invalid-syntax，里面的其它违规全部隐身；生成物的 JSON 损坏则
-  # 会在无关测试模块的收集期炸出 JSONDecodeError。两者都是毫秒级可判定，
-  # 放在最前面、与 lint/format 并行，谁也遮蔽不了谁。
-  precheck:
-    name: precheck (syntax + JSON)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Python 3.14
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-
-      # stdlib only —— 不装任何依赖，秒级返回。
-      - name: Parse every tracked .py / .json
-        run: python scripts/check_syntax.py
-
   lint:
-    name: ruff check
+    name: ruff (check + format)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -42,19 +23,49 @@ jobs:
       # S16 (review v2): pin the version — ruff format output is
       # version-sensitive, an unpinned `latest` can red CI on style drift
       # that no code change caused.
+      # W7 (review v4): the pin must equal the version uv.lock resolves,
+      # otherwise the local gate and the CI gate enforce different rules.
+      # 0.16.6 -> 0.16.8 realigns pyproject (x2), this workflow and uv.lock.
       - name: Install ruff (pinned)
-        run: pip install "ruff==0.16.6"
+        run: pip install "ruff==0.16.8"
 
       # 全库零豁免执法（规则见 pyproject [tool.ruff]，ignore 仅 E501），
       # 防止 2026-09 清债前"声明了规则但从不执行"的存量债再次累积。
       - name: ruff check
         run: ruff check .
 
-  # 与 `ruff check` 拆成两个 job：合在一个 job 里时 check 失败会让 format
-  # 步骤直接 skip，格式漂移在下次 CI 之前完全看不到（本仓库真实发生过：
-  # check 报了 4 条、format 从未跑过，而实际有 2 个文件未格式化）。
-  format:
-    name: ruff format --check
+      - name: ruff format --check
+        run: ruff format --check .
+
+      # A19: 工具函数体 > 120 行的 @mcp.tool 函数必须在 docstring 写明
+      # `LONG-TOOL:` 理由（冻结存量豁免，只允许缩短）。纯 AST 扫描，无依赖。
+      - name: tool-function length gate (A19)
+        run: python scripts/check_tool_function_length.py
+
+  # W7 (review v4): pyproject ↔ uv.lock 一致性守门。
+  #
+  # 本项目是应用（发布到 PyPI / MCP registry 的 MCP server），uv.lock 已纳入
+  # 版本控制（见 .gitignore），因此 CI checkout 里有可对比的基线锁。本 job 只跑
+  # `uv lock --check`：pyproject 与锁不一致（改了依赖却忘跑 `uv lock`）即 exit 1，
+  # 把漂移变成结构上不可能，而非依赖开发者自觉。
+  lockfile:
+    name: uv lock (pyproject ↔ lock consistency)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Verify the committed lock matches pyproject
+        run: uv lock --check
+
+  # A10: mypy 硬门禁（P1-7 收口，2026-10-03）。存量类型错误已清零
+  # （269 → 0，134 个源文件，"Success: no issues found"），故移除
+  # continue-on-error —— 类型回归自此与 ruff/pytest 同级阻断合并。
+  # 配置见 pyproject [tool.mypy]（files=["src"]）。
+  mypy:
+    name: mypy (src)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -65,11 +76,12 @@ jobs:
           python-version: "3.14"
           cache: pip
 
-      - name: Install ruff (pinned)
-        run: pip install "ruff==0.16.6"
+      # dev extras 已包含 mypy（pyproject [project.optional-dependencies].dev）。
+      - name: Install (editable, with dev extras)
+        run: pip install -e .[dev]
 
-      - name: ruff format --check
-        run: ruff format --check .
+      - name: mypy src
+        run: mypy src
 
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
@@ -116,28 +128,28 @@ jobs:
       - name: evals (all pure-logic tests)
         run: python -m pytest evals -q
 
-  # 唯一门禁信号：分支保护/规则集只要求它，所以新增 job 时必须同步加到这里
-  # （否则新 job 红了也不挡合入）。
   ci-ok:
     name: ci-ok
-    needs: [precheck, lint, format, test]
+    needs: [lint, test, lockfile, mypy]
     runs-on: ubuntu-latest
     if: ${{ always() }}
     steps:
       - name: Verify all jobs passed
         run: |
-          failed=0
-          check() {
-            if [ "$2" != "success" ]; then
-              echo "::error::$1 did not succeed: $2"
-              failed=1
-            fi
-          }
-          check precheck "${{ needs.precheck.result }}"
-          check lint "${{ needs.lint.result }}"
-          check format "${{ needs.format.result }}"
-          check test "${{ needs.test.result }}"
-          if [ "$failed" != "0" ]; then
+          if [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "lint did not succeed: ${{ needs.lint.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.lockfile.result }}" != "success" ]; then
+            echo "lockfile did not succeed: ${{ needs.lockfile.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.mypy.result }}" != "success" ]; then
+            echo "mypy did not succeed: ${{ needs.mypy.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "matrix did not fully succeed: ${{ needs.test.result }}"
             exit 1
           fi
           echo "all jobs passed"

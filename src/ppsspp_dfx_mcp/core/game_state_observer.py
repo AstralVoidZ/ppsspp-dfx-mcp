@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from ppsspp_dfx_mcp.core.task_cleanup import await_cancelled
 from ppsspp_dfx_mcp.core.transport import WsTransport
 from ppsspp_dfx_mcp.logging import PPSSPP_LOG_LOGGER_NAME
 
@@ -45,7 +46,7 @@ _LOG_LEVEL_MAP: dict[int, int] = {
 # consumes (and silently drops) every cpu.stepping broadcast, leaving
 # transport.wait_for_broadcast('cpu.stepping') dead on production
 # session-level transports.
-# W8 (review v2): per-event queue bound (drop-oldest on overflow).
+# Per-event queue bound (drop-oldest on overflow).
 _EVENT_QUEUE_MAX = 64
 
 _SUBSCRIBED_EVENTS: tuple[str, ...] = (
@@ -108,7 +109,7 @@ class GameStateObserver:
         # per-event-name subscription contract for future subscribers;
         # each holds at most one message per lifecycle event, so the
         # footprint is bounded and negligible.
-        # W8 (review v2): bounded with drop-oldest. These queues are
+        # Bounded with drop-oldest. These queues are
         # written by the dispatcher even when no consumer is running —
         # a failed gpu.stats.feed disable left the producer pushing
         # 60fps messages into an unbounded queue (~12MB/h) forever.
@@ -170,6 +171,29 @@ class GameStateObserver:
         observable.
         """
         return self._gpu_freeze_detected
+
+    def is_rendering(self, max_stale_s: float = 3.0) -> bool | None:
+        """Whether frames are actually being PRODUCED right now.
+
+        G-7 (FR-007): "game state is running" says the CPU is executing, not
+        that anything is being drawn. A game rendering nothing (black
+        screen, modal dialog, GPU pipeline stall) still reports ``running``,
+        so a timeout there was reported as CPU_FREEZE_SUSPECTED -- sending
+        the caller down a CPU-death-loop investigation for what is really a
+        missing-renderer diagnosis. This is the frame-heartbeat signal that
+        separates the two.
+
+        Returns:
+            True  — a frame arrived within ``max_stale_s`` (rendering).
+            False — the feed is on and no frame arrived for longer than
+                    ``max_stale_s`` (NOT rendering).
+            None  — undeterminable: the gpu.stats feed was never started, or
+                    no frame has been recorded yet. Callers MUST keep the
+                    conservative behavior on None rather than assume either.
+        """
+        if not self._gpu_stats_feed_enabled or self._last_frame_mono is None:
+            return None
+        return (time.monotonic() - self._last_frame_mono) <= max_stale_s
 
     # ------------------------------------------------------------------
     # Public API — lifecycle
@@ -242,9 +266,7 @@ class GameStateObserver:
         # Await all tasks to ensure they have actually terminated.
         for task in tasks_to_cancel:
             try:
-                await task
-            except asyncio.CancelledError:
-                pass
+                await await_cancelled(task)
             except Exception as e:
                 logger.warning("stop: task cleanup error: %s", e)
         # Finally clear the attrs — safe now that tasks are done.
@@ -445,9 +467,7 @@ class GameStateObserver:
             if task is not None:
                 task.cancel()
                 try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+                    await await_cancelled(task)
                 except Exception as e:
                     logger.warning("stop_gpu_stats_feed: cleanup error: %s", e)
                 setattr(self, attr, None)

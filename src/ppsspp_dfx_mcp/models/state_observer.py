@@ -54,6 +54,16 @@ class ProbeObservation:
     size: int
     value: int = 0
     error: str = ""
+    # 'ok' or 'stale_address_suspected'. A successful read
+    # of zero is ambiguous -- the value may genuinely be zero, or the probe
+    # address may have drifted and now points at dead state. `value` alone
+    # cannot carry that, so the streak classifier labels it. Failed reads do
+    # not go through the classifier and keep 'ok' here: `error` carries their
+    # failure, and reporting a fabricated value_status on a read that never
+    # happened would repeat the silent-failure pattern this field exists to
+    # remove.
+    value_status: str = "ok"
+    note: str = ""
 
 
 @dataclass(frozen=True)

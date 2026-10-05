@@ -215,6 +215,14 @@ def test_replay_does_not_raise_cassette_exhausted(cassette_path: Path):
             # returns current state (handled by .call special-case).
             pass
 
+    # Falsifiable: "does not raise" alone would also pass if a replay silently
+    # skipped its cassette lookup. Pin that every fire_and_forget record was
+    # consumed and that no consumable call record was left behind.
+    assert replay.remaining_faf == 0, (
+        f"{replay.remaining_faf} fire_and_forget record(s) never replayed"
+    )
+    assert replay.remaining_calls == 0, f"{replay.remaining_calls} call record(s) never replayed"
+
 
 # ============================================================================
 # ReplayTransport introspection — cursors advance correctly

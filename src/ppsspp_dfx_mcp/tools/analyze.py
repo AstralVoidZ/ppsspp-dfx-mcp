@@ -11,21 +11,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.config import config_dir, output_dir
-from ppsspp_dfx_mcp.errors import ArgsInvalid
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ConfigInvalid
 from ppsspp_dfx_mcp.models.analyze import AnalyzeLogResult, LogMatch
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import MAX_LOG_BYTES, MAX_LOG_MATCHES, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.analyze import AnalyzeLogResponse
 
-AnalyzeLogOutput = derive_output_contract("AnalyzeLogOutput", AnalyzeLogResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    AnalyzeLogOutput = dict[str, Any]
+else:
+    AnalyzeLogOutput = derive_output_contract("AnalyzeLogOutput", AnalyzeLogResponse)
 
 logger = logging.getLogger(__name__)
 
@@ -35,28 +42,52 @@ __all__ = ["analyze_log"]
 # convention is uppercase severity prefixes).
 _DEFAULT_KEYWORDS: tuple[str, ...] = ("ERROR", "WARNING", "CRASH")
 
-# S3 whitelist roots: the server-managed .ppsspp-dfx tree (output/ reports
+
+# Whitelist roots: the server-managed .ppsspp-dfx tree (output/ reports
 # and reports-adjacent logs, config/ and config-adjacent logs). Everything
 # outside is rejected — analyze_log used to read ANY path the caller named.
-_LOG_ALLOWED_ROOTS: tuple[Path, ...] = (
-    output_dir().resolve(),
-    config_dir().parent.resolve(),
-)
+#
+# Computed LAZILY (first use, cached) instead of at module import: the
+# module used to call output_dir()/config_dir() at import time, so a bad
+# PPSSPP_DFX_PROJECT_ROOT made `register_all_tools()`'s import blow up with
+# a bare traceback before startup validation could report it. Resolution
+# failures now surface as ConfigInvalid from the call that needs the roots.
+@lru_cache(maxsize=1)
+def _log_allowed_roots() -> tuple[Path, ...]:
+    """The whitelist roots, resolved on first use and cached.
+
+    Raises:
+        ConfigInvalid: the configured project root could not be resolved.
+    """
+    try:
+        return (output_dir().resolve(), config_dir().parent.resolve())
+    except ConfigInvalid:
+        raise
+    except Exception as exc:  # noqa: BLE001 — re-raised as an actionable config error
+        raise ConfigInvalid(
+            f"cannot resolve analyze_log's allowed roots: {exc} — check "
+            f"PPSSPP_DFX_PROJECT_ROOT / PPSSPP_DFX_CONFIG_DIR"
+        ) from exc
 
 
 def _resolve_log_path(log_path: str) -> Path:
-    """Whitelist-resolve the analyze_log input path (S3 fix).
+    """Whitelist-resolve the analyze_log input path.
 
     Raises ToolError when the path escapes the allowed roots — a prompt
     injection (or a confused caller) must not be able to exfiltrate
     arbitrary files through the match list.
     """
+    roots = _log_allowed_roots()
     resolved = Path(log_path).expanduser().resolve()
-    if not any(resolved.is_relative_to(root) for root in _LOG_ALLOWED_ROOTS):
+    if not any(resolved.is_relative_to(root) for root in roots):
+        # No server-derived paths here (review-v4 W-6): the allowed roots
+        # and the resolved location reveal the server filesystem layout.
+        # The whitelist shape is documented in the tool description; the
+        # caller's own input may be echoed back (F-1 contract).
         raise ArgsInvalid(
-            f"log_path is outside the allowed .ppsspp-dfx tree "
-            f"(allowed roots: {[str(r) for r in _LOG_ALLOWED_ROOTS]}): "
-            f"{resolved}"
+            "log_path is outside the allowed .ppsspp-dfx tree — pass a path "
+            "under the server-managed .ppsspp-dfx directory (see tool "
+            f"description); got: {log_path!r}"
         )
     return resolved
 
@@ -73,7 +104,7 @@ def _filter_log_lines(
     Returns:
         ``(matches, hit_cap)``. ``hit_cap`` is True when MAX_LOG_MATCHES
         stopped the scan, i.e. ``matches`` is a prefix of the real match
-        set (W3 review v3: the caller used to compare ``len(matches)``
+        set (the caller used to compare ``len(matches)``
         against ``limit`` only, so a capped scan reported truncated=false
         and total_matches as if it were exact).
     """
@@ -83,8 +114,16 @@ def _filter_log_lines(
     matches: list[LogMatch] = []
     hit_cap = False
     with path.open("r", encoding="utf-8", errors="replace") as f:
+        # A-9 (review v4): the pre-open stat() is advisory only — the file
+        # can grow between stat and read (stat-then-open TOCTOU). Re-check
+        # the cap on the OPEN handle, which is what this loop can read.
+        open_size = os.fstat(f.fileno()).st_size
+        if open_size > MAX_LOG_BYTES:
+            raise ArgsInvalid(
+                f"log file too large: {path} ({open_size} bytes; cap {MAX_LOG_BYTES})"
+            )
         for i, line in enumerate(f, 1):
-            # 🟡13: 'all' narrowing in-stream — the 500-cap then applies to
+            # 'all' narrowing in-stream — the 500-cap then applies to
             # POST-narrow matches instead of silently dropping later hits.
             if required is not None and required not in line:
                 continue
@@ -96,18 +135,10 @@ def _filter_log_lines(
     return matches, hit_cap
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Analyze a PPSSPP log file for error/warning/crash lines.
-#
-# Returns:
-# AnalyzeLogResponse dict: log_path + matches + count + filter.
-#
-# Raises:
-# ToolError: if log_path is provided but unreadable.
 @mcp.tool(
     name="ppsspp_analyze_log",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -117,7 +148,7 @@ async def analyze_log(
         Field(
             default=None,
             description=(
-                "Path to the log file to analyze. S3 whitelist: must be a "
+                "Path to the log file to analyze. Whitelist: must be a "
                 "file anywhere inside the server-managed .ppsspp-dfx tree "
                 "(the whole tree is allowed, wider than output/ or "
                 "config/ — verified against the runtime whitelist); "
@@ -193,9 +224,9 @@ async def analyze_log(
     )
 
     if limit < 0:
-        # 🟢12: negative limit was silently ignored (= no cap).
+        # Negative limit was silently ignored (= no cap).
         raise ArgsInvalid(f"limit must be >= 0 (got {limit})")
-    # 🟡13: 'all' narrows in the stream pass; 'any' keeps legacy additive OR.
+    # 'all' narrows in the stream pass; 'any' keeps legacy additive OR.
     required = filter if (filter and filter_mode == "all") else None
     keywords = list(_DEFAULT_KEYWORDS)
     if filter and filter_mode != "all":
@@ -235,7 +266,7 @@ async def analyze_log(
             )
 
     total = len(matches)
-    # W3 (review v3): reaching the internal 500-match cap means `total` is a
+    # Reaching the internal 500-match cap means `total` is a
     # LOWER BOUND, not the real count — surface it as truncated instead of
     # reporting a complete-looking list.
     truncated = hit_cap or bool(limit > 0 and total > limit)
@@ -252,23 +283,3 @@ async def analyze_log(
         truncated=truncated,
     )
     return AnalyzeLogResponse.from_result(result).model_dump(mode="json")
-
-
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Convert an address between IDA and PPSSPP address spaces.
-#
-# The PPSSPP runtime base for top.prx is read from addresses.yaml
-# (`top_base.ppsspp`, default 0x08804000). The IDA base is
-# `top_base.ida` (default 0x00000000).
-#
-# Returns:
-# AddressConversionResponse dict: original + converted + mode + bases.
-#
-# Raises:
-# ToolError (AddrInvalid): on negative address or invalid mode.
-# The former ppsspp_convert_address tool is retired (pure arithmetic
-# needs no tool). Conversion = offset between
-# addresses.yaml top_base.ppsspp / top_base.ida (defaults
-# 0x08804000 / 0x00000000): ppsspp_addr = ida_addr + offset.
-# Documented in ppsspp_list_addresses and the skill's
-# scripts/addr_convert.py.

@@ -1,6 +1,6 @@
 """test_error_code_contract.py — L2 MCP contract: error code translation.
 
-Anchor: errors.py — `ToolError` + 16 business subclasses + `to_tool_error`.
+Anchor: errors.py — `ToolError` + 13 business subclasses + `to_tool_error`.
 
 Contract:
 - `to_tool_error(ToolError)` preserves the original instance + class-level `code`.
@@ -17,21 +17,16 @@ from ppsspp_dfx_mcp.errors import (
     AddrInvalid,
     BreakpointError,
     ConfigInvalid,
-    IrEncodingDetected,
     IsoNotFound,
     ManifestError,
-    NotImplemented,
     PpssppError,
     PpssppNotFound,
     RateLimitExceeded,
-    ScanNoMatch,
     ScriptContractError,
     ScriptNotFound,
-    SessionAlreadyExists,
     SessionExpired,
     SessionNotFound,
     ToolError,
-    VerifyMismatch,
     WsConnectFailed,
     to_tool_error,
 )
@@ -115,15 +110,10 @@ class TestSubclassCodeContract:
         (WsConnectFailed, "WS_CONNECT_FAILED"),
         (SessionNotFound, "SESSION_NOT_FOUND"),
         (SessionExpired, "SESSION_EXPIRED"),
-        (SessionAlreadyExists, "SESSION_ALREADY_EXISTS"),
         (ScriptNotFound, "SCRIPT_NOT_FOUND"),
         (ScriptContractError, "SCRIPT_CONTRACT_ERROR"),
         (ManifestError, "MANIFEST_ERROR"),
         (AddrInvalid, "ADDR_INVALID"),
-        (ScanNoMatch, "SCAN_NO_MATCH"),
-        (NotImplemented, "NOT_IMPLEMENTED"),
-        (IrEncodingDetected, "IR_ENCODING_DETECTED"),
-        (VerifyMismatch, "VERIFY_MISMATCH"),
         (BreakpointError, "BREAKPOINT_ERROR"),
         (RateLimitExceeded, "RATE_LIMIT_EXCEEDED"),
     ]

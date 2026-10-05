@@ -20,32 +20,33 @@ import re
 import struct
 import time
 import uuid
-from typing import Annotated, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypedDict
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_address
 from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError
+from ppsspp_dfx_mcp.registry import mcp
+from ppsspp_dfx_mcp.service.scan_engine import (
+    MAX_SCAN_RANGE_BYTES,
+    _merge_runs,
+    _scan_pattern,
+)
 from ppsspp_dfx_mcp.session.client_helper import (
     resolve_session_id,
     session_client,
     validate_session_alive,
 )
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.tools._common import (
     FOREGROUND_SCAN_LIMIT_BYTES,
-    MAX_SCAN_PATTERN_BYTES,
-    MAX_SCAN_RANGE_BYTES,
-    MIN_SCAN_CHUNK_BYTES,
     SCAN_BG_BUDGET_S,
     SCAN_MAX_CONSECUTIVE_READ_FAILURES,
     SCAN_READ_TIMEOUT_S,
-    require_int_not_bool,
     translate_tool_errors,
 )
-from ppsspp_dfx_mcp.views._contract import derive_output_contract, flatten_union
 from ppsspp_dfx_mcp.views.scan import ScanResponse
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,12 @@ _ScanResponseOut = derive_output_contract("ScanResponseOut", ScanResponse, parti
 
 
 class _BackgroundSubmitKeys(TypedDict, total=False):
-    """背景提交分支返回裸 dict（不走 ScanResponse）—— 🔴-1 键保全社会 here。"""
+    """Bare-dict shape returned by the background submit branch.
+
+    That path bypasses ScanResponse, so every key name it emits must be
+    listed here explicitly to keep the flattened ScanOutput contract
+    complete.
+    """
 
     action: str
     batch_id: str
@@ -63,7 +69,12 @@ class _BackgroundSubmitKeys(TypedDict, total=False):
     hint: str
 
 
-ScanOutput = flatten_union("ScanOutput", _ScanResponseOut, _BackgroundSubmitKeys)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    ScanOutput = dict[str, Any]
+else:
+    ScanOutput = flatten_union("ScanOutput", _ScanResponseOut, _BackgroundSubmitKeys)
 # ── value-scan session registry ──────────────────────────────────────────
 _VALUE_SESSIONS: dict[str, dict[str, Any]] = {}
 _MAX_VALUE_SESSIONS = 4
@@ -71,31 +82,21 @@ _VALUE_DEFAULT_RANGE = 1 << 20  # 1 MiB initial-scan soft cap
 _VALUE_HARD_RANGE = 8 << 20  # 8 MiB foreground hard cap
 _VALUE_BG_HARD_RANGE = 32 << 20  # 32 MiB background hard cap (full band + slack)
 _VALUE_MAX_HITS = 5000
-# W13 (review v2): strings-mode caps — hit count and per-hit text.
+# strings-mode caps — hit count and per-hit text.
 _MAX_STRINGS = 500
 _MAX_TEXT_CHARS = 4096
 
 _WIDTHS = {"u8": (1, "B"), "u16": (2, "H"), "u32": (4, "I")}
-# Precompiled little-endian readers (W10): building "<"+fmt and slicing
+# Precompiled little-endian readers: building "<"+fmt and slicing
 # per element ran on the event loop and dominated 8 MiB scans.
 _STRUCTS = {fmt: struct.Struct("<" + fmt) for _, fmt in _WIDTHS.values()}
 _FMT_BY_SIZE = {1: "B", 2: "H", 4: "I"}
 _OPS = ("eq", "ne", "lt", "gt")
 
 
-def _reset_value_sessions_for_tests() -> None:
-    """Test isolation hook."""
+def reset_value_sessions() -> None:
+    """清空值扫描会话表（语义化回收 API；长驻进程的内存回收面）。"""
     _VALUE_SESSIONS.clear()
-
-
-def _decode_hex_pattern(pattern: str) -> bytes:
-    try:
-        return bytes.fromhex(pattern.replace(" ", ""))
-    except ValueError as e:
-        raise ArgsInvalid(
-            f"pattern is not a valid hex string: {e} — "
-            f"hex bytes like 'AABBCCDD' or pattern_type='ascii'"
-        ) from e
 
 
 _SJIS_RUN = re.compile(
@@ -125,34 +126,10 @@ def _cmp(v: int, op: str, value: int) -> bool:
     return v > value  # op == "gt"
 
 
-def _merge_runs(addresses: list[int], size: int) -> list[tuple[int, int, list[int]]]:
-    """Group sorted addresses into (run_start, span_bytes, [addresses]) runs.
-
-    Gaps ≤ size fold into one read (candidate offsets are still evaluated
-    exactly within the run, so grouping never changes semantics) — this is
-    what turns an O(N) narrow pass into O(runs) WS round-trips.
-    """
-    if not addresses:
-        return []
-    runs: list[tuple[int, int, list[int]]] = []
-    start = end = addresses[0]
-    members = [addresses[0]]
-    for addr in addresses[1:]:
-        if addr - end <= size:
-            end = addr
-            members.append(addr)
-            continue
-        runs.append((start, end - start + size, members))
-        start = end = addr
-        members = [addr]
-    runs.append((start, end - start + size, members))
-    return runs
-
-
 def _scan_block_hits(blob: bytes, fmt: str, op: str, value: int, limit: int) -> list[int]:
     """Offsets inside ``blob`` whose little-endian <fmt> value satisfies ``op``.
 
-    W10 (review v3): the per-element ``struct.unpack("<"+fmt, blob[off:off+n])``
+    The per-element ``struct.unpack("<"+fmt, blob[off:off+n])``
     loop ran on the event loop (measured 1 MiB u16 ≈ 0.168 s → an 8 MiB
     foreground scan ≈ 1.3 s of stalled event loop). Two fast paths:
     ``op == "eq"`` searches the encoded target with ``bytes.find`` (C-level),
@@ -192,7 +169,7 @@ def _scan_block_hits(blob: bytes, fmt: str, op: str, value: int, limit: int) -> 
 async def _iter_segments(client: Any, start: int, size: int):
     """Yield ``(seg_start, bytes)`` readable chunks over ``[start, start+size)``.
 
-    W11 (review v3): this used to append every chunk to a list and return it,
+    This used to append every chunk to a list and return it,
     so a 256 MiB strings scan held the whole range in memory. Streaming keeps
     the peak at one read chunk. Unreadable chunks are SKIPPED — the
     ppsspp_scan BEHAVIOR contract — and segment pairs (not one flat buffer)
@@ -224,16 +201,12 @@ async def _iter_segments(client: Any, start: int, size: int):
         yield (start + offset, bytes(raw))
 
 
-def _decode_pattern(pattern: str, pattern_type: str) -> bytes:
-    if pattern_type == "ascii":
-        return pattern.encode("ascii")
-    return _decode_hex_pattern(pattern)
-
-
+# LONG-TOOL: the three scan modes share one bounded value-session registry and one timeout-aware
+# read loop, so the dispatch is kept with that shared state.
 @mcp.tool(
     name="ppsspp_scan",
     annotations=ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=False
+        read_only_hint=True, destructive_hint=False, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -258,10 +231,13 @@ async def scan(
         str | None,
         Field(
             description=(
-                "Active session ID; auto-resolved when exactly one session "
-                "is active (required for pattern/value initial/strings; "
-                "ignored for narrow/list/drop phases which only re-read "
-                "candidate addresses — narrow still needs it)."
+                "Active session ID; auto-resolved when exactly one "
+                "session is active. Required for the pattern / value "
+                "initial / strings phases, which start a new scan. The "
+                "narrow / list / drop phases only re-read addresses "
+                "already recorded by an earlier phase, so they do not "
+                "need it passed -- but it must still resolve to the "
+                "same session."
             ),
         ),
     ] = None,
@@ -383,11 +359,13 @@ async def scan(
     ROUTING: what-changed-between-two-points -> ppsspp_diff_memory (snapshots); who-accesses-this-address -> ppsspp_breakpoint(action='trace'); value candidates with known addresses -> read_memory directly.
 
     RETURNS: pattern → {action, address, value: [matches], size}; value initial → {scan_handle, width, candidates, passes}; value narrow → {scan_handle, candidates, passes}; value list → {scan_handle, addresses: [...]}; value drop → {scan_handle, dropped}; strings → {charset, count, strings: [{address, text}]}; background submission (explicit background=true OR pattern/strings range > 2 MiB) → {action: 'submitted', batch_id, session_id, estimated_s}."""
-    session_id_resolved: str | None = None
-    if mode in ("pattern", "strings") or (
-        mode == "value" and phase in ("initial", "narrow", "list", "drop")
-    ):
-        session_id_resolved = await resolve_session_id(session_id)
+    # value 模式必须给出四个 phase 之一——请求本身非法时在解析会话之前早拒。
+    # 顺序关键：此前 phase=None 会被放行到后台分支，以 None 会话调用
+    # validate_session_alive(None)，报出与真实原因无关的 SessionNotFound。
+    if mode == "value" and phase not in ("initial", "narrow", "list", "drop"):
+        raise ArgsInvalid(f"mode='value' requires phase (initial/narrow/list/drop); got {phase!r}")
+    # 到这里三种模式都必然需要会话：pattern/strings 扫描，value 的四个 phase。
+    session_id_resolved = await resolve_session_id(session_id)
     # Auto-background guard (v0.1.7, real-PPSSPP evidence): a foreground
     # scan runs inside the MCP request scope, and ranges beyond
     # FOREGROUND_SCAN_LIMIT_BYTES measurably outlive the ~30s client
@@ -410,200 +388,164 @@ async def scan(
         "tool_call",
         extra={"tool": "ppsspp_scan", "mode": mode, "session_id": session_id_resolved},
     )
-    try:
-        if background:
-            # 🟡10: the background runner hardcodes phase='initial'. A
-            # narrow/list/drop request submitted as background would be
-            # silently rewritten into a fresh initial scan — reject it
-            # instead of corrupting the caller's scan session.
-            if mode == "value" and phase is not None and phase != "initial":
-                raise ArgsInvalid(
-                    f"background value scans only support phase='initial' "
-                    f"(got {phase!r}) — run narrow/list/drop in the foreground"
-                )
-            # ── 后台路径：校验/预解析后提交 detached 任务，立即返回 ──
-            from ppsspp_dfx_mcp.core.batch_jobs import get_registry
+    if background:
+        # The background runner hardcodes phase='initial'. A
+        # narrow/list/drop request submitted as background would be
+        # silently rewritten into a fresh initial scan — reject it
+        # instead of corrupting the caller's scan session.
+        if mode == "value" and phase is not None and phase != "initial":
+            raise ArgsInvalid(
+                f"background value scans only support phase='initial' "
+                f"(got {phase!r}) — run narrow/list/drop in the foreground"
+            )
+        # ── 后台路径：校验/预解析后提交 detached 任务，立即返回 ──
+        from ppsspp_dfx_mcp.core.batch_jobs import get_registry
 
-            if not start_addr or not end_addr:
-                raise ArgsInvalid("background scans require start_addr and end_addr")
-            start_int = parse_address(start_addr)
-            end_int = parse_address(end_addr)
-            if start_int <= 0 or end_int <= start_int:
-                raise ArgsInvalid(f"invalid range: {start_addr!r}..{end_addr!r}")
-            total = end_int - start_int
-            bg_cap = _VALUE_BG_HARD_RANGE if mode == "value" else MAX_SCAN_RANGE_BYTES
-            if total > bg_cap:
-                raise ArgsInvalid(
-                    f"scan range {total} bytes exceeds the background cap "
-                    f"{bg_cap} — narrow start/end"
-                )
-            await validate_session_alive(session_id_resolved)
-            registry = get_registry()
-            existing = registry.running_job_for_session(session_id_resolved)
-            if existing is not None:
-                raise ArgsInvalid(
-                    f"session {session_id_resolved} already has a background "
-                    f"job ({existing.batch_id}) queued/running — poll "
-                    f"ppsspp_batch_status(batch_id='{existing.batch_id}') or "
-                    f"cancel it before submitting another"
-                )
+        if not start_addr or not end_addr:
+            raise ArgsInvalid("background scans require start_addr and end_addr")
+        start_int = parse_address(start_addr)
+        end_int = parse_address(end_addr)
+        if start_int <= 0 or end_int <= start_int:
+            raise ArgsInvalid(f"invalid range: {start_addr!r}..{end_addr!r}")
+        total = end_int - start_int
+        bg_cap = _VALUE_BG_HARD_RANGE if mode == "value" else MAX_SCAN_RANGE_BYTES
+        if total > bg_cap:
+            raise ArgsInvalid(
+                f"scan range {total} bytes exceeds the background cap {bg_cap} — narrow start/end"
+            )
+        await validate_session_alive(session_id_resolved)
+        registry = get_registry()
+        existing = registry.running_job_for_session(session_id_resolved)
+        if existing is not None:
+            raise ArgsInvalid(
+                f"session {session_id_resolved} already has a background "
+                f"job ({existing.batch_id}) queued/running — poll "
+                f"ppsspp_batch_status(batch_id='{existing.batch_id}') or "
+                f"cancel it before submitting another"
+            )
 
-            total_chunks = max(1, -(-total // MAX_SINGLE_READ_BYTES))
-            estimated_s = round(total_chunks * 0.05 + 0.5, 2)
+        total_chunks = max(1, -(-total // MAX_SINGLE_READ_BYTES))
+        estimated_s = round(total_chunks * 0.05 + 0.5, 2)
 
-            async def _bg_runner(job: Any) -> dict[str, Any]:
-                # Wall-clock budget (v0.1.7): the detached task holds the
-                # session lock for its whole duration, so a runaway scan
-                # must reach a terminal state on its own — a timeout
-                # fails the job cleanly and the lock is released (the
-                # field-report wedge where only stop/restart helped).
-                async def _run() -> ScanOutput:
-                    if mode == "pattern":
-                        return await _scan_pattern(
-                            session_id_resolved,
-                            pattern,
-                            pattern_type,
-                            start_addr,
-                            end_addr,
-                            max_results,
-                            chunk_size,
-                        )
-                    if mode == "value":
-                        return await _scan_value(
-                            session_id_resolved,
-                            "initial",
-                            value,
-                            width,
-                            op,
-                            None,
-                            start_addr,
-                            end_addr,
-                            hard_range=_VALUE_BG_HARD_RANGE,
-                        )
-                    return await _scan_strings(
+        async def _bg_runner(job: Any) -> dict[str, Any]:
+            # Wall-clock budget (v0.1.7): the detached task holds the
+            # session lock for its whole duration, so a runaway scan
+            # must reach a terminal state on its own — a timeout
+            # fails the job cleanly and the lock is released (the
+            # field-report wedge where only stop/restart helped).
+            async def _run() -> ScanResponse:
+                if mode == "pattern":
+                    return await _scan_pattern(
                         session_id_resolved,
-                        charset,
+                        pattern,
+                        pattern_type,
                         start_addr,
                         end_addr,
-                        min_len,
-                        quality,
+                        max_results,
+                        chunk_size,
                     )
-
-                try:
-                    out = await asyncio.wait_for(_run(), timeout=SCAN_BG_BUDGET_S)
-                except TimeoutError as e:
-                    raise ToolError(
-                        f"background scan exceeded its {SCAN_BG_BUDGET_S:.0f}s "
-                        f"wall-clock budget and was aborted (session released) "
-                        f"— narrow the range or split the scan",
-                        code="SCAN_BUDGET_EXCEEDED",
-                    ) from e
-                resp = out.model_dump(mode="json")
-                job.result = resp  # 先存再抛（轮询者可见部分结果）
-                return resp
-
-            batch_id = get_registry().submit(session_id_resolved, total_chunks, _bg_runner)
-            return {
-                "action": "submitted",
-                "batch_id": batch_id,
-                "session_id": session_id_resolved,
-                "estimated_s": estimated_s,
-                "hint": (
-                    "poll ppsspp_batch_status(batch_id=...) — the scan keeps "
-                    "running even if this client call times out; cancel via "
-                    "ppsspp_batch_cancel(batch_id=...)"
-                ),
-            }
-        if mode == "pattern":
-            return (
-                await _scan_pattern(
+                if mode == "value":
+                    return await _scan_value(
+                        session_id_resolved,
+                        "initial",
+                        value,
+                        width,
+                        op,
+                        None,
+                        start_addr,
+                        end_addr,
+                        hard_range=_VALUE_BG_HARD_RANGE,
+                    )
+                return await _scan_strings(
                     session_id_resolved,
-                    pattern,
-                    pattern_type,
+                    charset,
                     start_addr,
                     end_addr,
-                    max_results,
-                    chunk_size,
+                    min_len,
+                    quality,
                 )
-            ).model_dump(mode="json")
-        if mode == "value":
-            return (
-                await _scan_value(
-                    session_id_resolved,
-                    phase,
-                    value,
-                    width,
-                    op,
-                    scan_handle,
-                    start_addr,
-                    end_addr,
-                )
-            ).model_dump(mode="json")
-        # mode == "strings"
+
+            try:
+                out = await asyncio.wait_for(_run(), timeout=SCAN_BG_BUDGET_S)
+            except TimeoutError as e:
+                raise ToolError(
+                    f"background scan exceeded its {SCAN_BG_BUDGET_S:.0f}s "
+                    f"wall-clock budget and was aborted (session released) "
+                    f"— narrow the range or split the scan",
+                    code="SCAN_BUDGET_EXCEEDED",
+                ) from e
+            resp = out.model_dump(mode="json")
+            job.result = resp  # 先存再抛（轮询者可见部分结果）
+            return resp
+
+        batch_id = get_registry().submit(session_id_resolved, total_chunks, _bg_runner)
+        return {
+            "action": "submitted",
+            "batch_id": batch_id,
+            "session_id": session_id_resolved,
+            "estimated_s": estimated_s,
+            "hint": (
+                "poll ppsspp_batch_status(batch_id=...) — the scan keeps "
+                "running even if this client call times out; cancel via "
+                "ppsspp_batch_cancel(batch_id=...)"
+            ),
+        }
+    if mode == "pattern":
         return (
-            await _scan_strings(
+            await _scan_pattern(
                 session_id_resolved,
-                charset,
+                pattern,
+                pattern_type,
                 start_addr,
                 end_addr,
-                min_len,
-                quality,
+                max_results,
+                chunk_size,
             )
         ).model_dump(mode="json")
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    if mode == "value":
+        return (
+            await _scan_value(
+                session_id_resolved,
+                phase,
+                value,
+                width,
+                op,
+                scan_handle,
+                start_addr,
+                end_addr,
+            )
+        ).model_dump(mode="json")
+    # mode == "strings"
+    return (
+        await _scan_strings(
+            session_id_resolved,
+            charset,
+            start_addr,
+            end_addr,
+            min_len,
+            quality,
+        )
+    ).model_dump(mode="json")
 
 
-async def _scan_pattern(
-    session_id: str | None,
-    pattern: str | None,
-    pattern_type: str,
-    start_addr: str | None,
-    end_addr: str | None,
-    max_results: int,
-    chunk_size: int,
-) -> ScanOutput:
-    if not pattern:
-        raise ArgsInvalid("pattern is required for mode='pattern'")
-    max_results = require_int_not_bool(max_results, "max_results")
-    if max_results <= 0:
-        raise ArgsInvalid(f"max_results must be > 0 (got {max_results})")
-    chunk_size = require_int_not_bool(chunk_size, "chunk_size")
-    if chunk_size <= 0:
-        raise ArgsInvalid(f"chunk_size must be > 0 (got {chunk_size})")
-    if not start_addr or not end_addr:
-        raise ArgsInvalid("start_addr and end_addr are required for mode='pattern'")
-    start_int = parse_address(start_addr)
-    end_int = parse_address(end_addr)
-    if start_int >= end_int:
-        raise ArgsInvalid(f"start_addr (0x{start_int:08X}) must be < end_addr (0x{end_int:08X})")
-    if end_int - start_int > MAX_SCAN_RANGE_BYTES:
+def _validate_unsigned_value(value: int, size: int, width: str) -> int:
+    """A-6 (review v4): the value must be a non-bool int that fits the
+    unsigned width. Negative values used to fall into the OverflowError
+    branch and silently return "0 candidates" for eq; width overflow did
+    the same — the caller read it as "value not in range" and kept
+    narrowing instead of fixing the argument."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ArgsInvalid(f"value must be an integer, got {value!r}")
+    if value < 0 or value >= (1 << (8 * size)):
         raise ArgsInvalid(
-            f"scan range too large: 0x{start_int:08X}-0x{end_int:08X} "
-            f"({end_int - start_int} bytes; cap 256 MiB). Narrow start/end."
+            f"value {value} does not fit unsigned {width} — expected an "
+            f"integer in [0, {(1 << (8 * size)) - 1}]"
         )
-    chunk_size = max(MIN_SCAN_CHUNK_BYTES, min(chunk_size, MAX_SINGLE_READ_BYTES))
-    pattern_bytes = _decode_pattern(pattern, pattern_type)
-    if len(pattern_bytes) > MAX_SCAN_PATTERN_BYTES:
-        raise ArgsInvalid(
-            f"pattern is {len(pattern_bytes)} bytes; the scan cap is "
-            f"{MAX_SCAN_PATTERN_BYTES} bytes. Narrow the pattern."
-        )
-    async with session_client(session_id) as client:
-        matches = await client.scan_memory(
-            pattern=pattern_bytes,
-            start=start_int,
-            end=end_int,
-            max_results=max_results,
-            chunk_size=chunk_size,
-        )
-    return ScanResponse.build_pattern(start_int, matches or [])
+    return value
 
 
 async def _scan_value(
-    session_id: str | None,
+    session_id: str,
     phase: str | None,
     value: int | None,
     width: str,
@@ -612,7 +554,7 @@ async def _scan_value(
     start_addr: str | None,
     end_addr: str | None,
     hard_range: int = _VALUE_HARD_RANGE,
-) -> ScanOutput:
+) -> ScanResponse:
     if phase is None:
         raise ArgsInvalid("mode='value' requires phase (initial/narrow/list/drop)")
     size, fmt = _WIDTHS[width]
@@ -620,6 +562,7 @@ async def _scan_value(
     if phase == "initial":
         if value is None:
             raise ArgsInvalid("phase='initial' requires value")
+        _validate_unsigned_value(value, size, width)
         if not start_addr or not end_addr:
             raise ArgsInvalid("phase='initial' requires start_addr and end_addr")
         start_int = parse_address(start_addr)
@@ -667,6 +610,7 @@ async def _scan_value(
     if phase == "narrow":
         if value is None:
             raise ArgsInvalid("phase='narrow' requires value")
+        _validate_unsigned_value(value, _WIDTHS[sess["width"]][0], sess["width"])
         if sess.get("session_id") != session_id:
             raise ArgsInvalid(
                 f"scan_handle {scan_handle!r} belongs to session "
@@ -679,7 +623,7 @@ async def _scan_value(
         sess["passes"] += 1
         return ScanResponse.build_value_narrow(scan_handle, len(sess["addresses"]), sess["passes"])
 
-    # S13 (review v2): list/drop used to bypass the ownership check that
+    # list/drop used to bypass the ownership check that
     # narrow enforces — session A could list or drop session B's handle,
     # contradicting the tool's "bound to the creating session" contract.
     if sess.get("session_id") != session_id:
@@ -698,13 +642,13 @@ async def _scan_value(
 
 
 async def _scan_strings(
-    session_id: str | None,
+    session_id: str,
     charset: str,
     start_addr: str | None,
     end_addr: str | None,
     min_len: int,
     quality: float,
-) -> ScanOutput:
+) -> ScanResponse:
     if not start_addr or not end_addr:
         raise ArgsInvalid("start_addr and end_addr are required for mode='strings'")
     start_int = parse_address(start_addr)
@@ -736,7 +680,7 @@ async def _scan_strings(
                     continue
                 if charset == "shift_jis" and quality > 0 and _jp_ratio(s) < quality:
                     continue
-                # W13 (review v2): strings was the one unbounded scan mode —
+                # strings was the one unbounded scan mode —
                 # a single printable run can be megabytes (8MB of 'A' is one
                 # "string") and the full result used to persist in the
                 # background-job registry, re-serialized on every status
@@ -778,7 +722,7 @@ async def _narrow_candidates(
                         raw = bytes(await client.read_bytes(address=addr, size=size))
                     except Exception:
                         continue
-                    # W6 (review v3): a short payload used to reach struct.unpack
+                    # a short payload used to reach struct.unpack
                     # and raise struct.error, degrading the whole narrow batch to
                     # [INTERNAL]. Skip the candidate instead.
                     if len(raw) == size and _cmp(unpack_from(raw, 0)[0], op, value):

@@ -37,7 +37,7 @@ class SessionResponse(FrozenModel):
     recovered: int = Field(
         default=0,
         description=(
-            "H2: resilient-start relaunch count (0 = the first launch "
+            "resilient-start relaunch count (0 = the first launch "
             "succeeded; >0 means the game state was reset by a wedge "
             "heal — breakpoints need re-arming)."
         ),
@@ -45,7 +45,7 @@ class SessionResponse(FrozenModel):
     restored: int = Field(
         default=0,
         description=(
-            "F-6(a): 1 when this session was restored from sessions.json "
+            "1 when this session was restored from sessions.json "
             "(a previous server run left it behind) rather than started "
             "fresh in this process — its game state may be stale."
         ),
@@ -108,7 +108,7 @@ class SessionListResponse(FrozenModel):
 
 
 class WaitReadyResponse(FrozenModel):
-    """Response view for ppsspp_session(action='wait_ready') (H0, 2026-09-07)."""
+    """Response view for ppsspp_session(action='wait_ready') (2026-09-07)."""
 
     action: str = Field(
         default="wait_ready",

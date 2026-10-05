@@ -11,39 +11,36 @@ with_stepping pause/resume cycle internally.
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from ppsspp_dfx_mcp.address import parse_value
-from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError, to_tool_error
+from ppsspp_dfx_mcp.errors import ArgsInvalid
 from ppsspp_dfx_mcp.models.write_register import WriteRegisterResult
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session.client_helper import session_client
+from ppsspp_dfx_mcp.spec.output_contract import derive_output_contract
 from ppsspp_dfx_mcp.tools._common import require_session_id, translate_tool_errors
-from ppsspp_dfx_mcp.views._contract import derive_output_contract
 from ppsspp_dfx_mcp.views.write_register import WriteRegisterResponse
 
-WriteRegisterOutput = derive_output_contract("WriteRegisterOutput", WriteRegisterResponse)
+# Static face of the derived contract(s) — mypy cannot use a dynamically
+# created TypedDict as a type (see spec/output_contract.py).
+if TYPE_CHECKING:
+    WriteRegisterOutput = dict[str, Any]
+else:
+    WriteRegisterOutput = derive_output_contract("WriteRegisterOutput", WriteRegisterResponse)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["write_register"]
 
 
-# Former docstring (kept as comment; description is now the TDQS docstring):
-# Write a value to a CPU register.
-#
-# Returns:
-# WriteRegisterResponse dict: name + value + response + text.
-#
-# Raises:
-# ToolError: on session lookup failure, empty name, or WS failure.
 @mcp.tool(
     name="ppsspp_write_register",
     annotations=ToolAnnotations(
-        readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+        read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False
     ),
 )
 @translate_tool_errors
@@ -89,7 +86,7 @@ async def write_register(
         raise ArgsInvalid("name is required")
 
     value_int = parse_value(value)
-    # 🟡12 (V4 live-verified): PPSSPP silently wraps negative values
+    # Live-verified: PPSSPP silently wraps negative values
     # (-1 → 0xFFFFFFFF) — the exact behaviour the parameter description
     # promises NOT to do. Enforce the documented fail-fast here.
     if not 0 <= value_int <= 0xFFFFFFFF:
@@ -109,13 +106,8 @@ async def write_register(
         },
     )
 
-    try:
-        async with session_client(session_id) as client:
-            response = await client.set_reg(name=name, value=value_int)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise to_tool_error(e) from e
+    async with session_client(session_id) as client:
+        response = await client.set_reg(name=name, value=value_int)
 
     result = WriteRegisterResult(
         name=name, value=value_int, response=response if isinstance(response, dict) else None

@@ -7,9 +7,12 @@ probes of the active PPSSPP session.
 
 Session-selection convention: these URIs are session-less (a static
 Resource cannot take arguments), so both require exactly ONE active
-session. Zero sessions → ResourceError listing the prerequisite; more
-than one → ResourceError directing the caller to `ppsspp_session(action="list")`
-+ the session-argument tools (`ppsspp_query`).
+session. The "exactly one" policy is delegated to the tool-layer helper
+``client_helper.resolve_session_id`` (single source of truth); its
+``SessionNotFound`` / ``SessionAmbiguous`` outcomes are translated into
+``ResourceError`` here, because ``server.py`` only classifies
+``ResourceError`` as an anticipated resource failure (a raw business
+exception would degrade the read into a crash with a traceback).
 
 Registered via `@mcp.resource()` decorator (imported by
 `server.register_all_tools()`); requires the SDK v2 resource support.
@@ -22,10 +25,10 @@ from typing import Any
 
 from mcp.server.mcpserver.exceptions import ResourceError
 
-from ppsspp_dfx_mcp.errors import to_tool_error
-from ppsspp_dfx_mcp.server import mcp
+from ppsspp_dfx_mcp.errors import SessionAmbiguous, SessionNotFound, to_tool_error
+from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.session import session_manager
-from ppsspp_dfx_mcp.session.client_helper import session_client_with_transport
+from ppsspp_dfx_mcp.session.client_helper import resolve_session_id, session_client
 
 logger = logging.getLogger(__name__)
 
@@ -36,20 +39,28 @@ async def _require_single_session() -> str:
     """Return the session_id of the single active session, or raise.
 
     Resources cannot take a session argument (static URIs), so the
-    snapshot only makes sense when exactly one session is active.
+    snapshot only makes sense when exactly one session is active. The
+    0 / 1 / 2+ resolution is delegated to ``resolve_session_id`` (the same
+    rule the session-argument tools use); its two business exceptions are
+    translated to ``ResourceError`` — the type ``server.py`` classifies.
+    The zero-session text is pinned by
+    ``tests/mcp_inspector/test_resources_prompts.py``.
     """
-    sessions = await session_manager.list_sessions()
-    if not sessions:
+    try:
+        return await resolve_session_id(None)
+    except SessionNotFound as e:
         raise ResourceError(
             "no active PPSSPP session — start one with ppsspp_session(action=start, iso_path=...)"
-        )
-    if len(sessions) > 1:
+        ) from e
+    except SessionAmbiguous as e:
+        # Use the raw message (args[0]); ToolError.__str__ would prepend the
+        # [SESSION_AMBIGUOUS] code prefix, which does not belong inside a
+        # ResourceError message.
         raise ResourceError(
-            f"{len(sessions)} active sessions — snapshots require exactly "
-            'one; use ppsspp_session(action="list") and the session-argument '
+            f"{e.args[0]} — snapshot resources require exactly one active "
+            'session; use ppsspp_session(action="list") and the session-argument '
             "tools (ppsspp_query / ppsspp_read_memory) instead"
-        )
-    return sessions[0].session_id
+        ) from e
 
 
 @mcp.resource(
@@ -66,7 +77,7 @@ async def game_state() -> dict[str, Any]:
     session_id = await _require_single_session()
     logger.info("resource_read", extra={"resource": "ppsspp://game-state"})
     try:
-        async with session_client_with_transport(session_id) as (client, _t):
+        async with session_client(session_id) as client:
             status = await client.game_status()
     except Exception as e:
         raise to_tool_error(e) from e
@@ -88,7 +99,7 @@ async def registers() -> dict[str, Any]:
     session_id = await _require_single_session()
     logger.info("resource_read", extra={"resource": "ppsspp://registers"})
     try:
-        async with session_client_with_transport(session_id) as (client, _t):
+        async with session_client(session_id) as client:
             regs = await client.get_all_regs()
     except Exception as e:
         raise to_tool_error(e) from e

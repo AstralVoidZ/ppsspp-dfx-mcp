@@ -94,10 +94,10 @@ async def test_resource_payload_carries_restored(
 
     @asynccontextmanager
     async def fake_swt(session_id: str):
-        yield _FakeClient(), object()
+        yield _FakeClient()
 
     monkeypatch.setattr(res_mod, "_require_single_session", fake_require)
-    monkeypatch.setattr(res_mod, "session_client_with_transport", fake_swt)
+    monkeypatch.setattr(res_mod, "session_client", fake_swt)
     monkeypatch.setattr(res_mod.session_manager, "get_session_state", fake_get_state)
 
     payload = await res_mod.game_state()

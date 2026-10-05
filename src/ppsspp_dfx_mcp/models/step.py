@@ -21,10 +21,12 @@ class StepResult:
         pc: Program counter after step. For into/over/out/run_until/next_hle
             this comes from the cpu.stepping broadcast. For pause, extracted
             via cpu.getAllRegs after the CPU enters stepping (trustworthy
-            because CPU is paused — see CPUCoreSubscriber.cpp:105). 0 for
-            resume/reset (no trustworthy PC available).
+            because CPU is paused — see CPUCoreSubscriber.cpp:105). For
+            resume, a best-effort LOW-trust cpu.status snapshot of the
+            running CPU (0 when that read failed). For reset, always 0.
         ticks: CPU ticks at step completion (from cpu.stepping broadcast).
-            0.0 for pause/resume/reset.
+            For resume, a best-effort LOW-trust cpu.status snapshot.
+            0.0 for pause/reset.
         reason: Step reason string (from cpu.stepping broadcast, e.g.
             'cpu.stepInto'). Empty for pause/resume/reset.
         related_address: Related address for run_until/step_over temporary
