@@ -55,6 +55,18 @@
   `test_w32_rate_limit_buckets.py::test_wire_shape_yields_a_per_session_bucket`
   （同时钉住「顶层键必须被忽略」与 typed params 同规则）。**变异检验**：把实现
   退回顶层查找后，隔离测试与新增用例同时转红。
+- **`restored` 标志如实反映来源（C-6，警告）**：`_load_sessions` 对每条读到的
+  记录无条件盖 `restored=True`，于是**本就由本进程启动**的会话在
+  `session(action=list/get)` 里也报 `restored: 1` —— 该字段因此不携带任何信息。
+  此前两处「清标志」的写入（transport 建立、resilient 重启）**注定不可观测**：
+  它们把 `restored=False` 写进文件，下一次 load 立刻盖回 `True`；顺带还把
+  `restored` 键漏进了「该键永不出现」的文件。现在改为**读时判定**：
+  `SessionManager._stamp_process_liveness` 依据 `_launchers`（本进程是否持有
+  该会话的 launcher）清除标志，两处无效写入删除；`models/session.py` 里
+  「从磁盘加载的会话永远没有 launcher」这一错误前提已按实现回写。
+  守卫：`tests/unit/l4_regression/test_c6_restored_flag_provenance.py`（3 条，
+  含"无 launcher 时必须仍报 restored"的负向对照）。**变异检验**：去掉读时判定
+  后仅"活会话"用例转红，对照用例仍绿（证明未把字段做成恒假）。
 
 ## [0.1.7] - 2026-10-03
 

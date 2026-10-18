@@ -7,9 +7,14 @@ strings on disk (see session.session_manager._session_to_dict).
 
 The launcher is NOT stored on the Session model — it is a runtime-only
 object tracked in `SessionManager._launchers` (in-memory dict keyed by
-session_id). Sessions loaded from disk never have a launcher (the process
-is already gone). This avoids a dual source-of-truth between the model
-field and the manager's dict.
+session_id). This avoids a dual source-of-truth between the model field
+and the manager's dict.
+
+⚠️ "Loaded from disk ⇒ no launcher" does NOT hold (review C-6): a session
+this process started is loaded back from sessions.json on every read while
+its launcher is still in `_launchers`. That is why the `restored` flag is
+decided at read time (`SessionManager._stamp_process_liveness`) instead of
+being persisted or inferred from the load path.
 """
 
 from __future__ import annotations

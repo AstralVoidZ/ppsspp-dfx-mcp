@@ -932,11 +932,10 @@ class SessionManager:
                     self._observers[session_id] = observer
                     extra = dict(cur.extra)
                     extra["ppsspp_version"] = _version_fingerprint(transport)
-                    # _load_sessions() stamps restored=True on every
-                    # record it reads — including the one this call just
-                    # created and persisted. This session was born
-                    # in-process, so it is not a restored session.
-                    extra["restored"] = False
+                    # `restored` is NOT written here: it is decided at read
+                    # time from `_launchers` (see _stamp_process_liveness,
+                    # review C-6). Writing it would both be overwritten by the
+                    # next load and leak a key the file must never carry.
                     sess = dataclasses.replace(cur, extra=extra)
                     sessions[session_id] = sess
                     await _save_sessions_async(sessions)
@@ -1013,9 +1012,7 @@ class SessionManager:
                 extra = dict(cur.extra)
                 extra["recovered"] = attempt
                 extra["ppsspp_version"] = _version_fingerprint(transport)
-                # Same rationale: the relaunch is in-process, so the
-                # reloaded record's restored=True stamp is cleared.
-                extra["restored"] = False
+                # `restored` is decided at read time, not persisted (C-6).
                 updated = dataclasses.replace(cur, extra=extra)
                 sessions[session_id] = updated
                 await _save_sessions_async(sessions)
@@ -1289,6 +1286,28 @@ class SessionManager:
             )
         return observer
 
+    def _stamp_process_liveness(self, sessions: dict[str, Session]) -> dict[str, Session]:
+        """Clear `restored` on sessions this process is actually running.
+
+        `_load_sessions` stamps `restored=True` on every record it reads, which
+        only makes sense for a record whose PPSSPP belongs to a PREVIOUS server
+        run. A session this process launched is not restored, and that fact
+        lives solely in `self._launchers` — the model's assumption "loaded from
+        disk never has a launcher" is false for exactly the case this flag
+        describes.
+
+        Decided at read time on purpose (review C-6). The previous attempt
+        wrote `restored=False` at two save sites, but every load re-stamps the
+        key, so those writes could never be observed; they also leaked a
+        `restored` key into a file documented to never contain it.
+        """
+        if not self._launchers:
+            return sessions
+        for sid in [sid for sid in sessions if sid in self._launchers]:
+            sess = sessions[sid]
+            sessions[sid] = dataclasses.replace(sess, extra={**sess.extra, "restored": False})
+        return sessions
+
     async def get_session_state(self, session_id: str) -> Session:
         """Get a session's current state (pure read, no side effects).
 
@@ -1303,7 +1322,7 @@ class SessionManager:
             SessionNotFound: session_id not in active sessions.
             SessionExpired: session process is no longer alive.
         """
-        sessions = await _load_sessions_async()
+        sessions = self._stamp_process_liveness(await _load_sessions_async())
         sess = sessions.get(session_id)
         if sess is None:
             raise SessionNotFound(f"session not found: {session_id}")
@@ -1376,7 +1395,7 @@ class SessionManager:
         Async: uses _load_sessions_async() to avoid blocking the event
         loop on file I/O (sessions.json may be on a slow network mount).
         """
-        sessions = await _load_sessions_async()
+        sessions = self._stamp_process_liveness(await _load_sessions_async())
         alive: list[Session] = []
         for _sid, sess in sessions.items():
             if sess.pid is not None and not proc.is_pid_alive(sess.pid):
