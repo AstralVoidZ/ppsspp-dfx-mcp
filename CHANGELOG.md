@@ -801,3 +801,15 @@ func_add verified=true）。
   动态诊断脚本工具（manifest 驱动）、多会话管理与楔死自愈、后台批处理、
   原生 replay 录制回放、GPU 缓冲/纹素/CLUT 转储、HLE 内省、盲测评估体系
   （21 场景卡 + 确定性门禁）。
+
+- **环境自检脚本不再被自己依赖的 SDK 卡死（C-20，警告）**：`scripts/check_env.py`
+  是**创建**装 `mcp` 的 venv 的脚本（`--bootstrap`），却经 `scripts/_wire.py`
+  在模块级 `from mcp import StdioServerParameters` —— 干净 clone 上
+  `python scripts/check_env.py --help` 直接 `ModuleNotFoundError: No module named
+  'mcp'`，即「自举器无法自举」。现改为在两个使用函数内**惰性导入**
+  （`build_server_env` / `build_stdio_params`），类型注解留在 `TYPE_CHECKING`。
+  守卫：`tests/unit/l4_regression/test_c20_bootstrap_without_mcp.py`（3 条，
+  用 `sys.modules[name] = None` 确定性屏蔽 `mcp`，因此在本机（已装 mcp）也能复现
+  干净 clone）。**变异检验**：把模块级导入放回去后 3 条全红。
+  同类未改：`scripts/audit_test_modules.py` 经 `verify_real_mcp` 仍需 `mcp`
+  （它审计的是 evals 场景，属开发工具，运行环境本就有该依赖）。

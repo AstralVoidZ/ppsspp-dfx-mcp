@@ -21,10 +21,17 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mcp import StdioServerParameters
-from mcp.client.stdio import get_default_environment
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from mcp import StdioServerParameters
+
+# `mcp` is imported lazily inside the two functions that need it (review C-20).
+# This module is ALSO imported by the environment helpers that must run BEFORE
+# mcp exists — scripts/check_env.py (creates the venv that installs it) and
+# scripts/audit_test_modules.py. A module-level `from mcp import ...` made
+# `python scripts/check_env.py --help` die with ModuleNotFoundError on a clean
+# clone, i.e. the bootstrap could not bootstrap.
 
 
 def find_package_root() -> Path:
@@ -132,6 +139,8 @@ def build_server_env() -> dict[str, str]:
     the whole real-machine gate was un-operable. Forward our own namespace;
     the explicit values below still win.
     """
+    from mcp.client.stdio import get_default_environment  # lazy: see module top
+
     env = get_default_environment()
     for key, value in os.environ.items():
         if key.startswith("PPSSPP_DFX_"):
@@ -145,6 +154,8 @@ def build_server_env() -> dict[str, str]:
 
 
 def build_stdio_params(python_exe: str | None = None) -> StdioServerParameters:
+    from mcp import StdioServerParameters  # lazy: see module top
+
     return StdioServerParameters(
         command=python_exe or sys.executable,
         args=["-m", _CANARY_MODULE],
