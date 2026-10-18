@@ -5,7 +5,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.1.8] - 2026-10-18
 
 > 来源：v0.1.7 系统性代码审查（8 维度）。每项均满足「修复前失败 → 修复后通过」
 > 的可证伪要求，并按独立提交落地。审查报告与验证脚本见仓库外
@@ -79,6 +79,33 @@
   **变异检验**：把路径拼回消息后 4 条全红。
   遗留观察（未扩大范围）：`spec/script_manifest.py:133/135/149` 仍回显清单里的
   **相对**路径，属操作者自身配置；如后续要求，再一并改为仅日志。
+
+### Changed（死代码清理 · 零引用确证后删除）
+
+- **删除 4 个零引用模块**：`models/scan.py`（`ValueScanSession`）、
+  `models/smoke.py`（`CheckResult` / `SmokeTestResult`）、`views/smoke.py`
+  （`CheckResultView` / `SmokeTestResponse`）与空占位包 `recipes/`。
+  判定依据是三路独立扫描均零命中：① 模块路径（`models.scan` / `models.smoke` /
+  `views.smoke` / `ppsspp_dfx_mcp.recipes`）② `import` 形式 ③ 各文件定义的
+  **全部类名**（`ValueScanSession` / `CheckResult` / `SmokeTestResult` /
+  `CheckResultView` / `SmokeTestResponse`）。
+  同一轮排查**排除**了 `tools/smoke.py`：`tools/introspect.py:167` 仍
+  `from ppsspp_dfx_mcp.tools.smoke import run_smoke_checks`（`ppsspp_health`
+  的四点会话电池就是从它吸收的），它是活代码，故保留。
+  `mypy src`: 137 → 133 文件，无告警；`ruff` 全绿；2363 passed / 44 skipped。
+
+### 已知事项（未在本批修复，留作回合输入）
+
+- **两目录已长期漂移**（`mcps/ppsspp-dfx-mcp` 开发 ↔ 本仓发布）。
+  `python scripts/ppsspp_dfx_mcp_release.py check` 实测 export 方向漂移
+  **311 处**，其中 41 个本仓独有文件会在 `export` 时被删除；`src/` 下 65 个、
+  `tests/` 下 60 个文件内容不同，开发目录另多 5 个模块
+  （`core/held_buttons.py`、`core/trajectory.py`、`spec/conformance_rules.py`、
+  `spec/consistency_waivers.py`、`spec/human_review_register.py`）。
+  因此本批修复是**在两个目录上分别落地**的（语义一致，测试文件名沿用各自测试树），
+  而不是走 `export` 镜像：当前状态下 `export` 会把开发目录尚未定版的重量级重构
+  一并推入本仓、并删掉本仓独有的 41 个测试文件；`import` 则会用陈旧的发布内容
+  覆盖开发目录的领先重构。**两者此刻都是破坏性的**，故镜像同步留给专门的回合任务。
 
 ## [0.1.7] - 2026-10-03
 
@@ -169,12 +196,19 @@
   `memory_protection` 抽出 `resolve_session_modules()`（模块表缺失/类型错/为空
   返回 `None` 并告警），会话内统一接入权威模块表，模块表缺失时退化为保守
   extent 而非跳过；删除从未接线的死代码。
-  > ⚠️ **2026-10-18 更正**：原文此处还声称「l1_contract 增 Step4 十条 + 新增
-  > `test_s1_s3_write_protection_paths.py`（8 条工具层锁）」。经 `git log --all`
-  > 与各 tag `ls-tree` 核实，**该文件在本批提交中从未存在**（全历史零命中），
-  > Step4 十条亦无对应测试；因此"闭环"缺了回归锁那一半。该文件已在
-  > `[Unreleased]` 修复批补齐，并覆盖真正的缺口：豁免判定曾按「任一字节重叠」
-  > 放行**整个**写区间。
+  > ⚠️ **2026-10-18 更正（本段结论已二次更正，见下）**：原文此处还声称
+  > 「l1_contract 增 Step4 十条 + 新增 `test_s1_s3_write_protection_paths.py`
+  > （8 条工具层锁）」。经 `git log --all` 与各 tag `ls-tree` 核实，**该文件在
+  > 本仓库（发布仓）的历史中零命中**；因此在本仓库范围内"闭环"缺了回归锁那一半。
+  > 该文件已在 `[Unreleased]` 修复批补齐，并覆盖真正的缺口：豁免判定曾按
+  > 「任一字节重叠」放行**整个**写区间。
+  > ⚠️ **2026-10-18 二次更正（同日，跨仓核实后）**：上段曾把"本仓零命中"写成
+  > "从未存在"，**该措辞不成立**。开发目录 `mcps/ppsspp-dfx-mcp` 一直保有该文件，
+  > 只是测试树重构时改名为 `tests/unit/l4_regression/test_write_protection_paths.py`
+  > （docstring 记「原代号：S1/S3。重命名映射：contracts/rename-mapping.csv 与
+  > tests/TRACEABILITY.md（spec 014 US2）」）。所以真实成因是**两目录同步丢失**，
+  > 而不是文档造了一个不存在的守卫——这条区别很重要：前者要靠同步纪律解决，
+  > 后者才是文档诚信问题。
 - **截图稳定等待加 deadline**：`_wm_command_screenshot` 的内层
   `while stable_samples < 2` 无上界、无 deadline，判据 `0 < size == last_size`
   在文件恒为 0 字节时（写一半被杀/磁盘满/上次残留空文件）永不成立，而该循环
