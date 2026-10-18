@@ -26,7 +26,6 @@ import pytest
 
 from ppsspp_dfx_mcp.service.memory_protection import (
     ProtectedAddress,
-    _declared_data_ranges,
     _exempt_segments,
     _subtract_spans,
     check_protected_address,
@@ -99,13 +98,20 @@ class TestExtentSelection:
         modules: list[dict[str, Any]] = [{"name": "top.prx", "address": base, "size": 0x1000}]
         inside_small = base + 0x800
         outside_small_inside_wide = conservative_code_extent()[0] + 0x100000
-        assert conservative_code_extent()[0] <= outside_small_inside_wide < conservative_code_extent()[1]
+        assert (
+            conservative_code_extent()[0]
+            <= outside_small_inside_wide
+            < conservative_code_extent()[1]
+        )
 
         with pytest.raises(ProtectedAddress):
             check_protected_address(inside_small, byte_count=4, modules=modules)
         # With the real (small) extent this address is ordinary data; the
         # no-modules fallback would reject it.
-        assert check_protected_address(outside_small_inside_wide, byte_count=4, modules=modules) is None
+        assert (
+            check_protected_address(outside_small_inside_wide, byte_count=4, modules=modules)
+            is None
+        )
         with pytest.raises(ProtectedAddress):
             check_protected_address(outside_small_inside_wide, byte_count=4)
 
@@ -116,9 +122,16 @@ class TestExtentSelection:
         with pytest.raises(ProtectedAddress):
             check_protected_address(wide_lo, byte_count=4, modules=None)
         # "base" is the narrow pre-flight extent: just past it is allowed.
-        assert check_protected_address(narrow_hi, byte_count=4, modules=None, extent_when_unknown="base") is None
+        assert (
+            check_protected_address(
+                narrow_hi, byte_count=4, modules=None, extent_when_unknown="base"
+            )
+            is None
+        )
         with pytest.raises(ProtectedAddress):
-            check_protected_address(narrow_lo, byte_count=4, modules=None, extent_when_unknown="base")
+            check_protected_address(
+                narrow_lo, byte_count=4, modules=None, extent_when_unknown="base"
+            )
 
 
 class TestHelperExactness:

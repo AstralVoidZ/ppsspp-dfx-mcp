@@ -177,9 +177,7 @@ def _load_script_module(entry: ScriptEntry, project_root: Path) -> Any:
             # Server-side path stays in the log, never in the client-visible
             # text: to_tool_error() returns ScriptContractError verbatim, and
             # `entry.path` comes from the server's manifest (review C-11).
-            logger.warning(
-                "script %r: manifest path does not exist: %s", entry.name, entry.path
-            )
+            logger.warning("script %r: manifest path does not exist: %s", entry.name, entry.path)
             raise ScriptContractError(
                 f"script file not found for {entry.name!r} — check the scripts manifest"
             )

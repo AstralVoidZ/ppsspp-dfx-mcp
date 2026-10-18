@@ -1621,6 +1621,7 @@ def _diag_enabled() -> bool:
     """Whether PPSSPP_DFX_DIAG opts into capturing PPSSPP's own output."""
     return os.environ.get("PPSSPP_DFX_DIAG", "").strip() not in _DIAG_FALSEY
 
+
 def _env_backend() -> int | None:
     """Parse PPSSPP_DFX_GRAPHICS_BACKEND; None (unset) keeps auto-detection.
 
