@@ -32,6 +32,18 @@
   直接调用，内存安全不能只靠入参形状约束）。基线按规范重生成（4 行，全部
   可归因于描述与 sha1）。守卫：`tests/unit/l2_mcp_contract/test_scan_match_cap.py`
   （8 条，含"恰好 5000 应通过上限检查"与"与 value 模式同数"）。
+- **取消启动不再遗留孤儿 PPSSPP 进程（C-2，严重）**：`_start_once` 里
+  `await _start_with_env_args(...)` 本身就是可取消点，而进程是在它的
+  `asyncio.to_thread` worker 线程里创建的 —— 取消等待**不阻止**进程诞生。
+  旧代码的 `except Exception` 看不到 `CancelledError`（3.8+ 属 `BaseException`），
+  且 launcher 要等这个 await 返回后才登记，于是被取消的启动留下一个
+  「无 `_launchers` 条目、无 sessions.json 记录、`gc_idle_sessions` 永远扫不到」
+  的 PPSSPP。现在 spawn 走 `asyncio.shield`，取消时把仍在跑的 spawn 移交给
+  一个**独立 reaper 任务**（自带强引用集合，防被 GC），等 spawn 落定后停掉进程。
+  W26 此前的注释断言「登记点在第一个可取消 await 之前」不成立，该注释已按实现
+  重写。守卫：`tests/unit/l4_regression/test_w26_w27_session_start_cleanup.py::
+  TestC2CancelledSpawnIsReaped`（用 worker 线程复刻真实 spawn 语义）。
+  **变异检验**：删掉 reaper 调用后该用例转红（`stop_calls == 0`）。
 
 ## [0.1.7] - 2026-10-03
 

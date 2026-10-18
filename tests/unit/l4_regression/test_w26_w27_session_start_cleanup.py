@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -277,3 +278,76 @@ class TestW27EstablishmentRechecksLiveness:
             "name": "PPSSPP",
             "version": "v1.20",
         }
+
+
+class _SlowSpawnLauncher:
+    """Launcher double that spawns in a worker thread behind a gate.
+
+    Mirrors the real `PpssppLauncher.start`: the process is created inside
+    `asyncio.to_thread`, so cancelling the awaiting coroutine does NOT stop the
+    spawn — the thread runs on and the process still appears. This is the
+    property that made the old code orphan a process.
+    """
+
+    def __init__(self) -> None:
+        self.ws_port = 12345
+        self.stop_calls = 0
+        self.spawn_started = threading.Event()
+        self.release = threading.Event()
+        self._proc: Any = None
+
+    async def start(self, iso_path: Path, extra_args: list[str] | None = None) -> Any:
+        def _spawn() -> Any:
+            self.spawn_started.set()
+            self.release.wait(timeout=10)
+            self._proc = type("_StubProc", (), {"pid": 99999})()
+            return self._proc
+
+        return await asyncio.to_thread(_spawn)
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+
+class TestC2CancelledSpawnIsReaped:
+    """C-2: cancelling the spawn await must not orphan the process it creates.
+
+    W26 covered the window AFTER the spawn returned (persist / probe /
+    transport). The window DURING the spawn was still open: `except Exception`
+    never sees CancelledError, and the launcher is not registered yet, so the
+    already-spawning process had no owner — no `_launchers` entry, no
+    sessions.json record, and `gc_idle_sessions` only scans the file.
+    """
+
+    async def test_cancel_during_spawn_stops_the_process(
+        self, isolated_sessions_path: Path, tmp_path: Path
+    ) -> None:
+        iso = _make_iso(tmp_path)
+        stub = _SlowSpawnLauncher()
+
+        with patch("ppsspp_dfx_mcp.session.session_manager.PpssppLauncher", lambda: stub):
+            manager = sm.SessionManager()
+            task = asyncio.create_task(manager.start_session(str(iso)))
+
+            for _ in range(400):
+                if stub.spawn_started.is_set():
+                    break
+                await asyncio.sleep(0.005)
+            assert stub.spawn_started.is_set(), "the spawn never started"
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            # The spawn is still in flight, so there is nothing to stop YET;
+            # the reaper must pick it up once the thread returns.
+            assert stub.stop_calls == 0
+
+            stub.release.set()
+            for _ in range(400):
+                if stub.stop_calls:
+                    break
+                await asyncio.sleep(0.005)
+
+        assert stub.stop_calls == 1, "the cancelled launch leaked its PPSSPP process"
+        assert manager._launchers == {}
+        assert not isolated_sessions_path.exists()

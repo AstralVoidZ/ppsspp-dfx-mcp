@@ -752,24 +752,31 @@ class SessionManager:
             )
         else:
             launcher = PpssppLauncher()
+        # Spawn under a shield: the process is created inside a worker thread
+        # (`launcher.start` -> `asyncio.to_thread`), so cancelling this await
+        # does NOT stop the spawn — it only detaches us from it.
+        #
+        # Re-raising without cleanup was the C-2 orphan path: `except
+        # Exception` never sees CancelledError (a BaseException in 3.8+), the
+        # launcher is not registered yet, and gc_idle_sessions only scans
+        # sessions.json, which this attempt has not reached. The reaper below
+        # keeps ownership of the still-running spawn and stops whatever it
+        # produces.
+        launch = asyncio.ensure_future(_start_with_env_args(launcher, iso))
         try:
-            proc = await _start_with_env_args(launcher, iso)
+            proc = await asyncio.shield(launch)
+        except asyncio.CancelledError:
+            _spawn_cancelled_launch_reaper(launcher, launch)
+            raise
         except Exception:
             # Clean up any partially-started process before propagating.
             await asyncio.to_thread(launcher.stop)
             raise
 
-        # Register the launcher IMMEDIATELY after the process
-        # exists, before the first await that can be cancelled. Every await
-        # below (session-file load/save, WS probe, transport establishment) is a
-        # cancellation point; the client cancels a start after ~30s and an
-        # unpinned boot was measured at 31.9s, so the window is reachable. With
-        # the old order (register only after the persist) a cancel landing in
-        # that window left the process with no in-memory owner at all:
-        # _teardown_wedged_attempt and stop_session both popped None, and
-        # gc_idle_sessions only scans sessions.json, which this attempt had not
-        # reached — a permanently orphaned PPSSPP. Every failure path below pops
-        # the entry again before re-raising.
+        # From here on the process exists and is ours. Register it BEFORE the
+        # next cancellation point (session-file load/save, WS probe,
+        # transport establishment); every abort path below pops the entry and
+        # stops the launcher.
         self._launchers[session_id] = launcher
         # Falls back to config ws_port() if launcher didn't pick one
         # (defensive — should not happen in normal flow).
@@ -1559,10 +1566,40 @@ async def _start_with_env_args(launcher: Any, iso: Any) -> Any:
     return await launcher.start(iso, extra_args=extra)
 
 
+# Strong references to in-flight reapers (review C-2). asyncio keeps only a
+# weak reference to a task, so a reaper that is collected while the spawn is
+# still running would reopen the orphan window it exists to close.
+_CANCELLED_LAUNCH_REAPERS: set[asyncio.Task[None]] = set()
+
+
+def _spawn_cancelled_launch_reaper(launcher: Any, launch: asyncio.Future[Any]) -> None:
+    """Stop a launcher whose start was cancelled while the spawn was in flight.
+
+    `launcher.start` runs the spawn in a worker thread (`asyncio.to_thread`),
+    so cancelling the awaiting coroutine does not prevent the process from
+    being created — it only detaches the caller from it. This task outlives
+    that cancellation, waits for the spawn to settle, and then stops whatever
+    it produced.
+
+    Detached on purpose: the calling task is propagating CancelledError, so
+    any `await` inside this function would be cancelled again before the
+    cleanup could run.
+    """
+
+    async def _reap() -> None:
+        with contextlib.suppress(BaseException):
+            await launch
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(launcher.stop)
+
+    task = asyncio.create_task(_reap(), name=f"reap-cancelled-launch-{id(launcher)}")
+    _CANCELLED_LAUNCH_REAPERS.add(task)
+    task.add_done_callback(_CANCELLED_LAUNCH_REAPERS.discard)
+
+
 def _diag_enabled() -> bool:
     """Whether PPSSPP_DFX_DIAG opts into capturing PPSSPP's own output."""
     return os.environ.get("PPSSPP_DFX_DIAG", "").strip() not in _DIAG_FALSEY
-
 
 def _env_backend() -> int | None:
     """Parse PPSSPP_DFX_GRAPHICS_BACKEND; None (unset) keeps auto-detection.
