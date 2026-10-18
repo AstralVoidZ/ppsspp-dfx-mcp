@@ -67,6 +67,18 @@
   守卫：`tests/unit/l4_regression/test_c6_restored_flag_provenance.py`（3 条，
   含"无 launcher 时必须仍报 restored"的负向对照）。**变异检验**：去掉读时判定
   后仅"活会话"用例转红，对照用例仍绿（证明未把字段做成恒假）。
+- **工具错误文本不再泄漏服务端文件系统（C-11，警告）**：`to_tool_error()` 对
+  `ToolError` **原样返回**（F-1 契约钉住了 `IsoNotFound` 的业务文案，属设计），
+  所以处置不能放在脱敏层，只能落在 raise 点。实测三条消息带出服务端绝对路径：
+  `ISO path {resolved} is outside PPSSPP_DFX_ISO_ROOT ({root_path})`、
+  `ISO file not found: {resolved}`、`PPSSPP executable not found: {self.exe_path}`，
+  以及 `script file not found for {name!r}: {entry.path}`（路径来自服务端 manifest）。
+  现改为只给可执行的动作（环境变量名 / 文件名 / 脚本名），路径写入**服务端日志**。
+  守卫：`tests/unit/l2_mcp_contract/test_c11_no_server_paths_in_errors.py`（4 条，
+  每条同时断言"无路径"与"仍有可执行提示"，避免用空消息通过泄漏检查）。
+  **变异检验**：把路径拼回消息后 4 条全红。
+  遗留观察（未扩大范围）：`spec/script_manifest.py:133/135/149` 仍回显清单里的
+  **相对**路径，属操作者自身配置；如后续要求，再一并改为仅日志。
 
 ## [0.1.7] - 2026-10-03
 

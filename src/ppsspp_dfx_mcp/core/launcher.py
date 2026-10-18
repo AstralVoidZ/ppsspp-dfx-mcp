@@ -637,9 +637,15 @@ def _validate_iso_path(iso_path: Path) -> Path:
     if root:
         root_path = Path(root).resolve()
         if not resolved.is_relative_to(root_path):
-            raise IsoNotFound(f"ISO path {resolved} is outside PPSSPP_DFX_ISO_ROOT ({root_path})")
+            # No server-side paths in the message (review C-11): to_tool_error()
+            # returns ToolError text verbatim, so embedding them would disclose
+            # the server's filesystem layout to the client.
+            raise IsoNotFound(
+                "ISO path is outside PPSSPP_DFX_ISO_ROOT — set that environment "
+                "variable to a directory that contains the ISO"
+            )
     if not resolved.is_file():
-        raise IsoNotFound(f"ISO file not found: {resolved}")
+        raise IsoNotFound(f"ISO file not found: {resolved.name}")
     return resolved
 
 
@@ -749,7 +755,12 @@ class PpssppLauncher:
                 f"{self._proc.pid}); call stop() before start()"
             )
         if not self.exe_path.is_file():
-            raise PpssppNotFound(f"PPSSPP executable not found: {self.exe_path}")
+            # Same rule (C-11). PPSSPP_DFX_EXE_PATH / project.yaml:ppsspp_exe is
+            # the actionable knob; the prefix stays stable for compatibility.
+            raise PpssppNotFound(
+                "PPSSPP executable not found — set PPSSPP_DFX_EXE_PATH (or "
+                "project.yaml:ppsspp_exe) to the PPSSPP binary and retry"
+            )
         iso_path = _validate_iso_path(Path(iso_path))
 
         # Pick a port: random if self.ws_port is None.
