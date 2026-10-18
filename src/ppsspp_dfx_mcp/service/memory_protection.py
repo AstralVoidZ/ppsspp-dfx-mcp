@@ -231,15 +231,43 @@ def _declared_data_ranges() -> tuple[tuple[int, int, str], ...]:
     return tuple(out)
 
 
-def _in_allowed_span(address: int, end: int) -> str | None:
-    """Name the legitimate region covering [address, end), if any."""
-    for lo, hi, label in _ALLOWED_IN_KERNEL_SPAN:
-        if address < hi and end > lo:
-            return label
-    for lo, hi, label in _declared_data_ranges():
-        if address < hi and end > lo:
-            return label
-    return None
+def _exempt_segments(address: int, end: int) -> list[tuple[int, int]]:
+    """The portions of [address, end) that are legitimately writable.
+
+    Returns the INTERSECTION of the write range with every exempt span.
+    Callers must check the remaining segments against the protected ranges:
+    a write that merely brushes an exempt span is NOT therefore exempt
+    wholesale (review C-1 — the old "any overlap" test let a 64 KiB write
+    starting 16 bytes below the scratchpad through kernel memory without
+    ``force=True`` and without the FORCE OVERRIDE audit record).
+    """
+    out: list[tuple[int, int]] = []
+    for lo, hi, _label in (*_ALLOWED_IN_KERNEL_SPAN, *_declared_data_ranges()):
+        seg_lo, seg_hi = max(address, lo), min(end, hi)
+        if seg_lo < seg_hi:
+            out.append((seg_lo, seg_hi))
+    return out
+
+
+def _subtract_spans(
+    segments: list[tuple[int, int]], cut_lo: int, cut_hi: int
+) -> list[tuple[int, int]]:
+    """Remove [cut_lo, cut_hi) from every segment, keeping the remainders.
+
+    Adjacent segments are not merged: merging would be pointless work here
+    (the list is bounded by the number of exempt spans) and keeping the
+    mapping one-to-one makes the offending segment easy to report.
+    """
+    out: list[tuple[int, int]] = []
+    for lo, hi in segments:
+        if hi <= cut_lo or lo >= cut_hi:
+            out.append((lo, hi))
+            continue
+        if lo < cut_lo:
+            out.append((lo, cut_lo))
+        if hi > cut_hi:
+            out.append((cut_hi, hi))
+    return out
 
 
 def effective_ranges(
@@ -353,39 +381,44 @@ def check_protected_address(
 
     end = address + byte_count if byte_count > 0 else address + 1
 
-    allowed = _in_allowed_span(address, end)
-    for name, (lo, hi) in effective_ranges(modules, extent_when_unknown=extent_when_unknown):
-        if not (address < hi and end > lo):
-            continue
-        if allowed is not None:
-            # Legitimate memory inside a protected span:
-            #  - scratchpad / VRAM sit inside the kernel span;
-            #  - declared data variables (e.g. game_mode) sit inside the
-            #    module image alongside code.
-            # Both are project-declared, legitimate write targets.
-            logger.debug(
-                "protection: allowing 0x%08X-0x%08X inside %s (%s)",
-                address,
-                end,
-                name,
-                allowed,
-            )
-            continue
-        hint = ""
-        if name == CODE_SECTION_RANGE_NAME and code_section_range(modules) is None:
-            # Explain WHY the extent looks wide instead of leaving the
-            # caller to guess, and name both legitimate escapes.
-            hint = (
-                " This is the fail-closed fallback extent because the"
-                " session's module list was unavailable; pass force=True to"
-                " override, or declare the address in addresses.yaml."
-            )
-        raise ProtectedAddress(
-            f"address range 0x{address:08X}-0x{end:08X} overlaps protected "
-            f"{name} (0x{lo:08X}-0x{hi:08X}). Writing to this range can "
-            f"crash PPSSPP (JIT cache invalidation). "
-            f"Set force=True to override.{hint}"
+    # Exemption is applied per byte-span, never to the whole write: a range
+    # that merely OVERLAPS a legitimate span must still be checked for the
+    # rest of itself (review C-1). `remaining` therefore holds only the
+    # parts of the write that are NOT covered by an exempt span.
+    remaining: list[tuple[int, int]] = [(address, end)]
+    for exempt_lo, exempt_hi in _exempt_segments(address, end):
+        remaining = _subtract_spans(remaining, exempt_lo, exempt_hi)
+    if not remaining:
+        # scratchpad / VRAM sit inside the kernel span; declared data
+        # variables (e.g. game_mode) sit inside the module image alongside
+        # code. Both are project-declared, legitimate write targets.
+        logger.debug(
+            "protection: allowing 0x%08X-0x%08X (fully inside an exempt span)",
+            address,
+            end,
         )
+        return
+
+    for name, (lo, hi) in effective_ranges(modules, extent_when_unknown=extent_when_unknown):
+        for seg_lo, seg_hi in remaining:
+            if not (seg_lo < hi and seg_hi > lo):
+                continue
+            hint = ""
+            if name == CODE_SECTION_RANGE_NAME and code_section_range(modules) is None:
+                # Explain WHY the extent looks wide instead of leaving the
+                # caller to guess, and name both legitimate escapes.
+                hint = (
+                    " This is the fail-closed fallback extent because the"
+                    " session's module list was unavailable; pass force=True to"
+                    " override, or declare the address in addresses.yaml."
+                )
+            raise ProtectedAddress(
+                f"address range 0x{address:08X}-0x{end:08X} (segment "
+                f"0x{seg_lo:08X}-0x{seg_hi:08X}) overlaps protected "
+                f"{name} (0x{lo:08X}-0x{hi:08X}). Writing to this range can "
+                f"crash PPSSPP (JIT cache invalidation). "
+                f"Set force=True to override.{hint}"
+            )
 
 
 async def resolve_session_modules(

@@ -5,6 +5,25 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+> 来源：v0.1.7 系统性代码审查（8 维度）。每项均满足「修复前失败 → 修复后通过」
+> 的可证伪要求，并按独立提交落地。审查报告与验证脚本见仓库外
+> `output/review_ppsspp_dfx_v017/`、`output/review_fixes_v017/`。
+
+### Fixed（审查修复批 · 安全与边界）
+
+- **写保护不再整段豁免（C-1，严重）**：`check_protected_address` 的豁免曾按
+  「写区间与合法区间**相交**」判定，然后对**整个**写区间 `continue`。
+  实测：`0x0000FFF0` 起 64 KiB（仅与 Scratchpad `0x00010000..0x00014000`
+  重叠 16 字节）在**不传 `force=True`**、**不写 `FORCE OVERRIDE` 审计**的情况下
+  整体放行，其中 65,520 字节落在受保护的内核区 `0x00000000..0x08800000`。
+  现改为「按字节区间求交 + 从写区间中减去豁免片段，逐剩余片段判定」；
+  完全落在豁免片段内的写仍照旧放行（不产生过度拦截）。
+  守卫：`tests/unit/l1_contract/test_s1_s3_write_protection_paths.py`（10 条）。
+  **变异检验**：把 `_exempt_segments` 回退为「任一重叠即整段豁免」后，该文件
+  3 条用例转红；恢复后全绿。
+
 ## [0.1.7] - 2026-10-03
 
 > 本节按批次累积，最新批次在前。条目源自 v4 系统性代码审查报告的 §3.3 路线图，
@@ -93,8 +112,13 @@
   `if session_modules:` 直接跳过权威检查（fail-open）。现
   `memory_protection` 抽出 `resolve_session_modules()`（模块表缺失/类型错/为空
   返回 `None` 并告警），会话内统一接入权威模块表，模块表缺失时退化为保守
-  extent 而非跳过；删除从未接线的死代码。l1_contract 增 Step4 十条 + 新增
-  `test_s1_s3_write_protection_paths.py`（8 条工具层锁）。
+  extent 而非跳过；删除从未接线的死代码。
+  > ⚠️ **2026-10-18 更正**：原文此处还声称「l1_contract 增 Step4 十条 + 新增
+  > `test_s1_s3_write_protection_paths.py`（8 条工具层锁）」。经 `git log --all`
+  > 与各 tag `ls-tree` 核实，**该文件在本批提交中从未存在**（全历史零命中），
+  > Step4 十条亦无对应测试；因此"闭环"缺了回归锁那一半。该文件已在
+  > `[Unreleased]` 修复批补齐，并覆盖真正的缺口：豁免判定曾按「任一字节重叠」
+  > 放行**整个**写区间。
 - **截图稳定等待加 deadline**：`_wm_command_screenshot` 的内层
   `while stable_samples < 2` 无上界、无 deadline，判据 `0 < size == last_size`
   在文件恒为 0 字节时（写一半被杀/磁盘满/上次残留空文件）永不成立，而该循环
