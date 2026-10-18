@@ -6,6 +6,12 @@ Pre-fix defects this file locks out:
   string created a bucket and the table grew within the TTL window, (b) all
   sessions shared one bucket per tool name (session A could rate-limit B),
   (c) unrecognized params / empty name skipped limiting entirely.
+* **C-4 (review v0.1.7)**: (b) was never actually fixed. `_extract_session_id`
+  read a TOP-LEVEL `session_id`, which the protocol never sends — the id is in
+  `arguments`. Every production call therefore landed in the shared global
+  bucket while this very file's isolation test passed against a fabricated
+  shape. The extractor now reads `arguments.session_id`; see
+  `test_wire_shape_yields_a_per_session_bucket`.
 * `request_id_middleware` finished with `_request_id_ctx.set("-")`, so a
   nested dispatch inside one asyncio task wiped the OUTER id.
 * `middleware.get_request_id()` had no consumers: no log record carried it.
@@ -49,8 +55,8 @@ def test_two_sessions_do_not_share_a_bucket(monkeypatch: pytest.MonkeyPatch) -> 
     limiter = mw.TokenBucketLimiter(1)  # one call/minute
     monkeypatch.setattr(mw, "_get_limiter", lambda: limiter)
 
-    ctx_a = _Ctx(params={"name": _READ, "session_id": "sess-A"})
-    ctx_b = _Ctx(params={"name": _READ, "session_id": "sess-B"})
+    ctx_a = _Ctx(params={"name": _READ, "arguments": {"session_id": "sess-A"}})
+    ctx_b = _Ctx(params={"name": _READ, "arguments": {"session_id": "sess-B"}})
 
     async def run() -> None:
         async def call_next(_ctx):
@@ -69,14 +75,42 @@ def test_garbage_tool_names_do_not_grow_the_table(monkeypatch: pytest.MonkeyPatc
     _install_known_tools(monkeypatch)
     limiter = mw.TokenBucketLimiter(100_000)
     for i in range(50):
-        limiter.acquire(mw._bucket_key({"name": f"garbage_{i}", "session_id": "A"}))
+        limiter.acquire(mw._bucket_key({"name": f"garbage_{i}", "arguments": {"session_id": "A"}}))
     assert set(limiter._buckets) == {("__unknown__", "__unknown__")}
 
 
 def test_empty_name_uses_unknown_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty/absent tool name fails closed into the unknown bucket."""
     _install_known_tools(monkeypatch)
-    assert mw._bucket_key({"name": "", "session_id": "A"}) == ("__unknown__", "__unknown__")
+    assert mw._bucket_key({"name": "", "arguments": {"session_id": "A"}}) == (
+        "__unknown__",
+        "__unknown__",
+    )
+
+
+def test_wire_shape_yields_a_per_session_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C-4 lock: the session id lives in `arguments`, never at the top level.
+
+    W32's own isolation test above was written against the NON-wire shape
+    (``{"name": ..., "session_id": ...}``). The protocol never sends that — the
+    SDK's `CallToolRequestParams` has only name/arguments/task — so in
+    production every session shared ``("__global__", tool)`` and the isolation
+    the suite claimed to prove was never active.
+
+    This test pins the real shape, and pins the removal of the top-level
+    fallback (a non-protocol key must not let a caller pick its own bucket).
+    """
+    _install_known_tools(monkeypatch)
+    wire = {"name": _READ, "arguments": {"session_id": "sess-A"}}
+    assert mw._extract_session_id(wire) == "sess-A"
+    assert mw._bucket_key(wire) == ("sess-A", _READ)
+    # No session argument: sessions that omit it still share one bucket.
+    assert mw._bucket_key({"name": _READ, "arguments": {}}) == ("__global__", _READ)
+    # A top-level key is not part of the protocol and must be ignored.
+    assert mw._bucket_key({"name": _READ, "session_id": "spoof"}) == ("__global__", _READ)
+    # Typed params (in-process dispatch) follow the same rule.
+    typed = type("_Typed", (), {"name": _READ, "arguments": {"session_id": "sess-B"}})()
+    assert mw._bucket_key(typed) == ("sess-B", _READ)
 
 
 def test_unknown_params_shape_is_still_limited(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -44,6 +44,17 @@
   重写。守卫：`tests/unit/l4_regression/test_w26_w27_session_start_cleanup.py::
   TestC2CancelledSpawnIsReaped`（用 worker 线程复刻真实 spawn 语义）。
   **变异检验**：删掉 reaper 调用后该用例转红（`stop_calls == 0`）。
+- **限流桶的会话维度真正生效（C-4，警告）**：`_extract_session_id` 读的是
+  **顶层** `params["session_id"]`，而 MCP 协议根本没有这个键 —— session_id 在
+  `arguments` 里（SDK `CallToolRequestParams` 只有 name/arguments/task）。
+  于是生产环境每次调用都落进共享的 `("__global__", tool)` 桶，
+  「一个会话不能耗尽另一个会话的配额」从未生效；而 W32 的隔离测试恰好是按
+  **非 wire 形状**写的，把实现假设锁成了「已修复」。现在按
+  `arguments.session_id` 取值，并**不再接受顶层键**（非协议字段；接受它等于
+  允许调用方自选桶键）。守卫：
+  `test_w32_rate_limit_buckets.py::test_wire_shape_yields_a_per_session_bucket`
+  （同时钉住「顶层键必须被忽略」与 typed params 同规则）。**变异检验**：把实现
+  退回顶层查找后，隔离测试与新增用例同时转红。
 
 ## [0.1.7] - 2026-10-03
 

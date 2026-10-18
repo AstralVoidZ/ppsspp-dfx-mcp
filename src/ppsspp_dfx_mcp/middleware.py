@@ -159,13 +159,21 @@ def _extract_tool_name(params: Any) -> str | None:
 
 
 def _extract_session_id(params: Any) -> str | None:
-    """Extract the session id from raw `tools/call` params, if present."""
-    if params is None:
-        return None
-    if isinstance(params, dict):
-        value = params.get("session_id")
-    else:
-        value = getattr(params, "session_id", None)
+    """Extract the session id from raw `tools/call` params, if present.
+
+    The wire shape is ``{"name": <tool>, "arguments": {...}}`` — the protocol
+    has no top-level ``session_id`` (the SDK's `CallToolRequestParams` carries
+    only ``name`` / ``arguments`` / ``task``). Reading a top-level key, as the
+    previous implementation did, therefore always returned ``None`` in
+    production and silently collapsed every session into the shared global
+    bucket, so "one session cannot exhaust another session's budget" was never
+    in effect (review C-4).
+
+    A top-level ``session_id`` is deliberately NOT honoured: it is not part of
+    the protocol, and accepting it would let a caller pick an arbitrary bucket
+    key.
+    """
+    value = _extract_arguments(params).get("session_id")
     return value if isinstance(value, str) and value else None
 
 
