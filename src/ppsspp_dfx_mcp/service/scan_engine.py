@@ -31,6 +31,14 @@ MAX_SCAN_RANGE_BYTES = 256 * 1024 * 1024  # scan range upper cap
 # probes showed 44KiB reads succeed, so this is a contract-consistency
 # cap, not a hard server limit.
 MAX_SCAN_PATTERN_BYTES = 4096
+# Upper bound on the number of pattern matches returned in one response
+# (review C-3). Pattern mode used to accept any positive `max_results` while
+# value/strings mode already cap at 5000/500. Measured: 500k hits build a
+# 21.4 MiB response in ~400 ms; a 256 MiB scan of a zero-filled region could
+# reach ~134M hits and OOM the server. 5000 matches keeps a worst-case
+# response in the low hundreds of KiB while staying above the tool's
+# documented default (100) by two orders of magnitude.
+MAX_SCAN_MATCHES = 5000
 
 
 def _require_int(value: Any, name: str) -> int:
@@ -99,6 +107,14 @@ async def _scan_pattern(
     max_results = _require_int(max_results, "max_results")
     if max_results <= 0:
         raise ArgsInvalid(f"max_results must be > 0 (got {max_results})")
+    if max_results > MAX_SCAN_MATCHES:
+        # Fail closed here as well as in the schema: this function is also
+        # reachable in-process, and the bound is a memory-safety limit, not
+        # just an input-shape one (review C-3).
+        raise ArgsInvalid(
+            f"max_results {max_results} exceeds {MAX_SCAN_MATCHES} — narrow the "
+            f"range or use mode='value' to converge before listing matches"
+        )
     chunk_size = _require_int(chunk_size, "chunk_size")
     if chunk_size <= 0:
         raise ArgsInvalid(f"chunk_size must be > 0 (got {chunk_size})")
@@ -135,6 +151,7 @@ async def _scan_pattern(
 
 
 __all__ = [
+    "MAX_SCAN_MATCHES",
     "MAX_SCAN_PATTERN_BYTES",
     "MAX_SCAN_RANGE_BYTES",
     "MIN_SCAN_CHUNK_BYTES",

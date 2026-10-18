@@ -30,6 +30,7 @@ from ppsspp_dfx_mcp.core.primitives import MAX_SINGLE_READ_BYTES
 from ppsspp_dfx_mcp.errors import ArgsInvalid, ToolError
 from ppsspp_dfx_mcp.registry import mcp
 from ppsspp_dfx_mcp.service.scan_engine import (
+    MAX_SCAN_MATCHES,
     MAX_SCAN_RANGE_BYTES,
     _merge_runs,
     _scan_pattern,
@@ -271,7 +272,18 @@ async def scan(
     ] = "hex",
     max_results: Annotated[
         int,
-        Field(default=100, description="Maximum number of matches (pattern mode, default 100)."),
+        Field(
+            default=100,
+            ge=1,
+            le=MAX_SCAN_MATCHES,
+            description=(
+                "Maximum number of matches (pattern mode, default 100). "
+                f"Hard cap {MAX_SCAN_MATCHES}: the match list is built in "
+                "memory, so an unbounded value can exhaust the server. "
+                "Narrow start_addr/end_addr, or use mode='value' to converge "
+                "first, if you need more."
+            ),
+        ),
     ] = 100,
     chunk_size: Annotated[
         int,

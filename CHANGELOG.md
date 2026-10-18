@@ -23,6 +23,15 @@
   守卫：`tests/unit/l1_contract/test_s1_s3_write_protection_paths.py`（10 条）。
   **变异检验**：把 `_exempt_segments` 回退为「任一重叠即整段豁免」后，该文件
   3 条用例转红；恢复后全绿。
+- **`ppsspp_scan` 结果集加上界（C-3，严重）**：pattern 模式的 `max_results`
+  此前只校验 `> 0`，而 value/strings 模式分别有 5000/500 上限 —— pattern 是唯一
+  例外。匹配列表在内存中构建，实测 50 万条命中 = 21.4 MiB 响应 / ~400 ms；
+  256 MiB 扫描（约 1.34 亿条）会耗尽内存并拖垮整个 server。
+  现在 `service/scan_engine.MAX_SCAN_MATCHES = 5000`：schema 层 `ge=1, le=5000`
+  （客户端在 `tools/list` 即可见）＋ 引擎层同判据（`_scan_pattern` 可被进程内
+  直接调用，内存安全不能只靠入参形状约束）。基线按规范重生成（4 行，全部
+  可归因于描述与 sha1）。守卫：`tests/unit/l2_mcp_contract/test_scan_match_cap.py`
+  （8 条，含"恰好 5000 应通过上限检查"与"与 value 模式同数"）。
 
 ## [0.1.7] - 2026-10-03
 
