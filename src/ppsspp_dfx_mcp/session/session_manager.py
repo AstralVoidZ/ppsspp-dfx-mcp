@@ -493,6 +493,13 @@ class SessionManager:
         # session_id -> GameStateObserver. Same lifecycle as _transports:
         # created in start_session, stopped in stop_session. In-memory only.
         self._observers: dict[str, GameStateObserver] = {}
+        # Strong references to launch reapers that outlive a cancelled start
+        # (review C-2). asyncio keeps only a weak reference to a task, so a
+        # reaper that got collected while the spawn was still in flight would
+        # reopen the orphan window it exists to close. Instance-scoped like
+        # the three tables above: the reaper belongs to the manager whose
+        # launcher it stops.
+        self._cancelled_launch_reapers: set[asyncio.Task[None]] = set()
         # Per-session serialization for TOOL CALLS.
         # The MCP SDK dispatches requests concurrently (each request runs in
         # its own task), while the session-level WsTransport, the
@@ -766,7 +773,7 @@ class SessionManager:
         try:
             proc = await asyncio.shield(launch)
         except asyncio.CancelledError:
-            _spawn_cancelled_launch_reaper(launcher, launch)
+            self._spawn_cancelled_launch_reaper(launcher, launch)
             raise
         except Exception:
             # Clean up any partially-started process before propagating.
@@ -1020,6 +1027,31 @@ class SessionManager:
             attempt,
         )
         return updated
+
+    def _spawn_cancelled_launch_reaper(self, launcher: Any, launch: asyncio.Future[Any]) -> None:
+        """Stop a launcher whose start was cancelled while the spawn was in flight.
+
+        `launcher.start` runs the spawn in a worker thread
+        (`asyncio.to_thread`), so cancelling the awaiting coroutine does not
+        prevent the process from being created — it only detaches the caller
+        from it. This task outlives that cancellation, waits for the spawn to
+        settle, and then stops whatever it produced (review C-2: the old
+        `except Exception` never ran for `CancelledError`, and the launcher was
+        not registered yet, so the process had no owner at all).
+
+        Detached on purpose: the caller is propagating CancelledError, so any
+        `await` in this frame would be cancelled again before the cleanup ran.
+        """
+
+        async def _reap() -> None:
+            with contextlib.suppress(BaseException):
+                await launch
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(launcher.stop)
+
+        task = asyncio.create_task(_reap(), name=f"reap-cancelled-launch-{id(launcher)}")
+        self._cancelled_launch_reapers.add(task)
+        task.add_done_callback(self._cancelled_launch_reapers.discard)
 
     async def _abandon_launcher(self, session_id: str) -> None:
         """Stop and forget a launcher whose start attempt is being aborted.
@@ -1564,37 +1596,6 @@ async def _start_with_env_args(launcher: Any, iso: Any) -> Any:
     if not extra:
         return await launcher.start(iso)
     return await launcher.start(iso, extra_args=extra)
-
-
-# Strong references to in-flight reapers (review C-2). asyncio keeps only a
-# weak reference to a task, so a reaper that is collected while the spawn is
-# still running would reopen the orphan window it exists to close.
-_CANCELLED_LAUNCH_REAPERS: set[asyncio.Task[None]] = set()
-
-
-def _spawn_cancelled_launch_reaper(launcher: Any, launch: asyncio.Future[Any]) -> None:
-    """Stop a launcher whose start was cancelled while the spawn was in flight.
-
-    `launcher.start` runs the spawn in a worker thread (`asyncio.to_thread`),
-    so cancelling the awaiting coroutine does not prevent the process from
-    being created — it only detaches the caller from it. This task outlives
-    that cancellation, waits for the spawn to settle, and then stops whatever
-    it produced.
-
-    Detached on purpose: the calling task is propagating CancelledError, so
-    any `await` inside this function would be cancelled again before the
-    cleanup could run.
-    """
-
-    async def _reap() -> None:
-        with contextlib.suppress(BaseException):
-            await launch
-        with contextlib.suppress(Exception):
-            await asyncio.to_thread(launcher.stop)
-
-    task = asyncio.create_task(_reap(), name=f"reap-cancelled-launch-{id(launcher)}")
-    _CANCELLED_LAUNCH_REAPERS.add(task)
-    task.add_done_callback(_CANCELLED_LAUNCH_REAPERS.discard)
 
 
 def _diag_enabled() -> bool:
